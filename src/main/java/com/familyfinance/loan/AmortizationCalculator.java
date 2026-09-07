@@ -24,7 +24,7 @@ public final class AmortizationCalculator {
         List<InstallmentDraft> drafts = new ArrayList<>(termMonths);
         long remaining = principalCents;
         for (int index = 1; index <= termMonths; index++) {
-            long interest = cents(BigDecimal.valueOf(remaining).multiply(monthlyRate));
+            long interest = periodInterest(remaining, annualRate);
             long principal = index == termMonths ? remaining : principalFor(method, principalCents, termMonths, equalPayment, interest, remaining);
             if (principal <= 0 || principal > remaining) principal = remaining;
             remaining = Math.subtractExact(remaining, principal);
@@ -44,6 +44,11 @@ public final class AmortizationCalculator {
         BigDecimal growth = BigDecimal.ONE.add(monthlyRate).pow(months);
         return principal.multiply(monthlyRate).multiply(growth)
                 .divide(growth.subtract(BigDecimal.ONE), WORK_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /** Round once at the cent boundary; rounding a repeating monthly rate first can lose an exact half cent. */
+    static long periodInterest(long principalCents, BigDecimal annualRate) {
+        return BigDecimal.valueOf(principalCents).multiply(annualRate).divide(TWELVE, 0, RoundingMode.HALF_UP).longValueExact();
     }
 
     private static long cents(BigDecimal cents) {

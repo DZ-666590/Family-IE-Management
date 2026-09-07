@@ -76,7 +76,7 @@ class LoanAccountingApiTest {
   assertThat(count("loan_prepayments")).isEqualTo(1);assertThat(jdbc.queryForObject("select count(*) from loan_installments where loan_id=? and status='PENDING'",Long.class,loan)).isZero();
  }
  @Test void historicalAllocationsAndFinancialContractCannotBeRewritten() throws Exception {
-  fund("5000.00");long loan=create("OPENING");prepay(loan,"100.00","2026-01-05","first").andExpect(status().isOk());
+  fund("5000.00");long loan=createFuture();prepay(loan,"100.00","2026-01-05","first").andExpect(status().isOk());
   long rows=jdbc.queryForObject("select count(*) from loan_installments where loan_id=?",Long.class,loan);
   prepay(loan,"100.00","2026-01-04","earlier").andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("LOAN_PAYMENT_CHRONOLOGY"));
   mvc.perform(patch("/api/loans/"+loan).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"After prepay\"}")).andExpect(status().isOk());
@@ -153,7 +153,7 @@ class LoanAccountingApiTest {
   assertThat(jdbc.queryForObject("select count(*) from loan_installments where loan_id=? and status='PAID'",Long.class,loan)).isEqualTo(2);
  }
  @Test void earlierSnapshotCannotLoseRegeneratedScheduleOnSecondPrepayment() throws Exception {
-  fund("1000.00");long loan=create("OPENING");
+  fund("1000.00");long loan=createFuture();
   withEarlierSnapshot(loan,()->prepay(loan,"100.00","2026-01-03","prepay-current1").andExpect(status().isOk()),()->prepay(loan,"100.00","2026-01-04","prepay-current2").andExpect(status().isOk()));
   assertThat(principal(loan)).isEqualTo(180000);assertThat(ledger.balance(household,"LOAN:"+loan)).isEqualTo(180000);
   assertThat(jdbc.queryForObject("select count(*) from loan_installments where loan_id=? and status='PENDING'",Long.class,loan)).isEqualTo(2);
@@ -193,12 +193,13 @@ class LoanAccountingApiTest {
   assertThat(count("financial_transactions")).isEqualTo(1);assertThat(principal(loan)).isEqualTo(100000);assertThat(ledger.balance(household,"CASH:"+account)).isZero();
  }
  @Test void earlierSnapshotReplaysNewlyCreatedLoanAndPrepayment() throws Exception {
-  fund("1000.00");String request=body("OPENING");
+  fund("1000.00");String request=body("OPENING").replace("2026-01-02","2026-01-31");
   withEarlierSnapshot(0,()->createCall(request,"create-current").andExpect(status().isCreated()),()->createCall(request,"create-current").andExpect(status().isCreated()).andExpect(jsonPath("$.data.currentPrincipal").value("2000.00")));
   long loan=jdbc.queryForObject("select id from loans where household_id=?",Long.class,household);
   withEarlierSnapshot(loan,()->prepay(loan,"100.00","2026-01-03","prepay-replay-current").andExpect(status().isOk()),()->prepay(loan,"100.00","2026-01-03","prepay-replay-current").andExpect(status().isOk()).andExpect(jsonPath("$.data.remainingPrincipal").value("1900.00")));
   assertThat(count("loans")).isEqualTo(1);assertThat(count("loan_prepayments")).isEqualTo(1);assertThat(count("financial_transactions")).isEqualTo(1);
  }
+ private long createFuture()throws Exception{return data(createCall(body("OPENING").replace("2026-01-02","2026-01-31"),"future-plan").andExpect(status().isCreated()).andReturn()).path("id").asLong();}
  private void withEarlierSnapshot(long loan,Checked outside,Checked inside)throws Exception {
   var pool=java.util.concurrent.Executors.newSingleThreadExecutor();var tx=new org.springframework.transaction.support.TransactionTemplate(transactionManager);
   boolean mysql=Boolean.TRUE.equals(jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Boolean>) c->"MySQL".equals(c.getMetaData().getDatabaseProductName())));

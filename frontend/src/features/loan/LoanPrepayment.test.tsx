@@ -25,6 +25,11 @@ it('opens prepayment without secure-context randomUUID and reuses the key on ret
       return { id: 1, transactionId: 1, amount: '100.00', remainingPrincipal: '19900.00', status: 'ACTIVE' } as T;
     }
     if (path === '/api/loans/4') return loan as T;
+    if (path.includes('/prepayment-preview?')) {
+      const params = new URLSearchParams(path.split('?')[1]);
+      const summary = { principalAmount: '19900.00', periodCount: 360, maturityOn: '2056-09-05', nextPaymentOn: '2026-10-05', nextPaymentAmount: '100.00', totalInterest: '0.00', repaymentTotal: '19900.00', schedule: [] };
+      return { strategy: params.get('strategy'), principalAmount: params.get('amount'), cashAmount: params.get('amount'), paymentAccountId: 1, paidOn: params.get('paidOn'), availableBalance: '20000.00', planToken: 'prepay-token', before: summary, after: summary } as T;
+    }
     return (path.startsWith('/api/loans?') ? page([loan]) : path === '/api/members' ? [] : path.startsWith('/api/accounts?') ? page([{ id: 1, name: '还款账户', openingConfirmed: true, availableBalance: '20000.00' }]) : page([])) as T;
   };
   try {
@@ -35,7 +40,7 @@ it('opens prepayment without secure-context randomUUID and reuses the key on ret
     await user.type(within(drawer).getByLabelText('提前还款金额'), '100.00');
     await user.click(within(drawer).getByRole('button', { name: '确认提前还款' }));
     await screen.findByText('临时失败，请重试');
-    await user.click(within(drawer).getByRole('button', { name: '确认提前还款' }));
+    await user.click(within(drawer).getByRole('button', { name: '核对本次提前还款结果' }));
     await screen.findByRole('dialog', { name: '提前还款测试 · 还款计划' });
     expect(writes).toHaveLength(2);
     expect(writes[0].amount).toBe('100.00');

@@ -127,7 +127,7 @@ class LoanPayoffApiTest {
  }
  @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"detail","list","history"})
  void readonlyTotalsRemainOneSnapshotWhenPayoffCommitsBetweenTotalsQueries(String read)throws Exception{
-  fund("5000.00");long loan=createBody(body().replace("\"annualRate\":0.1","\"annualRate\":0"));
+  fund("5000.00");long loan=createBody(body().replace("\"annualRate\":0.1","\"annualRate\":0").replace("\"interest\":\"100.00\"","\"interest\":\"0.00\"").replace("\"interest\":\"50.00\"","\"interest\":\"0.00\""));
   mvc.perform(post("/api/loans/"+loan+"/prepay").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":\"100.00\",\"paidOn\":\"2026-01-01\",\"idempotencyKey\":\"before-read\"}")).andExpect(status().isOk());
   String payment=payoffBody(data(quote(loan).andReturn()),"during-read");
   var pool=java.util.concurrent.Executors.newSingleThreadExecutor();var intercepted=new java.util.concurrent.atomic.AtomicBoolean();long readerThread=Thread.currentThread().getId();
