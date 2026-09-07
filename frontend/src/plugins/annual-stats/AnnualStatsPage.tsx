@@ -13,7 +13,7 @@ export default function AnnualStatsPage({ request }: { request: RequestFn }) {
   const [year, setYear] = useState(new Date().getFullYear());
   const report = useQuery({ queryKey: ['plugin', 'annual-stats', year], queryFn: () => request<AnnualReport>(`/api/plugins/annual-stats?year=${year}`) });
   const summary = report.data?.summary;
-  return <PageScaffold title="年度统计" description="从每一笔家庭收支，回看一年的收入、支出与结余。">
+  return <PageScaffold title="年度统计">
     <div className="toolbar"><label>统计年份<select aria-label="统计年份" value={year} onChange={e => setYear(Number(e.target.value))}>{Array.from({ length: 201 }, (_, index) => 2100 - index).map(value => <option key={value} value={value}>{value} 年</option>)}</select></label><span className="muted">年度统计扩展</span></div>
     <QueryState loading={report.isLoading} error={report.error}>
       <div className="summary-strip"><div><span>全年收入</span><strong>{money(summary?.income)}</strong></div><div><span>全年支出</span><strong>{money(summary?.expense)}</strong></div><div><span>全年结余</span><strong>{money(summary?.balance)}</strong></div></div>

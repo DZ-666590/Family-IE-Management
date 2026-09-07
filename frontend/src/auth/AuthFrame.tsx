@@ -1,35 +1,35 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { LedgerMark } from '../layout/NavigationIcon';
+import editorialPhoto from '../assets/editorial-home.jpg';
 
-export function AuthFrame({ eyebrow, title, description, children, footer }: {
-  eyebrow: string;
+export function AuthFrame({ title, children, footer }: {
   title: string;
-  description: string;
   children: ReactNode;
   footer: ReactNode;
 }) {
   return (
-    <main className="auth-page">
-      <section className="auth-story" aria-label="家账介绍">
-        <div className="auth-brand-lockup">
-          <span className="ledger-mark" aria-hidden="true"><b>家</b><b>账</b></span>
-          <span>家账</span>
-        </div>
-        <div className="auth-story-copy">
-          <p className="auth-eyebrow">一家人的财务工作台</p>
-          <h1>把家庭账目放在<br />同一张桌面上。</h1>
-          <p>收支、资产、投资与贷款各归其位。每位家庭成员只看到自己应该看到的内容。</p>
-        </div>
-        <div className="ledger-lines" aria-hidden="true"><i /><i /><i /></div>
-      </section>
-      <section className="auth-panel" aria-labelledby="auth-title">
-        <div className="auth-panel-inner">
-          <p className="auth-eyebrow">{eyebrow}</p>
-          <h2 id="auth-title">{title}</h2>
-          <p className="auth-description">{description}</p>
+    <main className="auth-editorial">
+      <section className="auth-editorial__panel" aria-labelledby="auth-title">
+        <header className="auth-editorial__brand">
+          <Link to="/login" aria-label="家账"><LedgerMark/><span>家账</span></Link>
+        </header>
+        <div className="auth-editorial__content">
+          <h1 id="auth-title">{title}</h1>
           {children}
-          <div className="auth-footer">{footer}</div>
+          <footer className="auth-editorial__footer">{footer}</footer>
         </div>
       </section>
+      <aside className="auth-editorial__portrait" aria-hidden="true">
+        <picture>
+          <source media="(min-width: 761px)" srcSet={editorialPhoto} type="image/jpeg"/>
+          <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="" fetchPriority="high" decoding="async"/>
+        </picture>
+      </aside>
     </main>
   );
+}
+
+export function AuthDiagnostics({ requestId }: { requestId?: string }) {
+  return requestId ? <details className="auth-diagnostics"><summary>问题详情</summary><p className="request-id">请求编号 {requestId}</p></details> : null;
 }

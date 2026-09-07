@@ -29,7 +29,7 @@ function WorkspaceContent({ session }: { session: Session }) {
   const auth = useContext(AuthContext);
   const request = auth?.request ?? pendingRequest;
   if (location.pathname.startsWith('/workspace/extensions/')) return <PluginPage path={location.pathname} request={request} />;
-  if (location.pathname === '/workspace/overview') return <DashboardPage request={request} role={session.role} displayName={session.displayName} />;
+  if (location.pathname === '/workspace/overview') return <DashboardPage request={request} role={session.role} />;
   if (location.pathname === '/workspace/transactions') return <TransactionsPage request={request} role={session.role} userId={session.userId} />;
   if (location.pathname === '/workspace/budgets') return <BudgetsPage request={request} role={session.role} />;
   if (location.pathname === '/workspace/recurring') return <RecurringPage request={request} role={session.role} userId={session.userId} />;
@@ -39,7 +39,7 @@ function WorkspaceContent({ session }: { session: Session }) {
   if (location.pathname === '/workspace/notifications') return <NotificationsPage request={request} />;
   if (location.pathname === '/workspace/family') return <FamilyPage request={request} role={session.role} inviteRequested={new URLSearchParams(location.search).get('action') === 'invite'} onInviteRequestHandled={consumeInvite} />;
   if (location.pathname === '/workspace/settings') return <ChangePasswordPage />;
-  return <DashboardPage request={request} role={session.role} displayName={session.displayName} />;
+  return <DashboardPage request={request} role={session.role} />;
 }
 
 export function WorkspaceLayout({ session, onLogout }: { session: Session; onLogout: () => void }) {

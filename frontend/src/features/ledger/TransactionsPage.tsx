@@ -55,7 +55,7 @@ export function TransactionsPage({ request, role }: { request: RequestFn; role: 
   const manager = isManager(role);
   const action = section === 'transactions' ? { label: '记一笔', onClick: () => setDraft(emptyDraft()) } : section === 'accounts' && manager ? { label: '新建账户', onClick: () => setAccountDraft({ name: '', type: 'BANK', currency: 'CNY', openingBalance: '0.00' }) } : section === 'categories' && manager ? { label: '新建分类', onClick: () => setCategoryDraft({ name: '', kind: 'expense', color: '#3370FF', parentId: '' }) } : undefined;
 
-  return <PageScaffold title="收支明细" description="记录每一笔收支，让生活账目清清楚楚。" primaryAction={action}>
+  return <PageScaffold title="收支明细" primaryAction={action}>
     <nav className="segmented-tabs" aria-label="账本模块"><button className={section === 'transactions' ? 'active' : ''} onClick={() => setSection('transactions')}>收支</button><button className={section === 'accounts' ? 'active' : ''} onClick={() => setSection('accounts')}>账户</button><button className={section === 'categories' ? 'active' : ''} onClick={() => setSection('categories')}>分类</button></nav>
     {section === 'transactions' && <>
       <div className="filter-bar">

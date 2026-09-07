@@ -22,12 +22,12 @@ export function dateText(value: string | null | undefined): string {
   return year && month && day ? `${year}.${month}.${day}` : value;
 }
 
-export function PageScaffold({ eyebrow, title, description, primaryAction, readonly, children }: {
-  eyebrow?: string; title: string; description: string; primaryAction?: { label: string; onClick: () => void }; readonly?: boolean; children: ReactNode;
+export function PageScaffold({ title, description, primaryAction, readonly, children }: {
+  title: string; description?: string; primaryAction?: { label: string; onClick: () => void }; readonly?: boolean; children: ReactNode;
 }) {
   return <section className="feature-page" aria-labelledby="page-title">
     <header className="page-heading">
-      <div>{eyebrow && <p className="section-kicker">{eyebrow}</p>}<h1 id="page-title">{title}</h1><p>{description}</p></div>
+      <div><h1 id="page-title">{title}</h1>{description && <p>{description}</p>}</div>
       {primaryAction && <Button aria-label={primaryAction.label} theme="solid" type="primary" icon={<Plus size={17} aria-hidden="true"/>} onClick={primaryAction.onClick}>{primaryAction.label}</Button>}
     </header>
     {readonly && <div className="readonly-note">当前为只读协作视图</div>}

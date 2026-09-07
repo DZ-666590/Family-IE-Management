@@ -6,7 +6,7 @@ import { localYearMonth } from '../../shared/runtime';
 import { DataPanel, PageScaffold, QueryState, StatusTag, dateText, money, type RequestFn } from '../common';
 import { FlowChart, HistoryChart } from '../visuals';
 
-export function DashboardPage({ request, role, displayName }: { request: RequestFn; role: HouseholdRole; displayName: string }) {
+export function DashboardPage({ request, role }: { request: RequestFn; role: HouseholdRole }) {
   const [month, setMonth] = useState(localYearMonth());
   const [detailsOpen, setDetailsOpen] = useState(false);
   const dashboard = useQuery({ queryKey: ['dashboard', month], queryFn: () => request<Dashboard>(`/api/dashboard?month=${month}&rollupCategories=true`) });
@@ -16,9 +16,8 @@ export function DashboardPage({ request, role, displayName }: { request: Request
   const notifications = useQuery({ queryKey: ['notifications'], queryFn: () => request<NotificationPage>('/api/notifications') });
   const recent = useQuery({ queryKey: ['transactions', 'recent', month], queryFn: () => request<Transaction[]>(`/api/transactions?month=${month}&page=0&size=5`) });
   const analysis = useQuery({ queryKey: ['analysis', month], queryFn: () => request<Analysis>(`/api/analysis?month=${month}&rollupCategories=true`), enabled: detailsOpen });
-  const greeting = new Date().getHours() < 12 ? '早上好' : new Date().getHours() < 18 ? '下午好' : '晚上好';
-  return <PageScaffold eyebrow={`${greeting}，${displayName}`} title="家庭总览" description="每一笔生活，都心中有数。">
-    <div className="overview-topline"><span className="section-label">你的家庭财务</span><label className="date-control">收支月份<input aria-label="收支月份" type="month" value={month} onChange={e => { if(e.target.value) setMonth(e.target.value); }} /></label></div>
+  return <PageScaffold title="家庭总览">
+    <div className="overview-topline"><label className="date-control">收支月份<input aria-label="收支月份" type="month" value={month} onChange={e => { if(e.target.value) setMonth(e.target.value); }} /></label></div>
     <div className="overview-hero">
       <section className="wealth-panel" aria-label="当前家庭净资产">
         <div className="wealth-heading"><span className="muted"><Wallet size={17} aria-hidden="true"/>家庭净资产</span><span className="quiet-badge">当前</span></div>

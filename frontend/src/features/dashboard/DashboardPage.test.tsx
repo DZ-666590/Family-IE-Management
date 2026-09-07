@@ -14,7 +14,7 @@ const request = vi.fn(async (path: string) => {
 
 it('renders authoritative dashboard values and stale market state', async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><DashboardPage request={request as RequestFn} role="OWNER" displayName="凯文" /></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><DashboardPage request={request as RequestFn} role="OWNER" /></QueryClientProvider>);
   expect(await screen.findByText('¥350,000.00')).toBeInTheDocument();
   expect(screen.getByText('¥8,149.75')).toBeInTheDocument();
   expect(screen.getByText('行情已过期')).toBeInTheDocument();

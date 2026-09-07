@@ -3,7 +3,7 @@ import Button from '@douyinfe/semi-ui/lib/es/button';
 import Input from '@douyinfe/semi-ui/lib/es/input';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
-import { AuthFrame } from './AuthFrame';
+import { AuthDiagnostics, AuthFrame } from './AuthFrame';
 import { errorMessage, focusField } from './form-utils';
 
 export function LoginPage() {
@@ -30,6 +30,7 @@ export function LoginPage() {
     }
     setBusy(true);
     setError(null);
+    setRequestId(undefined);
     try {
       await login(normalizedEmail, password);
       navigate('/workspace/overview', { replace: true });
@@ -45,18 +46,16 @@ export function LoginPage() {
 
   return (
     <AuthFrame
-      eyebrow="欢迎回来"
       title="登录家账"
-      description="进入你的家庭空间，继续共同整理每一笔生活账目。"
-      footer={<>还没有家庭空间？ <Link to="/register">创建或加入家庭</Link></>}
+      footer={<>还没有账号？ <Link to="/register">注册</Link></>}
     >
       {(error || notice) && <div className="form-alert" role="alert">{error || notice}</div>}
       <form className="auth-form" onSubmit={submit} noValidate>
         <label htmlFor="login-email">邮箱</label>
-        <Input id="login-email" value={email} onChange={setEmail} autoComplete="email" placeholder="name@example.com" />
+        <Input id="login-email" value={email} onChange={setEmail} autoComplete="username" inputMode="email" placeholder="name@example.com" />
         <label htmlFor="login-password">密码</label>
         <Input id="login-password" mode="password" value={password} onChange={setPassword} autoComplete="current-password" placeholder="请输入密码" />
-        {requestId && <p className="request-id">请求编号 {requestId}</p>}
+        <AuthDiagnostics requestId={requestId}/>
         <Button theme="solid" type="primary" htmlType="submit" loading={busy} block>登录</Button>
       </form>
     </AuthFrame>

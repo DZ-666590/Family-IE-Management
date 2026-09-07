@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import '@douyinfe/semi-ui/lib/es/_base/base.css';
 import './theme/semi-overrides.scss';
 import './theme/clarity.scss';
+import './theme/auth-editorial.scss';
 import { App } from './app/App';
 
 createRoot(document.getElementById('root')!).render(

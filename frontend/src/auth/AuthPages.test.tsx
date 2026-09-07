@@ -126,6 +126,23 @@ it('submits login using the backend form contract', async () => {
   await waitFor(() => expect(login).toHaveBeenCalledWith('demo@local.family', 'demo1234'));
 });
 
+it('uses the login task as the primary heading and keeps diagnostic detail collapsible', async () => {
+  const login = vi.fn().mockRejectedValue(new ApiError('账号或密码不正确', {
+    status: 401, code: 'LOGIN_FAILED', requestId: 'req-login-detail'
+  }));
+  const user = userEvent.setup();
+  renderWithAuth(<LoginPage />, authValue({ login }));
+  expect(screen.getByRole('heading', { level: 1, name: '登录家账' })).toBeInTheDocument();
+  await user.type(screen.getByLabelText('邮箱'), 'demo@example.com');
+  await user.type(screen.getByLabelText('密码'), 'wrong-password');
+  await user.click(screen.getByRole('button', { name: '登录' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('账号或密码不正确');
+  expect(screen.getByText('请求编号 req-login-detail')).not.toBeVisible();
+  await user.click(screen.getByText('问题详情'));
+  expect(screen.getByText('请求编号 req-login-detail')).toBeVisible();
+  expect(screen.getByLabelText('邮箱')).toHaveValue('demo@example.com');
+});
+
 it('shows a login failure instead of a stale session-expired notice', async () => {
   const login = vi.fn().mockRejectedValue(new ApiError('账号或密码不正确', {
     status: 401,

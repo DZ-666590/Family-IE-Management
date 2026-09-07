@@ -6,7 +6,7 @@ import RadioGroup from '@douyinfe/semi-ui/lib/es/radio/radioGroup';
 import { Link, useNavigate } from 'react-router-dom';
 import type { RegisterRequest } from '../api/contracts';
 import { useAuth } from './AuthProvider';
-import { AuthFrame } from './AuthFrame';
+import { AuthDiagnostics, AuthFrame } from './AuthFrame';
 import { errorMessage, focusField } from './form-utils';
 
 type Mode = RegisterRequest['mode'];
@@ -59,6 +59,7 @@ export function RegisterPage() {
     setBusy(true);
     setErrors({});
     setGeneralError(null);
+    setRequestId(undefined);
     try {
       await register(request);
       navigate('/workspace/overview', { replace: true });
@@ -76,9 +77,7 @@ export function RegisterPage() {
 
   return (
     <AuthFrame
-      eyebrow="开始共同记账"
       title={mode === 'CREATE' ? '创建家庭空间' : '加入家庭空间'}
-      description="账号只属于你，账目属于共同生活的家。"
       footer={<>已有账号？ <Link to="/login">返回登录</Link></>}
     >
       <RadioGroup
@@ -88,6 +87,7 @@ export function RegisterPage() {
           setMode(event.target.value as Mode);
           setErrors({});
           setGeneralError(null);
+          setRequestId(undefined);
         }}
         aria-label="注册方式"
       >
@@ -97,7 +97,7 @@ export function RegisterPage() {
       {generalError && <div className="form-alert" role="alert">{generalError}</div>}
       <form className="auth-form" onSubmit={submit} noValidate>
         <label htmlFor="email">邮箱</label>
-        <Input id="email" value={email} onChange={setEmail} autoComplete="email" aria-describedby={errors.email ? 'email-error' : undefined} placeholder="name@example.com" />
+        <Input id="email" value={email} onChange={setEmail} autoComplete="email" inputMode="email" aria-describedby={errors.email ? 'email-error' : undefined} placeholder="name@example.com" />
         <FieldError id="email-error">{errors.email}</FieldError>
 
         <label htmlFor="displayName">姓名</label>
@@ -105,8 +105,8 @@ export function RegisterPage() {
         <FieldError id="displayName-error">{errors.displayName}</FieldError>
 
         <label htmlFor="password">密码</label>
-        <Input id="password" mode="password" value={password} onChange={setPassword} autoComplete="new-password" aria-describedby="password-help password-error" placeholder="8–72 个字符" />
-        <p className="field-help" id="password-help">请使用 8–72 个字符，不与其他网站共用密码。</p>
+        <Input id="password" mode="password" value={password} onChange={setPassword} autoComplete="new-password" aria-describedby={errors.password ? 'password-help password-error' : 'password-help'} placeholder="设置登录密码" />
+        <p className="field-help" id="password-help">8–72 个字符</p>
         <FieldError id="password-error">{errors.password}</FieldError>
 
         {mode === 'CREATE' ? (
@@ -122,7 +122,7 @@ export function RegisterPage() {
             <FieldError id="inviteToken-error">{errors.inviteToken}</FieldError>
           </>
         )}
-        {requestId && <p className="request-id">请求编号 {requestId}</p>}
+        <AuthDiagnostics requestId={requestId}/>
         <Button theme="solid" type="primary" htmlType="submit" loading={busy} block>
           {mode === 'CREATE' ? '创建家庭' : '加入家庭'}
         </Button>
