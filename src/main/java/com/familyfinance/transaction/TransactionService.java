@@ -224,6 +224,7 @@ public class TransactionService {
                     "RESOURCE_IN_USE",
                     "该收支记录由周期账单或贷款确认生成，属于关联历史，无法删除");
         }
+        cash.requireEditableSourceCash(householdId,"TRANSACTION",transactionId);
         ledger.reverse(householdId,"TRANSACTION",transactionId,key,access.context().userId());
         transactionRepository.delete(transaction);
         requests.record(householdId,key,digest,transactionId);

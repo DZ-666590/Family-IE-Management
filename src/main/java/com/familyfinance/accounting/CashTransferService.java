@@ -45,10 +45,10 @@ public class CashTransferService {
         if(previous!=null) return jdbc.queryForObject("select * from cash_transfers where household_id=? and id=? for update",CashTransferService::row,h,previous);
         FinancialAccount from=account(h,request.fromAccountId()),to=account(h,request.toAccountId());
         if(from.getId().equals(to.getId())) throw new RequestValidationException(Map.of("toAccountId","转出和转入账户必须不同"));
-        cash.requireConfirmed(from); cash.requireConfirmed(to);
         long amount;
         try { amount=Money.parseCents(request.amount()); } catch(IllegalArgumentException e) { throw new RequestValidationException(Map.of("amount",e.getMessage())); }
         var day=cash.date(request.occurredOn(),"occurredOn");
+        cash.requireConfirmed(from,day); cash.requireConfirmed(to,day);
         GeneratedKeyHolder holder=new GeneratedKeyHolder();
         jdbc.update(connection->{
             var s=connection.prepareStatement("insert into cash_transfers(household_id,from_account_id,to_account_id,amount_cents,occurred_on,actor_id,recorded_at) values(?,?,?,?,?,?,?)",java.sql.Statement.RETURN_GENERATED_KEYS);

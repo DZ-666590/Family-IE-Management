@@ -25,8 +25,39 @@ class CashOpeningConcurrencyTest {
     @Autowired AccountService accounts;
     @Autowired AccountingCommandExecutor commands;
     @Autowired LedgerReadService ledger;
+    @Autowired LedgerPostingService posting;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
     @MockitoSpyBean JdbcTemplate jdbc;
+
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void openingDateGuardUsesCurrentEffectiveSourcesAfterEarlierSnapshot(boolean reverseExisting) throws Exception {
+        Family f=family();
+        var opening=new AccountCreateRequest("from",AccountType.CASH,"CNY","10.00","2026-01-01");
+        long from=accounts.create(f.authentication(),opening,"from-opening").id();
+        long to=accounts.create(f.authentication(),new AccountCreateRequest("to",AccountType.CASH,"CNY","10.00","2026-01-01"),"to-opening").id();
+        long actor=((FamilyUserPrincipal)f.authentication().getPrincipal()).userId();
+        var command=new LedgerPostingCommand(f.household(),"TEST_TRANSFER",1,"effective-transfer",java.time.LocalDate.of(2026,1,2),actor,List.of(
+            new LedgerEntryInput("CASH:"+from,LedgerAccountKind.CASH,0,100,null,null),
+            new LedgerEntryInput("CASH:"+to,LedgerAccountKind.CASH,100,0,null,null)));
+        if(reverseExisting) posting.post(command);
+        var tx=new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        var pool=Executors.newSingleThreadExecutor();
+        try {
+            tx.executeWithoutResult(ignored->{
+                jdbc.queryForObject("select count(*) from ledger_sources where household_id=?",Long.class,f.household());
+                try {pool.submit(()->reverseExisting?posting.reverse(f.household(),"TEST_TRANSFER",1,"reverse-transfer",actor):posting.post(command)).get(10,TimeUnit.SECONDS);}
+                catch(Exception e){throw new RuntimeException(e);}
+                var correction=new AccountPatchRequest(null,null,null,null,"2026-01-03");
+                if(reverseExisting) assertThat(accounts.update(f.authentication(),to,correction,"move-opening").openingOn()).isEqualTo(java.time.LocalDate.of(2026,1,3));
+                else assertThatThrownBy(()->accounts.update(f.authentication(),to,correction,"move-opening"))
+                    .isInstanceOf(com.familyfinance.shared.ResourceConflictException.class)
+                    .hasMessageContaining("开账日期");
+            });
+        } catch(org.springframework.transaction.UnexpectedRollbackException e) {
+            if(reverseExisting) throw e; // Expected rejected command marks an ambient transaction rollback-only.
+        } finally {pool.shutdownNow();assertThat(pool.awaitTermination(10,TimeUnit.SECONDS)).isTrue();}
+        assertThat(accounts.get(f.authentication(),to).openingOn()).isEqualTo(java.time.LocalDate.of(2026,1,reverseExisting?3:1));
+    }
 
     @org.junit.jupiter.api.Test
     void replayFindsBusinessResultCommittedAfterCallersEarlierSnapshot() throws Exception {

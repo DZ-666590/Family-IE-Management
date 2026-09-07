@@ -174,6 +174,58 @@ class CashAccountingApiTest {
         mvc.perform(get("/api/transfers").session(session)).andExpect(status().isOk());
         mvc.perform(post("/api/transfers").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
     }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans={false,true})
+    void archivedOriginalCashCannotBeRestoredByDeleteOrAccountReassignment(boolean deleteOriginal) throws Exception {
+        long a=create("archived","10.00"),b=create("active","10.00");
+        long id=mapper.readTree(writeTransaction(a,"EXPENSE","10.00","spend").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString()).path("data").path("id").asLong();
+        mvc.perform(delete("/api/accounts/"+a).session(session).with(csrf())).andExpect(status().isNoContent());
+        if(deleteOriginal) mvc.perform(delete("/api/transactions/"+id).session(session).with(csrf()))
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNT_ARCHIVED"));
+        else mvc.perform(patch("/api/transactions/"+id).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"accountId\":"+b+"}"))
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNT_ARCHIVED"));
+        mvc.perform(patch("/api/transactions/"+id).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"history metadata\"}"))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/accounts/"+a).session(session)).andExpect(jsonPath("$.data.balance").value("0.00")).andExpect(jsonPath("$.data.archivedAt").exists());
+        mvc.perform(get("/api/accounts/"+b).session(session)).andExpect(jsonPath("$.data.balance").value("10.00"));
+        assertThat(jdbc.queryForObject("select account_id from financial_transactions where id=?",Long.class,id)).isEqualTo(a);
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"0.00","10.00"})
+    void openingDateBlocksPriorIncomeButAllowsSameDayForZeroAndPositiveOpenings(String amount) throws Exception {
+        long a=create("boundary",amount);
+        mvc.perform(patch("/api/accounts/"+a).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"openingOn\":\"2026-01-03\"}"))
+            .andExpect(status().isOk());
+        writeTransaction(a,"INCOME","1.00","before-opening").andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNT_ACTIVITY_BEFORE_OPENING"));
+        writeTransactionOn(a,"INCOME","1.00","same-day","2026-01-03").andExpect(status().isCreated());
+        assertThat(jdbc.queryForObject("select count(*) from financial_transactions where household_id=?",Long.class,household)).isEqualTo(1);
+    }
+    @Test void transferChecksOpeningDateOnBothCashLegs() throws Exception {
+        long early=create("early","10.00"),late=create("late","10.00");
+        mvc.perform(patch("/api/accounts/"+late).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"openingOn\":\"2026-01-03\"}"))
+            .andExpect(status().isOk());
+        for(long[] pair:new long[][]{{early,late},{late,early}}) {
+            String body="{\"fromAccountId\":"+pair[0]+",\"toAccountId\":"+pair[1]+",\"amount\":\"1.00\",\"occurredOn\":\"2026-01-02\",\"idempotencyKey\":\"before-"+pair[0]+"\"}";
+            mvc.perform(post("/api/transfers").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNT_ACTIVITY_BEFORE_OPENING"));
+        }
+        assertThat(jdbc.queryForObject("select count(*) from cash_transfers where household_id=?",Long.class,household)).isZero();
+    }
+    @Test void openingCorrectionRespectsOnlyCurrentEffectiveActivity() throws Exception {
+        long a=create("date","0.00");
+        long id=mapper.readTree(writeTransaction(a,"INCOME","10.00","income").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString()).path("data").path("id").asLong();
+        mvc.perform(patch("/api/accounts/"+a).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"openingOn\":\"2026-01-03\"}"))
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("OPENING_DATE_AFTER_ACTIVITY"));
+        mvc.perform(patch("/api/transactions/"+id).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"occurredOn\":\"2026-01-03\"}"))
+            .andExpect(status().isOk());
+        mvc.perform(patch("/api/accounts/"+a).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"openingOn\":\"2026-01-03\"}"))
+            .andExpect(status().isOk());
+        mvc.perform(patch("/api/transactions/"+id).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"occurredOn\":\"2026-01-02\"}"))
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNT_ACTIVITY_BEFORE_OPENING"));
+        mvc.perform(delete("/api/transactions/"+id).session(session).with(csrf())).andExpect(status().isNoContent());
+        mvc.perform(patch("/api/accounts/"+a).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"openingOn\":\"2026-01-04\"}"))
+            .andExpect(status().isOk());
+    }
     long create(String name,String amount) throws Exception {
         var r=mvc.perform(post("/api/accounts").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
             .content("{\"name\":\""+name+"\",\"type\":\"CASH\",\"currency\":\"CNY\",\"openingBalance\":\""+amount+"\",\"openingOn\":\"2026-01-01\"}"))
@@ -181,7 +233,10 @@ class CashAccountingApiTest {
         return mapper.readTree(r.getResponse().getContentAsString()).path("data").path("id").asLong();
     }
     org.springframework.test.web.servlet.ResultActions writeTransaction(long account,String kind,String amount,String key) throws Exception {
+        return writeTransactionOn(account,kind,amount,key,"2026-01-02");
+    }
+    org.springframework.test.web.servlet.ResultActions writeTransactionOn(long account,String kind,String amount,String key,String day) throws Exception {
         return mvc.perform(post("/api/transactions").session(session).with(csrf()).header("Idempotency-Key",key).contentType(MediaType.APPLICATION_JSON)
-            .content("{\"kind\":\""+kind+"\",\"amount\":\""+amount+"\",\"occurredOn\":\"2026-01-02\",\"accountId\":"+account+",\"memberId\":"+member+",\"categoryId\":"+(kind.equals("INCOME")?income:expense)+"}"));
+            .content("{\"kind\":\""+kind+"\",\"amount\":\""+amount+"\",\"occurredOn\":\""+day+"\",\"accountId\":"+account+",\"memberId\":"+member+",\"categoryId\":"+(kind.equals("INCOME")?income:expense)+"}"));
     }
 }
