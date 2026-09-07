@@ -36,11 +36,11 @@ it.each([
   expect(screen.getByRole('menuitem', { name: '账号设置' })).toBeInTheDocument();
   for (const action of visibleActions) expect(screen.getByRole('menuitem', { name: action })).toBeInTheDocument();
   for (const action of hiddenActions ?? []) expect(screen.queryByRole('menuitem', { name: action })).not.toBeInTheDocument();
-  expect(screen.getByRole('link', { name: '资产' })).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: '投资' })).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: '贷款' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '资产账户' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '投资持仓' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '贷款计划' })).toBeInTheDocument();
   if (role === 'MEMBER') {
-    await userEvent.click(screen.getByRole('link', { name: '资产' }));
+    await userEvent.click(screen.getByRole('link', { name: '资产账户' }));
     expect(screen.getByText('当前为只读协作视图')).toBeInTheDocument();
   }
 });
@@ -69,17 +69,17 @@ it('opens the invitation form from the avatar without creating an invite', async
   expect(screen.queryByRole('menu')).not.toBeInTheDocument();
 });
 
-it('keeps the 52px app rail while hiding and restoring the module sidebar preference', async () => {
+it('keeps one compact navigation and remembers its expanded preference', async () => {
   const user = userEvent.setup();
   const first = renderLayout();
-  expect(screen.getByRole('navigation', { name: '应用导航' })).toHaveAttribute('data-width', '52');
-  await user.click(screen.getByRole('button', { name: '隐藏模块栏' }));
-  expect(screen.queryByRole('navigation', { name: '模块导航' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('navigation', { name: '应用导航' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: '收起侧边栏' }));
+  expect(screen.getByRole('complementary', { name: '工作区侧栏' })).toHaveClass('is-collapsed');
   expect(localStorage.getItem(SIDEBAR_PREFERENCE_KEY)).toBe('true');
   first.unmount();
   renderLayout();
-  expect(screen.queryByRole('navigation', { name: '模块导航' })).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: '显示模块栏' }));
+  expect(screen.getByRole('complementary', { name: '工作区侧栏' })).toHaveClass('is-collapsed');
+  await user.click(screen.getByRole('button', { name: '展开侧边栏' }));
   expect(screen.getByRole('navigation', { name: '模块导航' })).toBeInTheDocument();
 });
 

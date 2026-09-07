@@ -13,7 +13,6 @@ import { LoansPage } from '../features/loan/LoansPage';
 import { NotificationsPage } from '../features/notification/NotificationsPage';
 import { RecurringPage } from '../features/recurring/RecurringPage';
 import { ChangePasswordPage } from '../auth/ChangePasswordPage';
-import { AppRail } from './AppRail';
 import { MobileModuleDrawer } from './MobileModuleDrawer';
 import { ModuleSidebar } from './ModuleSidebar';
 import { WorkspaceHeader } from './WorkspaceHeader';
@@ -63,13 +62,10 @@ export function WorkspaceLayout({ session, onLogout }: { session: Session; onLog
 
   return (
     <div className={`workspace-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
-      <AppRail />
-      {!sidebarCollapsed && <ModuleSidebar session={session} />}
+      <ModuleSidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
       <div className="workspace-column">
         <WorkspaceHeader
           session={session}
-          sidebarCollapsed={sidebarCollapsed}
-          onToggleSidebar={toggleSidebar}
           mobileTriggerRef={mobileTriggerRef}
           onOpenMobile={() => setMobileOpen(true)}
           onLogout={onLogout}
