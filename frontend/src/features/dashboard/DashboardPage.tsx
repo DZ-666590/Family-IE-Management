@@ -4,7 +4,7 @@ import { ArrowDownLeft, ArrowUpRight, ArrowRight, Wallet, Bell, TrendingUp } fro
 import type { Analysis, Dashboard, DebtAnalysis, HouseholdRole, NetWorth, NotificationPage, Portfolio, Transaction } from '../../api/contracts';
 import { localYearMonth } from '../../shared/runtime';
 import { DataPanel, PageScaffold, QueryState, StatusTag, dateText, money, type RequestFn } from '../common';
-import { FlowChart, HistoryChart } from '../visuals';
+import { FlowChart, HistoryChart, historyBasisLabel, historyValuationLabel } from '../visuals';
 
 export function DashboardPage({ request, role }: { request: RequestFn; role: HouseholdRole }) {
   const [month, setMonth] = useState(localYearMonth());
@@ -34,7 +34,7 @@ export function DashboardPage({ request, role }: { request: RequestFn; role: Hou
         <div className="cash-balance"><span>本月收支差额</span><strong>{dashboard.error ? '暂不可用' : money(dashboard.data?.summary.balance)}</strong></div>
       </div>
     </div>
-    <QueryState loading={dashboard.isLoading} error={dashboard.error}><div className="summary-strip"><div><span>现金流入</span><strong>{money(dashboard.data?.summary.cashIn)}</strong><small>不含期初及账户互转</small></div><div><span>现金流出</span><strong>{money(dashboard.data?.summary.cashOut)}</strong></div><div><span>偿还本金</span><strong>{money(dashboard.data?.summary.principalPaid)}</strong><small>不计入费用</small></div><div><span>新借入本金</span><strong>{money(dashboard.data?.summary.borrowed)}</strong><small>不计入收入</small></div></div></QueryState>
+    <QueryState loading={dashboard.isLoading} error={dashboard.error}><div className="summary-strip overview-cash-summary"><div><span>现金流入</span><strong>{money(dashboard.data?.summary.cashIn)}</strong><small>不含期初及账户互转</small></div><div><span>现金流出</span><strong>{money(dashboard.data?.summary.cashOut)}</strong></div><div><span>偿还本金</span><strong>{money(dashboard.data?.summary.principalPaid)}</strong><small>不计入费用</small></div><div><span>新借入本金</span><strong>{money(dashboard.data?.summary.borrowed)}</strong><small>不计入收入</small></div></div></QueryState>
     <div className="overview-main-grid">
       <div className="overview-primary">
         <DataPanel title="收入与费用" meta={`${month} · 不含借入本金、还款本金、账户互转和资产购入`}><QueryState loading={dashboard.isLoading} error={dashboard.error} empty={!dashboard.data?.daily.length} emptyTitle="这个月还没有收支" emptyDetail="记下第一笔收支，开始了解家庭现金流。"><FlowChart points={dashboard.data?.daily.map(row=>({label:row.date.slice(8)+'日',income:row.income,expense:row.expense})) ?? []}/></QueryState></DataPanel>
@@ -58,7 +58,7 @@ export function DashboardPage({ request, role }: { request: RequestFn; role: Hou
         <DataPanel title="贷款进度" meta={debt.data ? `负债率 ${debt.data.debtRatioPercent}%` : undefined}><QueryState loading={debt.isLoading} error={debt.error} empty={!debt.data?.loans.length} emptyTitle="没有活跃贷款"><div className="debt-list">{debt.data?.loans.map(item=><div key={item.loanId}><header><strong>{item.loanName}</strong><span>已还 {item.repaidPercent}%</span></header><div className="progress-track"><i style={{width:`${Math.max(0,Math.min(100,Number(item.repaidPercent)))}%`}}/></div><p>剩余 {money(item.currentPrincipal)} / {money(item.originalPrincipal)}</p></div>)}</div></QueryState></DataPanel>
         <DataPanel title="成员费用"><QueryState loading={dashboard.isLoading} error={dashboard.error} empty={!dashboard.data?.expenseByMember.length}><div className="member-spend-list">{dashboard.data?.expenseByMember.map(item=><div key={item.memberId}><span>{item.memberName}</span><strong>{money(item.amount)}</strong></div>)}</div></QueryState></DataPanel>
       </div>
-      <DataPanel title="净资产历史"><div className="annual-months"><table><thead><tr><th>日期</th><th>资产</th><th>负债</th><th>净资产</th></tr></thead><tbody>{[...(netWorth.data?.history ?? [])].sort((a,b)=>a.snapshotOn.localeCompare(b.snapshotOn)).map(item=><tr key={item.snapshotOn}><td>{item.snapshotOn}</td><td>{money(item.asset)}</td><td>{money(item.liability)}</td><td>{money(item.netWorth)}</td></tr>)}</tbody></table></div></DataPanel>
+      <DataPanel title="净资产历史"><div className="annual-months"><table><thead><tr><th>日期</th><th>资产</th><th>负债</th><th>净资产</th><th>估值说明</th><th>统计口径</th></tr></thead><tbody>{[...(netWorth.data?.history ?? [])].sort((a,b)=>a.snapshotOn.localeCompare(b.snapshotOn)).map(item=><tr key={item.snapshotOn}><td>{item.snapshotOn}</td><td>{money(item.asset)}</td><td>{money(item.liability)}</td><td>{money(item.netWorth)}</td><td>{historyValuationLabel(item)}</td><td>{historyBasisLabel(item)}</td></tr>)}</tbody></table></div></DataPanel>
       <DataPanel title="家庭洞察"><QueryState loading={analysis.isLoading} error={analysis.error} empty={!analysis.data?.insights.length} emptyTitle="数据仍在积累"><div className="insight-grid">{analysis.data?.insights.map((item,i)=><article key={i}><h3>{item.title}</h3><p>{item.message}</p><strong>{item.metric}</strong></article>)}</div></QueryState></DataPanel>
     </details>
     {role==='MEMBER' && <p className="page-footnote">你可以查看家庭共同财务；管理操作由所有者或管理员完成。</p>}

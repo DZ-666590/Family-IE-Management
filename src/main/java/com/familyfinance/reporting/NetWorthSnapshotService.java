@@ -60,9 +60,13 @@ public class NetWorthSnapshotService {
         }
     }
 
-    @Transactional(readOnly = true)
-    public List<NetWorthSnapshot> history(long householdId) {
+    @Transactional(readOnly = true, isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
+    public List<NetWorthSnapshotResponse> history(long householdId) {
+        LocalDate today = LocalDate.now(clock.withZone(SHANGHAI));
         return snapshots.findTop24ByHouseholdIdOrderBySnapshotOnDescIdDesc(householdId).stream()
-            .filter(value->"LEDGER_AS_OF".equals(value.getAccountingBasis())).toList();
+            .filter(value->"LEDGER_AS_OF".equals(value.getAccountingBasis()) && !value.getSnapshotOn().isAfter(today))
+            // Stored rows are provenance, not corrected effective-date values. Never modify them on GET.
+            .map(value->NetWorthSnapshotResponse.from(value.getSnapshotOn(),netWorth.calculate(householdId,value.getSnapshotOn())))
+            .toList();
     }
 }

@@ -50,7 +50,7 @@ it('loads and changes the future funding default from the real account response 
   expect(form.getByLabelText('资金账户')).toHaveValue('7');
   await user.selectOptions(form.getByLabelText('资金账户'), '1');
   await user.click(form.getByRole('button', { name: '保存账户' }));
-  expect(request).toHaveBeenCalledWith('/api/investment-accounts/3', expect.objectContaining({ method: 'PATCH', body: { name: '证券账户', brokerName: '测试券商', currency: 'CNY', fundingAccountId: 1 } }));
+  expect(request).toHaveBeenCalledWith('/api/investment-accounts/3', expect.objectContaining({ method: 'PATCH', body: { name: '证券账户', brokerName: '测试券商', fundingAccountId: 1 } }));
 });
 
 it('previews a new buy using the current account funding default and exact cash totals', async () => {

@@ -23,7 +23,7 @@ class LedgerIntegrityMigrationTest {
 
         MigrationResult result = MigrationTestSupport.migrateExistingDatabase(database);
 
-        assertThat(result.version()).isEqualTo("17");
+        assertThat(result.version()).isEqualTo("18");
         assertThat(result.queryLong("select count(*) from financial_transactions")).isEqualTo(12);
         assertThat(result.queryLong("select count(*) from information_schema.table_constraints "
                 + "where table_schema='PUBLIC' and constraint_name in "
@@ -179,7 +179,7 @@ class LedgerIntegrityMigrationTest {
                 .repair();
 
         MigrationResult migrated = MigrationTestSupport.migrateExistingDatabase(database);
-        assertThat(migrated.version()).isEqualTo("17");
+        assertThat(migrated.version()).isEqualTo("18");
         assertThat(migrated.queryLong("select count(*) from information_schema.tables "
                 + "where table_schema='PUBLIC' and table_name like 'V7_%_GUARD'")).isZero();
     }

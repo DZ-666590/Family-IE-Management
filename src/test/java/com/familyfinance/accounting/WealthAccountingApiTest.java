@@ -204,6 +204,96 @@ class WealthAccountingApiTest {
   assertThat(ledger.balance(household,"CASH:"+next)).isEqualTo(10000);
   mvc.perform(get("/api/investment-trades/"+buy).session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.data.cashAccountId").value(cash));
  }
+ @Test void correctedHistoryRecomputesIncomeReplacementAndDeletionWithoutUpdatingStoredSnapshot() throws Exception {
+  change("/api/accounts/"+cash,"{\"openingBalance\":\"100.00\"}","small-opening").andExpect(status().isOk());
+  long income=postedTransaction("INCOME","50.00","2026-01-02",null,"income");
+  snapshots.generate(household,java.time.LocalDate.of(2026,1,3));
+  change("/api/transactions/"+income,"{\"amount\":\"20.00\"}","correct-income").andExpect(status().isOk());
+  assertReadOnlyHistory("120.00",false,0);
+  mvc.perform(delete("/api/transactions/"+income).session(session).with(csrf())).andExpect(status().isNoContent());
+  assertReadOnlyHistory("100.00",false,0);
+  assertThat(jdbc.queryForObject("select net_worth_cents from net_worth_snapshots where household_id=?",Long.class,household)).isEqualTo(15000);
+ }
+ @Test void correctedHistoryRecomputesNoncashValuationAndDateQualifiedQuotesWithoutWritingProvenance() throws Exception {
+  long a=id(send("/api/assets",asset("OPENING",null,"1000.00"),"asset").andExpect(status().isCreated()));
+  trade("OPENING","10","100.00","0.00","2026-01-02","holding").andExpect(status().isCreated());
+  snapshots.generate(household,java.time.LocalDate.of(2026,1,3));
+  send("/api/assets/"+a+"/valuations","{\"valuedOn\":\"2026-01-03\",\"value\":\"1200.00\"}","value").andExpect(status().isCreated());
+  long security=jdbc.queryForObject("select security_id from investment_trades where household_id=?",Long.class,household);
+  long actor=jdbc.queryForObject("select id from app_users where household_id=?",Long.class,household);
+  jdbc.update("insert into manual_price_overrides(household_id,security_id,effective_on,price_cents,created_by) values(?,?,?,?,?)",household,security,java.sql.Date.valueOf("2026-01-04"),20000,actor);
+  assertReadOnlyHistory("502200.00",true,1);
+  mvc.perform(get("/api/net-worth?asOf=2026-01-04").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.data.investment.missingPrice").value(false));
+  jdbc.update("insert into manual_price_overrides(household_id,security_id,effective_on,price_cents,created_by) values(?,?,?,?,?)",household,security,java.sql.Date.valueOf("2026-01-03"),15000,actor);
+  assertReadOnlyHistory("502700.00",false,0);
+  assertThat(jdbc.queryForMap("select net_worth_cents,valuation_estimated,unpriced_positions from net_worth_snapshots where household_id=?",household))
+    .containsEntry("net_worth_cents",50200000L).containsEntry("valuation_estimated",true).containsEntry("unpriced_positions",1);
+ }
+ void assertReadOnlyHistory(String expected,boolean estimated,int unpriced) {
+  var tx=new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+  tx.setReadOnly(true);
+  tx.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
+  tx.executeWithoutResult(s->{
+   try { mvc.perform(get("/api/net-worth?asOf=2026-01-03").session(session)).andExpect(status().isOk())
+     .andExpect(jsonPath("$.data.netWorth").value(expected)).andExpect(jsonPath("$.data.history[0].netWorth").value(expected))
+     .andExpect(jsonPath("$.data.history[0].valuationEstimated").value(estimated))
+     .andExpect(jsonPath("$.data.history[0].unpricedPositions").value(unpriced))
+     .andExpect(jsonPath("$.data.history[0].accountingBasis").value("LEDGER_AS_OF"));
+   } catch(Exception e){ throw new RuntimeException(e); }
+  });
+ }
+ @Test void parentBudgetIncludesPostedChildExpenseAndNotifiesTheSameAtLimitScope() throws Exception {
+  long parent=jdbc.queryForObject("select min(id) from categories where household_id=? and kind='EXPENSE'",Long.class,household);
+  long child=id(send("/api/categories","{\"name\":\"Child\",\"kind\":\"EXPENSE\",\"color\":\"#112233\",\"parentId\":"+parent+"}","child").andExpect(status().isCreated()));
+  var today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+  long budget=id(send("/api/budgets","{\"periodMonth\":\""+java.time.YearMonth.from(today)+"\",\"scopeType\":\"CATEGORY\",\"categoryId\":"+parent+",\"amount\":\"100.00\"}","budget").andExpect(status().isCreated()));
+  postedTransaction("EXPENSE","100.00",today.toString(),child,"expense");
+  mvc.perform(get("/api/budgets/usage?periodMonth="+java.time.YearMonth.from(today)+"&rollupCategories=true").session(session)).andExpect(status().isOk())
+    .andExpect(jsonPath("$.data[0].spent").value("100.00")).andExpect(jsonPath("$.data[0].status").value("AT_LIMIT"));
+  for(int i=0;i<2;i++)send("/api/notifications/generate","{}","notify"+i).andExpect(status().isOk());
+  mvc.perform(get("/api/notifications").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.data.items[0].type").value("BUDGET_LIMIT"));
+  assertThat(jdbc.queryForObject("select count(*) from notifications where household_id=? and reference_type='BUDGET' and reference_id=?",Long.class,household,budget)).isEqualTo(1);
+ }
+ @Test void investmentAccountPatchOmitsImmutableCurrencyAndRetainsHistoricalFunding() throws Exception {
+  long buy=idTrade(trade("BUY","1","100.00","0.00","2026-01-02","buy").andExpect(status().isCreated()));
+  long next=id(send("/api/accounts","{\"name\":\"Next\",\"type\":\"CASH\",\"currency\":\"CNY\",\"openingBalance\":\"0.00\",\"openingOn\":\"2026-01-01\"}","next").andExpect(status().isCreated()));
+  change("/api/investment-accounts/"+investment,"{\"name\":\"Renamed\",\"brokerName\":\"Local\",\"fundingAccountId\":"+next+"}","patch").andExpect(status().isOk()).andExpect(jsonPath("$.data.fundingAccountId").value(next));
+  change("/api/investment-accounts/"+investment,"{\"currency\":\"CNY\"}","currency").andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.fields.currency").exists());
+  mvc.perform(get("/api/investment-trades/"+buy).session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.data.cashAccountId").value(cash));
+ }
+ long postedTransaction(String kind,String amount,String day,Long category,String key) throws Exception {
+  long member=jdbc.queryForObject("select id from family_members where household_id=?",Long.class,household);
+  long cat=category!=null?category:jdbc.queryForObject("select min(id) from categories where household_id=? and kind=?",Long.class,household,kind);
+  return id(send("/api/transactions","{\"kind\":\""+kind+"\",\"amount\":\""+amount+"\",\"occurredOn\":\""+day+"\",\"accountId\":"+cash+",\"memberId\":"+member+",\"categoryId\":"+cat+"}",key).andExpect(status().isCreated()));
+ }
+ @Test void databaseRejectsPartialLoanAndAllocationTuplesWhileKeepingLegacyAndValidRows() throws Exception {
+  long category=jdbc.queryForObject("select min(id) from categories where household_id=? and kind='EXPENSE'",Long.class,household);
+  long actor=jdbc.queryForObject("select id from app_users where household_id=?",Long.class,household);
+  long loan=id(send("/api/loans","{\"name\":\"Integrity\",\"type\":\"OTHER\",\"assignedUserId\":"+actor+",\"paymentAccountId\":"+cash+",\"paymentCategoryId\":"+category+",\"principal\":\"1000.00\",\"annualRate\":0,\"termMonths\":1,\"repaymentMethod\":\"EQUAL_PAYMENT\",\"startOn\":\"2026-01-01\",\"fundingMode\":\"OPENING\",\"accountingOn\":\"2026-01-01\"}","loan").andExpect(status().isCreated()));
+  jdbc.update("update loans set funding_mode=null,accounting_on=null,disbursement_account_id=null where id=?",loan);
+  for(String invalid:new String[]{"accounting_on='2026-01-01'", "disbursement_account_id="+cash, "accounting_on='2026-01-01',disbursement_account_id="+cash})
+   org.assertj.core.api.Assertions.assertThatThrownBy(()->jdbc.update("update loans set "+invalid+" where id=?",loan)).isInstanceOf(org.springframework.dao.DataAccessException.class).satisfies(error->assertThat(error.getMessage()).containsIgnoringCase("check"));
+  jdbc.update("update loans set funding_mode='DISBURSEMENT',accounting_on='2026-01-01',disbursement_account_id=? where id=?",cash,loan);
+  jdbc.update("update loans set funding_mode='OPENING',disbursement_account_id=null where id=?",loan);
+  long payment=postedTransaction("EXPENSE","1.00","2026-01-02",category,"payment-fixture");
+  jdbc.update("update financial_transactions set source_type='LOAN_PAYMENT',source_id=?,loan_principal_cents=100,loan_interest_cents=0 where id=?",loan,payment);
+  for(String invalid:new String[]{"loan_principal_cents=null", "loan_interest_cents=null", "loan_principal_cents=0,loan_interest_cents=100", "loan_interest_cents=1"})
+   org.assertj.core.api.Assertions.assertThatThrownBy(()->jdbc.update("update financial_transactions set "+invalid+" where id=?",payment)).isInstanceOf(org.springframework.dao.DataAccessException.class).satisfies(error->assertThat(error.getMessage()).containsIgnoringCase("check"));
+  jdbc.update("update financial_transactions set source_type='MANUAL',source_id=null,loan_principal_cents=null,loan_interest_cents=null where id=?",payment);
+  assertThat(jdbc.queryForObject("select count(*) from loans where id=?",Long.class,loan)).isEqualTo(1);
+ }
+ @Test void historyRemainsBoundedHouseholdScopedAndExcludesLegacyRows() throws Exception {
+  long other=household;
+  snapshots.generate(other,java.time.LocalDate.of(2026,1,28));
+  fixture();
+  for(int day=1;day<=26;day++)snapshots.generate(household,java.time.LocalDate.of(2026,1,day));
+  jdbc.update("update net_worth_snapshots set accounting_basis='LEGACY' where household_id=? and snapshot_on='2026-01-26'",household);
+  mvc.perform(get("/api/net-worth").session(session)).andExpect(status().isOk())
+    .andExpect(jsonPath("$.data.history.length()").value(23))
+    .andExpect(jsonPath("$.data.history[0].snapshotOn").value("2026-01-25"))
+    .andExpect(jsonPath("$.data.history[22].snapshotOn").value("2026-01-03"));
+  assertThat(jdbc.queryForObject("select count(*) from net_worth_snapshots where household_id=?",Long.class,household)).isEqualTo(26);
+ }
  @Test void dailySnapshotsSkipIncompleteHouseholdAndContinueWithReadyHousehold()throws Exception {
   long incomplete=household;
   jdbc.update("update financial_accounts set opening_confirmed=false,opening_on=null where id=?",cash);

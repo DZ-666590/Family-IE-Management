@@ -24,11 +24,11 @@ it('traps focus in the top drawer and closes nested drawers one at a time', asyn
 });
 
 it('shows field guidance and never paints a nonzero bar for zero money', () => {
-  const {container}=render(<><FormError error={new ApiError('请检查输入内容',{status:400,fields:{amount:'金额必须大于零'}})}/><FlowChart points={[{label:'1月',income:'0.00',expense:'0.00'}]}/><HistoryChart data={[{snapshotOn:'2026-09-02',netWorth:'-20.00'},{snapshotOn:'2026-09-01',netWorth:'10.00'}]}/></>);
+  const {container}=render(<><FormError error={new ApiError('请检查输入内容',{status:400,fields:{amount:'金额必须大于零'}})}/><FlowChart points={[{label:'1月',income:'0.00',expense:'0.00'}]}/><HistoryChart data={[{snapshotOn:'2026-09-02',asset:'0.00',liability:'20.00',netWorth:'-20.00',accountingBasis:'LEDGER_AS_OF',valuationEstimated:false,unpricedPositions:0},{snapshotOn:'2026-09-01',asset:'10.00',liability:'0.00',netWorth:'10.00',accountingBasis:'LEDGER_AS_OF',valuationEstimated:false,unpricedPositions:0}]}/></>);
   expect(screen.getByText('金额必须大于零')).toBeInTheDocument();
   const bars=container.querySelectorAll('.flow-svg g[role="button"] rect:not(:first-child)');
   expect([...bars].every(bar=>bar.getAttribute('height')==='0')).toBe(true);
-  expect([...container.querySelectorAll('.history-figure circle title')].map(item=>item.textContent)).toEqual(['2026-09-01：¥10.00','2026-09-02：-¥20.00']);
+  expect([...container.querySelectorAll('.history-figure circle title')].map(item=>item.textContent)).toEqual(['2026-09-01：¥10.00 · 按当日有效估值 · 按生效日期重算','2026-09-02：-¥20.00 · 按当日有效估值 · 按生效日期重算']);
 });
 
 it('links grouped validation errors to the relevant editable fieldset', () => {

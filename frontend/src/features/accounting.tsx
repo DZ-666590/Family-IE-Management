@@ -39,6 +39,7 @@ export function PaymentPreview({ account, amount, incoming = false, adjustment =
     <div><span>账内可用余额</span><strong>{balance === null ? '待核对' : money(decimal(balance))}</strong></div>
     <div><span>{adjustment ? '本次更正金额' : incoming ? '本次现金流入' : '本次现金合计'}</span><strong>{money(amount)}</strong></div>
     {!adjustment && <p className="payment-preview__remaining">预计余额 {remaining === null ? '待核对' : money(decimal(remaining))}</p>}
+    {!adjustment && !incoming && remaining !== null && <p role="status">资金缺口 {money(decimal(remaining < 0n ? -remaining : 0n))}</p>}
     {account && !account.openingConfirmed && <p role="status">请先在收支明细 → 账户中确认期初余额，零余额也需要明确确认。</p>}
     {!adjustment && remaining !== null && remaining < 0n && <p role="status">账内可用余额不足，请核对资金记录；保存时由服务器检查。</p>}
     <small>{adjustment ? '更正会冲回原记录后重新入账，余额由服务器按原资金账户核对。' : '仅预览本系统账本余额；记录不会执行银行或券商转账。'}</small>

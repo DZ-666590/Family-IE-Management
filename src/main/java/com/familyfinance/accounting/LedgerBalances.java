@@ -37,7 +37,9 @@ class LedgerBalances {
                 running=running.add(date.getValue());
                 if((account.kind()==LedgerAccountKind.CASH || account.kind()==LedgerAccountKind.LOAN) && running.signum()<0)
                     throw LedgerStore.conflict(account.kind()==LedgerAccountKind.CASH ? "INSUFFICIENT_FUNDS":"INSUFFICIENT_LOAN_PRINCIPAL",
-                            "科目 "+account.code()+" 在 "+date.getKey()+" 余额不足，缺少 "+running.negate()+" 分；当前余额 "+account.balance()+" 分");
+                            (account.kind()==LedgerAccountKind.CASH ? "资金账户「"+store.cashAccountName(h,account.code(),currentRead)+"」" : "贷款本金")
+                            +"在 "+date.getKey()+" 入账后余额不足，该日资金缺口 ¥"+new java.math.BigDecimal(running.negate(),2).toPlainString()
+                            +"；当前账内余额 ¥"+com.familyfinance.shared.Money.formatCents(account.balance())+"。请核对该日期及之前的资金记录。");
                 if(running.compareTo(BigInteger.valueOf(Long.MAX_VALUE))>0 || running.compareTo(BigInteger.valueOf(Long.MIN_VALUE))<0)
                     throw LedgerStore.conflict("ACCOUNTING_AMOUNT_OVERFLOW","科目 "+account.code()+" 的余额超出整数分范围");
             }

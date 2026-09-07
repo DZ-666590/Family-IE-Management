@@ -1,6 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, ChartNoAxesCombined, CircleAlert, Landmark, ReceiptText, Wallet } from 'lucide-react';
 import { money } from './common';
+import type { NetWorthHistory } from '../api/contracts';
+
+export function historyBasisLabel(row: NetWorthHistory) { return row.accountingBasis === 'LEDGER_AS_OF' ? '按生效日期重算' : row.accountingBasis === 'LEGACY' ? '历史记录（未核对）' : '统计口径待核对'; }
+export function historyValuationLabel(row: NetWorthHistory) { return row.valuationEstimated ? `含成本估算（${row.unpricedPositions} 项缺价持仓）` : '按当日有效估值'; }
 
 export function EmptyIllustration() {
   return <svg className="empty-illustration" viewBox="0 0 140 108" fill="none" aria-hidden="true"><ellipse cx="70" cy="96" rx="46" ry="7" fill="#E9EDF5"/><rect x="31" y="13" width="70" height="76" rx="9" transform="rotate(-7 31 13)" fill="#ECF0FB"/><rect x="38" y="16" width="68" height="76" rx="9" fill="white" stroke="#BECBE7"/><path d="M53 35h36M53 46h25M53 57h36" stroke="#BCC8DF" strokeWidth="3" strokeLinecap="round"/><circle cx="95" cy="79" r="16" fill="#EEF2FF" stroke="#A5B7ED"/><path d="M88 79h14m-7-7v14" stroke="#728AD2" strokeWidth="2" strokeLinecap="round"/></svg>;
@@ -36,7 +40,7 @@ export function FlowChart({ points, label = '收入与支出趋势' }: { points:
   </div>;
 }
 
-export function HistoryChart({ data }: { data: { snapshotOn: string; netWorth: string }[] }) {
+export function HistoryChart({ data }: { data: NetWorthHistory[] }) {
   const id = useId().replace(/:/g, '');
   const sorted = [...data].sort((a,b) => a.snapshotOn.localeCompare(b.snapshotOn));
   if (!sorted.length) return <p className="muted">历史记录正在积累</p>;
@@ -45,6 +49,6 @@ export function HistoryChart({ data }: { data: { snapshotOn: string; netWorth: s
   const xy = sorted.map((p,i) => [20+i*600/Math.max(1,sorted.length-1), 116-(Number(p.netWorth)-lo)/range*90]);
   const line = xy.map(([x,y],i) => `${i?'L':'M'}${x},${y}`).join(' ');
   const zero = 116-(0-lo)/range*90;
-  return <div className="history-figure"><svg viewBox="0 0 640 143" role="img" aria-label="净资产历史趋势，按日期从早到晚"><defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop stopColor="#768BD6" stopOpacity=".19"/><stop offset="1" stopColor="#768BD6" stopOpacity=".01"/></linearGradient></defs><path d={`${line} L${xy.at(-1)![0]},${zero} L20,${zero} Z`} fill={`url(#${id})`}/><line x1="20" x2="620" y1={zero} y2={zero} stroke="#DFE5F0"/><path d={line} stroke="#617BC6" strokeWidth="2.2" fill="none" strokeLinejoin="round"/>{xy.map(([x,y],i)=><circle key={i} cx={x} cy={y} r="3" fill="#617BC6"><title>{sorted[i].snapshotOn}：{money(sorted[i].netWorth)}</title></circle>)}<text x="20" y="139" fill="#798391" fontSize="10">{sorted[0].snapshotOn}</text><text x="620" y="139" textAnchor="end" fill="#798391" fontSize="10">{sorted.at(-1)!.snapshotOn}</text></svg></div>;
+  return <div className="history-figure"><svg viewBox="0 0 640 143" role="img" aria-label="净资产历史趋势，按日期从早到晚"><defs><linearGradient id={id} x1="0" y1="0" x2="0" y2="1"><stop stopColor="#768BD6" stopOpacity=".19"/><stop offset="1" stopColor="#768BD6" stopOpacity=".01"/></linearGradient></defs><path d={`${line} L${xy.at(-1)![0]},${zero} L20,${zero} Z`} fill={`url(#${id})`}/><line x1="20" x2="620" y1={zero} y2={zero} stroke="#DFE5F0"/><path d={line} stroke="#617BC6" strokeWidth="2.2" fill="none" strokeLinejoin="round"/>{xy.map(([x,y],i)=><circle key={i} cx={x} cy={y} r="3" fill="#617BC6"><title>{sorted[i].snapshotOn}：{money(sorted[i].netWorth)} · {historyValuationLabel(sorted[i])} · {historyBasisLabel(sorted[i])}</title></circle>)}<text x="20" y="139" fill="#798391" fontSize="10">{sorted[0].snapshotOn}</text><text x="620" y="139" textAnchor="end" fill="#798391" fontSize="10">{sorted.at(-1)!.snapshotOn}</text></svg></div>;
 }
 function shortAmount(v: number) { return v >= 100000000 ? `${(v/100000000).toFixed(1)}亿` : v >= 10000 ? `${(v/10000).toFixed(1)}万` : Math.round(v).toLocaleString('zh-CN'); }

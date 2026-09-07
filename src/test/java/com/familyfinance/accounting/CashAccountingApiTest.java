@@ -70,6 +70,19 @@ class CashAccountingApiTest {
         long funded=create("funded","10.00");
         mvc.perform(get("/api/accounts/"+funded).session(session)).andExpect(jsonPath("$.data.balance").value("10.00"));
     }
+    @Test void insufficientFundsNamesOwnedAccountAndHistoricalDeficitInYuan() throws Exception {
+        long a=create("工资卡","0.00");
+        var zero=writeTransaction(a,"EXPENSE","1100.01","zero").andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("INSUFFICIENT_FUNDS")).andReturn();
+        assertThat(mapper.readTree(zero.getResponse().getContentAsString()).path("error").path("message").asText())
+            .contains("工资卡","2026-01-02","¥1100.01","当前账内余额 ¥0.00").doesNotContain("CASH:"," 分");
+        mvc.perform(post("/api/transactions").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"INCOME\",\"amount\":\"2000.00\",\"occurredOn\":\"2026-01-04\",\"accountId\":"+a+",\"memberId\":"+member+",\"categoryId\":"+income+"}"))
+            .andExpect(status().isCreated());
+        var historical=writeTransaction(a,"EXPENSE","1100.01","history").andExpect(status().isConflict()).andReturn();
+        assertThat(mapper.readTree(historical.getResponse().getContentAsString()).path("error").path("message").asText())
+            .contains("2026-01-02","该日资金缺口 ¥1100.01","当前账内余额 ¥2000.00").doesNotContain("当前余额不足");
+    }
     @Test void exactPaymentAndIncomeDeletionRespectCashAndIdempotency() throws Exception {
         long a=create("wallet","0.00");
         var first=writeTransaction(a,"INCOME","10.00","income").andExpect(status().isCreated()).andReturn();

@@ -41,6 +41,8 @@ import org.springframework.transaction.annotation.Transactional;
 @AutoConfigureMockMvc
 @Transactional
 class CsvExportApiTest {
+    @Autowired com.familyfinance.accounting.CashAccountingService cashAccounting;
+    @Autowired org.springframework.context.ApplicationContext context;
 
     private static final Instant TEST_TIME = Instant.parse("2026-09-01T00:00:00Z");
 
@@ -195,6 +197,10 @@ class CsvExportApiTest {
                 household, "CSV 历史账户", AccountType.BANK, "CNY", 0L));
         FinancialAccount otherAccount = accountRepository.save(new FinancialAccount(
                 household, "CSV 其他账户", AccountType.WALLET, "CNY", 0L));
+        // 55 exact-cent expenses sum to 6,985 cents, leaving the archived account at zero.
+        cashAccounting.opening(archivedAccount,6985L,LocalDate.of(2026,1,1),creator.getId(),"csv-archived-opening");
+        cashAccounting.opening(otherAccount,999L,LocalDate.of(2026,1,1),creator.getId(),"csv-other-opening");
+        accountRepository.flush();
         String marker = "csv-account-complete";
         for (int index = 0; index < 55; index++) {
             transactionRepository.save(new FinancialTransaction(
@@ -205,7 +211,7 @@ class CsvExportApiTest {
                     food,
                     TransactionKind.EXPENSE,
                     100L + index,
-                    LocalDate.of(2026, 9, 1).plusDays(index % 20),
+                    LocalDate.of(2026, 8, 1).plusDays(index % 20),
                     null,
                     null,
                     marker + "-" + index,
@@ -220,13 +226,15 @@ class CsvExportApiTest {
                 food,
                 TransactionKind.EXPENSE,
                 999L,
-                LocalDate.of(2026, 9, 20),
+                LocalDate.of(2026, 8, 20),
                 null,
                 null,
                 marker + "-other-account",
                 TEST_TIME,
                 TEST_TIME));
         transactionRepository.flush();
+
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,household.getId());
 
         mvc.perform(delete("/api/accounts/{id}", archivedAccount.getId()).session(session).with(csrf()))
                 .andExpect(status().isNoContent());

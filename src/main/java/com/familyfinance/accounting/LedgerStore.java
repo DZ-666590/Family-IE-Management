@@ -69,6 +69,12 @@ class LedgerStore {
                 (rs,row)->new Account(rs.getString(1),LedgerAccountKind.valueOf(rs.getString(2)),rs.getLong(3)),h);
     }
 
+    String cashAccountName(long householdId,String code,boolean current) {
+        return jdbc.queryForList("select name from financial_accounts where household_id=? and id=?"+lockClause(current),
+                String.class,householdId,Long.parseLong(code.substring("CASH:".length())))
+                .stream().findFirst().orElse("现金账户");
+    }
+
     record Movement(LocalDate day,long debit,long credit) {}
     List<Movement> movements(long h,String code) {
         return movements(h,code,true);
