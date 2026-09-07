@@ -1,46 +1,70 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { Analysis, Dashboard, DebtAnalysis, HouseholdRole, NetWorth, NotificationPage, Portfolio } from '../../api/contracts';
+import { ArrowDownLeft, ArrowUpRight, ArrowRight, Wallet, Bell, TrendingUp } from 'lucide-react';
+import type { Analysis, Dashboard, DebtAnalysis, HouseholdRole, NetWorth, NotificationPage, Portfolio, Transaction } from '../../api/contracts';
 import { localYearMonth } from '../../shared/runtime';
 import { DataPanel, PageScaffold, QueryState, StatusTag, dateText, money, type RequestFn } from '../common';
+import { FlowChart, HistoryChart } from '../visuals';
 
 export function DashboardPage({ request, role, displayName }: { request: RequestFn; role: HouseholdRole; displayName: string }) {
   const [month, setMonth] = useState(localYearMonth());
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const dashboard = useQuery({ queryKey: ['dashboard', month], queryFn: () => request<Dashboard>(`/api/dashboard?month=${month}&rollupCategories=true`) });
   const netWorth = useQuery({ queryKey: ['net-worth'], queryFn: () => request<NetWorth>('/api/net-worth') });
   const debt = useQuery({ queryKey: ['debt-analysis'], queryFn: () => request<DebtAnalysis>('/api/debt-analysis') });
   const portfolio = useQuery({ queryKey: ['portfolio'], queryFn: () => request<Portfolio>('/api/portfolio') });
   const notifications = useQuery({ queryKey: ['notifications'], queryFn: () => request<NotificationPage>('/api/notifications') });
-  const analysis = useQuery({ queryKey: ['analysis', month], queryFn: () => request<Analysis>(`/api/analysis?month=${month}&rollupCategories=true`) });
+  const recent = useQuery({ queryKey: ['transactions', 'recent', month], queryFn: () => request<Transaction[]>(`/api/transactions?month=${month}&page=0&size=5`) });
+  const analysis = useQuery({ queryKey: ['analysis', month], queryFn: () => request<Analysis>(`/api/analysis?month=${month}&rollupCategories=true`), enabled: detailsOpen });
   const greeting = new Date().getHours() < 12 ? '早上好' : new Date().getHours() < 18 ? '下午好' : '晚上好';
-  return <PageScaffold eyebrow={`${greeting}，${displayName}`} title="家庭总览" description="把现金流、净资产、预算、投资和负债放在同一张家庭账页。">
-    <div className="dashboard-toolbar"><label>查看月份<input type="month" value={month} onChange={e => setMonth(e.target.value)} /></label><span className="server-source">所有金额来自服务器权威汇总</span></div>
-    <div className="metric-grid">
-      <Metric label="家庭净资产" value={money(netWorth.data?.netWorth)} note={`资产 ${money(netWorth.data?.asset)} · 负债 ${money(netWorth.data?.liability)}`} loading={netWorth.isLoading} error={netWorth.error} />
-      <Metric label="本月结余" value={money(dashboard.data?.summary.balance)} note={`收入 ${money(dashboard.data?.summary.income)} · 支出 ${money(dashboard.data?.summary.expense)}`} loading={dashboard.isLoading} error={dashboard.error} tone={Number(dashboard.data?.summary.balance) < 0 ? 'negative' : 'positive'} />
-      <Metric label="家庭负债率" value={debt.data ? `${debt.data.debtRatioPercent}%` : '—'} note={`${debt.data?.loans.length ?? '—'} 笔活跃贷款`} loading={debt.isLoading} error={debt.error} />
-      <Metric label="投资累计收益" value={money(portfolio.data?.totals.totalProfit)} note={`市值 ${money(portfolio.data?.totals.marketValue)} · ${portfolio.data?.totals.unpricedPositions ?? '—'} 个缺价`} loading={portfolio.isLoading} error={portfolio.error} tone={Number(portfolio.data?.totals.totalProfit) < 0 ? 'negative' : 'positive'} />
+  return <PageScaffold eyebrow={`${greeting}，${displayName}`} title="家庭总览" description="每一笔生活，都心中有数。">
+    <div className="overview-topline"><span className="section-label">你的家庭财务</span><label className="date-control">收支月份<input aria-label="收支月份" type="month" value={month} onChange={e => { if(e.target.value) setMonth(e.target.value); }} /></label></div>
+    <div className="overview-hero">
+      <section className="wealth-panel" aria-label="当前家庭净资产">
+        <div className="wealth-heading"><span className="muted"><Wallet size={17} aria-hidden="true"/>家庭净资产</span><span className="quiet-badge">当前</span></div>
+        <QueryState loading={netWorth.isLoading} error={netWorth.error}>
+          <strong className="wealth-value">{money(netWorth.data?.netWorth)}</strong>
+          <div className="wealth-components"><span>总资产 <b>{money(netWorth.data?.asset)}</b></span><span>总负债 <b>{money(netWorth.data?.liability)}</b></span></div>
+          <HistoryChart data={netWorth.data?.history ?? []} />
+        </QueryState>
+      </section>
+      <div className="cash-summary">
+        <div className="cash-summary-heading">{month} 收支</div>
+        <CashMetric icon="income" label="收入" value={dashboard.data?.summary.income} loading={dashboard.isLoading} error={dashboard.error}/>
+        <CashMetric icon="expense" label="支出" value={dashboard.data?.summary.expense} loading={dashboard.isLoading} error={dashboard.error}/>
+        <div className="cash-balance"><span>本月结余</span><strong>{dashboard.error ? '暂不可用' : money(dashboard.data?.summary.balance)}</strong></div>
+      </div>
     </div>
-    <div className="dashboard-grid">
-      <DataPanel title="本月现金流" meta="每日收入与支出 · 服务器汇总" className="wide-panel"><QueryState loading={dashboard.isLoading} error={dashboard.error} empty={!dashboard.data?.daily.length} emptyTitle="本月还没有现金流"><CashflowChart data={dashboard.data?.daily ?? []} /></QueryState></DataPanel>
-      <DataPanel title="资产配置" meta="按服务器净资产口径"><QueryState loading={netWorth.isLoading} error={netWorth.error} empty={!netWorth.data?.allocation.length} emptyTitle="暂无资产配置"><div className="allocation-list">{netWorth.data?.allocation.map((item, index) => <div key={item.type}><span className={`allocation-dot tone-${index % 5}`} /><strong>{allocationLabel(item.type)}</strong><span>{money(item.amount)}</span><b>{item.sharePercent}%</b></div>)}</div></QueryState></DataPanel>
-      <DataPanel title="预算执行" meta={netWorth.data?.budget.activeBudgetCount ? `${netWorth.data.budget.activeBudgetCount} 项活跃预算` : '当前状态'}><QueryState loading={netWorth.isLoading} error={netWorth.error}><div className="budget-summary"><div><span>计划</span><strong>{money(netWorth.data?.budget.planned)}</strong></div><div><span>已用</span><strong>{money(netWorth.data?.budget.spent)}</strong></div><footer>{netWorth.data?.budget.overLimitCount ? <StatusTag tone="danger">{netWorth.data.budget.overLimitCount} 项超支</StatusTag> : netWorth.data?.budget.nearLimitCount ? <StatusTag tone="warning">{netWorth.data.budget.nearLimitCount} 项接近额度</StatusTag> : <StatusTag tone="success">预算状态正常</StatusTag>}<a href="/workspace/budgets">查看预算</a></footer></div></QueryState></DataPanel>
-      <DataPanel title="近期提醒" meta={notifications.data ? `${notifications.data.unreadCount} 条未读` : '读取中'} action={<a href="/workspace/notifications">查看全部</a>}><QueryState loading={notifications.isLoading} error={notifications.error} empty={!notifications.data?.items.length} emptyTitle="暂无提醒"><div className="dashboard-reminders"><strong>{notifications.data?.unreadCount ?? 0} 条未读</strong>{notifications.data?.items.slice(0,3).map(item => <a href="/workspace/notifications" key={item.id}><i /><span><b>{item.title}</b><small>{dateText(item.dueAt)}</small></span></a>)}</div></QueryState></DataPanel>
-      <DataPanel title="行情与持仓" meta="来源、新鲜度和缺价状态"><QueryState loading={netWorth.isLoading} error={netWorth.error}><div className="market-summary"><strong>{money(netWorth.data?.investment.marketValue)}</strong><p>{netWorth.data?.investment.positionCount ?? '—'} 个持仓 · {netWorth.data?.investment.unpricedPositionCount ?? '—'} 个缺价</p><div>{netWorth.data?.investment.stalePrice && <StatusTag tone="warning">行情已过期</StatusTag>}{netWorth.data?.investment.missingPrice && <StatusTag tone="danger">存在缺失价格</StatusTag>}{netWorth.data?.investment.manualPrice && <StatusTag tone="blue">含手工价格</StatusTag>}{!netWorth.data?.investment.stalePrice && !netWorth.data?.investment.missingPrice && <StatusTag tone="success">行情状态正常</StatusTag>}</div><a href="/workspace/investments">查看投资</a></div></QueryState></DataPanel>
-      <DataPanel title="家庭洞察" meta={`分析历史：${analysis.data?.historyStatus ?? '读取中'}`} className="wide-panel"><QueryState loading={analysis.isLoading} error={analysis.error} empty={!analysis.data?.insights.length} emptyTitle="数据仍在积累" emptyDetail="有足够历史后，服务器会在这里生成规则洞察。"><div className="insight-grid">{analysis.data?.insights.map((item, index) => <article key={`${item.type}-${index}`}><span>{item.type}</span><h3>{item.title}</h3><p>{item.message}</p><strong>{item.metric}</strong></article>)}</div></QueryState></DataPanel>
+    <div className="overview-main-grid">
+      <div className="overview-primary">
+        <DataPanel title="现金流" meta={`${month} · 每日收入与支出`}><QueryState loading={dashboard.isLoading} error={dashboard.error} empty={!dashboard.data?.daily.length} emptyTitle="这个月还没有收支" emptyDetail="记下第一笔收支，开始了解家庭现金流。"><FlowChart points={dashboard.data?.daily.map(row=>({label:row.date.slice(8)+'日',income:row.income,expense:row.expense})) ?? []}/></QueryState></DataPanel>
+        <DataPanel title="最近流水" meta="所选月份的最近 5 笔" action={<a className="panel-link" href="/workspace/transactions">全部流水<ArrowRight size={15} aria-hidden="true"/></a>}><QueryState loading={recent.isLoading} error={recent.error} empty={!recent.data?.length} emptyTitle="还没有流水" emptyDetail="从一笔日常开销开始。"><div className="recent-ledger">{recent.data?.map(item=><div key={item.id}><span className={`entry-icon ${item.kind}`}>{item.kind==='income'?<ArrowDownLeft size={19}/>:<ArrowUpRight size={19}/>}</span><div><strong>{item.categoryName}</strong><small>{item.memberName} · {item.accountName}</small></div><div><strong className={item.kind==='income'?'positive':''}>{item.kind==='income'?'+':'-'}{money(item.amount)}</strong><small>{dateText(item.occurredOn)}</small></div></div>)}</div></QueryState></DataPanel>
+      </div>
+      <div className="overview-secondary">
+        <DataPanel title="预算执行" meta="当前月份" action={<a href="/workspace/budgets" className="panel-link">查看<ArrowRight size={15} aria-hidden="true"/></a>}>
+          <QueryState loading={netWorth.isLoading} error={netWorth.error} empty={!netWorth.data?.budget.activeBudgetCount} emptyTitle="还没有设置预算" emptyDetail="设定额度，让每月花销有个参考。">
+            <div className="budget-overview"><span>{netWorth.data?.budget.activeBudgetCount} 项活跃预算</span><strong>{netWorth.data?.budget.overLimitCount ? `${netWorth.data.budget.overLimitCount} 项已超支` : netWorth.data?.budget.nearLimitCount ? `${netWorth.data.budget.nearLimitCount} 项接近额度` : '预算状态正常'}</strong><p>已用 {money(netWorth.data?.budget.spent)} / 计划 {money(netWorth.data?.budget.planned)}</p><small>各范围预算可能重叠，详情按单项查看。</small></div>
+          </QueryState>
+        </DataPanel>
+        <DataPanel title="近期提醒" action={<a href="/workspace/notifications" className="panel-link"><Bell size={15} aria-hidden="true"/>全部</a>}>
+          <QueryState loading={notifications.isLoading} error={notifications.error}><div className="calm-reminders"><span>{notifications.data?.unreadCount ?? 0} 条未读</span>{notifications.data?.items.slice(0,3).map(item=><a href="/workspace/notifications" key={item.id}><i/><div><strong>{item.title}</strong><small>{dateText(item.dueAt)}</small></div></a>)}{!notifications.data?.items.length && <p>暂无提醒，今天也井然有序。</p>}</div></QueryState>
+        </DataPanel>
+        <div className="investment-glance"><TrendingUp size={18} aria-hidden="true"/><span>投资累计收益<strong>{portfolio.error?'暂不可用':money(portfolio.data?.totals.totalProfit)}</strong></span><a href="/workspace/investments" aria-label="查看投资持仓"><ArrowUpRight size={20}/></a><div>{netWorth.data?.investment.stalePrice && <StatusTag tone="warning">行情已过期</StatusTag>}{netWorth.data?.investment.missingPrice && <StatusTag tone="danger">存在缺失价格</StatusTag>}{netWorth.data?.investment.manualPrice && <StatusTag tone="blue">含手工价格</StatusTag>}</div></div>
+      </div>
     </div>
-    <section className="analysis-section"><header><div><p className="section-kicker">趋势与进度</p><h2>综合分析</h2></div><span>只展示服务器返回值</span></header><div className="analysis-grid"><DataPanel title="净资产历史"><QueryState loading={netWorth.isLoading} error={netWorth.error} empty={!netWorth.data?.history.length} emptyTitle="还没有历史快照"><div className="history-bars">{netWorth.data?.history.slice(-8).map(item => <div key={item.snapshotOn}><span>{dateText(item.snapshotOn).slice(5)}</span><i title={money(item.netWorth)} style={{ '--bar-size': `${Math.max(8, Math.min(100, Math.abs(Number(item.netWorth)) / Math.max(...netWorth.data.history.map(point => Math.abs(Number(point.netWorth))), 1) * 100))}%` } as React.CSSProperties} /><strong>{money(item.netWorth)}</strong></div>)}</div></QueryState></DataPanel><DataPanel title="贷款进度"><QueryState loading={debt.isLoading} error={debt.error} empty={!debt.data?.loans.length} emptyTitle="没有活跃贷款"><div className="debt-list">{debt.data?.loans.map(item => <div key={item.loanId}><header><strong>{item.loanName}</strong><span>已还 {item.repaidPercent}%</span></header><div className="progress-track"><i style={{ width: `${item.repaidPercent}%` }} /></div><p>剩余 {money(item.currentPrincipal)} / 原始 {money(item.originalPrincipal)}</p></div>)}</div></QueryState></DataPanel><DataPanel title="成员支出"><QueryState loading={dashboard.isLoading} error={dashboard.error} empty={!dashboard.data?.expenseByMember.length} emptyTitle="暂无成员支出"><div className="member-spend-list">{dashboard.data?.expenseByMember.map(item => <div key={item.memberId}><span>{item.memberName}</span><strong>{money(item.amount)}</strong></div>)}</div></QueryState></DataPanel></div></section>
-    {role === 'MEMBER' && <div className="source-note">家庭成员可查看共同财务；管理类操作由所有者或管理员完成。</div>}
+    <details className="overview-details" onToggle={e=>setDetailsOpen(e.currentTarget.open)}><summary>资产配置与详细分析<span>展开查看负债、历史和家庭洞察</span></summary>
+      <div className="analysis-grid">
+        <DataPanel title="资产配置"><QueryState loading={netWorth.isLoading} error={netWorth.error} empty={!netWorth.data?.allocation.length}><div className="allocation-list">{netWorth.data?.allocation.map(item=><div key={item.type}><strong>{allocationLabel(item.type)}</strong><span>{money(item.amount)}</span><b>{item.sharePercent}%</b></div>)}</div></QueryState></DataPanel>
+        <DataPanel title="贷款进度" meta={debt.data ? `负债率 ${debt.data.debtRatioPercent}%` : undefined}><QueryState loading={debt.isLoading} error={debt.error} empty={!debt.data?.loans.length} emptyTitle="没有活跃贷款"><div className="debt-list">{debt.data?.loans.map(item=><div key={item.loanId}><header><strong>{item.loanName}</strong><span>已还 {item.repaidPercent}%</span></header><div className="progress-track"><i style={{width:`${Math.max(0,Math.min(100,Number(item.repaidPercent)))}%`}}/></div><p>剩余 {money(item.currentPrincipal)} / {money(item.originalPrincipal)}</p></div>)}</div></QueryState></DataPanel>
+        <DataPanel title="成员支出"><QueryState loading={dashboard.isLoading} error={dashboard.error} empty={!dashboard.data?.expenseByMember.length}><div className="member-spend-list">{dashboard.data?.expenseByMember.map(item=><div key={item.memberId}><span>{item.memberName}</span><strong>{money(item.amount)}</strong></div>)}</div></QueryState></DataPanel>
+      </div>
+      <DataPanel title="净资产历史"><div className="annual-months"><table><thead><tr><th>日期</th><th>资产</th><th>负债</th><th>净资产</th></tr></thead><tbody>{[...(netWorth.data?.history ?? [])].sort((a,b)=>a.snapshotOn.localeCompare(b.snapshotOn)).map(item=><tr key={item.snapshotOn}><td>{item.snapshotOn}</td><td>{money(item.asset)}</td><td>{money(item.liability)}</td><td>{money(item.netWorth)}</td></tr>)}</tbody></table></div></DataPanel>
+      <DataPanel title="家庭洞察"><QueryState loading={analysis.isLoading} error={analysis.error} empty={!analysis.data?.insights.length} emptyTitle="数据仍在积累"><div className="insight-grid">{analysis.data?.insights.map((item,i)=><article key={i}><h3>{item.title}</h3><p>{item.message}</p><strong>{item.metric}</strong></article>)}</div></QueryState></DataPanel>
+    </details>
+    {role==='MEMBER' && <p className="page-footnote">你可以查看家庭共同财务；管理操作由所有者或管理员完成。</p>}
   </PageScaffold>;
 }
-
-function Metric({ label, value, note, loading, error, tone }: { label: string; value: string; note: string; loading: boolean; error: unknown; tone?: string }) {
-  return <article className="metric-card"><span>{label}</span>{loading ? <b className="skeleton-line">读取中</b> : error ? <b className="metric-error">暂不可用</b> : <b className={tone}>{value}</b>}<small>{error ? '该模块读取失败，其他数据仍可使用' : note}</small></article>;
+function CashMetric({icon,label,value,loading,error}:{icon:'income'|'expense';label:string;value?:string;loading:boolean;error:unknown}) {
+  return <div className="cash-metric"><span className={`entry-icon ${icon}`}>{icon==='income'?<ArrowDownLeft size={20}/>:<ArrowUpRight size={20}/>}</span><span>{label}<strong>{loading?'读取中':error?'暂不可用':money(value)}</strong></span></div>;
 }
-
-function CashflowChart({ data }: { data: Dashboard['daily'] }) {
-  const max = Math.max(1, ...data.flatMap(item => [Number(item.income), Number(item.expense)]));
-  return <div className="cashflow-chart" role="img" aria-label="每日收入与支出柱状图">{data.map(item => <div className="chart-day" key={item.date}><div><i className="income-bar" style={{ height: `${Math.max(2, Number(item.income) / max * 100)}%` }} title={`收入 ${money(item.income)}`} /><i className="expense-bar" style={{ height: `${Math.max(2, Number(item.expense) / max * 100)}%` }} title={`支出 ${money(item.expense)}`} /></div><span>{item.date.slice(8)}</span></div>)}</div>;
-}
-
-function allocationLabel(value: string) { return ({ ACCOUNT: '现金账户', PROPERTY: '房产', VEHICLE: '车辆', OTHER: '其他资产', INVESTMENT: '投资' } as Record<string,string>)[value] ?? value; }
+function allocationLabel(value:string) { return ({ACCOUNT:'现金账户',PROPERTY:'房产',VEHICLE:'车辆',OTHER:'其他资产',INVESTMENT:'投资'} as Record<string,string>)[value]??value; }
