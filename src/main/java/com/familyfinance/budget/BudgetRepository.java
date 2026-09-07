@@ -15,6 +15,8 @@ public interface BudgetRepository extends JpaRepository<Budget, Long> {
 
     Page<Budget> findByHouseholdIdAndPeriodMonthAndActiveTrue(
             Long householdId, String periodMonth, Pageable pageable);
+    Page<Budget> findByHouseholdIdAndPeriodMonthAndActiveFalse(
+            Long householdId, String periodMonth, Pageable pageable);
     java.util.List<Budget> findAllByHouseholdIdAndPeriodMonthAndActiveTrue(Long householdId, String periodMonth);
 
     boolean existsByHouseholdIdAndPeriodMonthAndScopeTypeAndCategoryIdAndMemberIdAndActiveTrue(

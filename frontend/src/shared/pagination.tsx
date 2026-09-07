@@ -4,14 +4,25 @@ import type { Page } from '../api/contracts';
 export async function readAllPages<T>(load: (page: number) => Promise<Page<T>>): Promise<T[]> {
   const items: T[] = [];
   let requestedPage = 0;
+  let expectedSize: number | undefined;
+  let expectedTotalElements: number | undefined;
+  let expectedTotalPages: number | undefined;
   for (;;) {
     const result = await load(requestedPage);
+    const calculatedTotalPages = result.size > 0 ? Math.ceil(result.totalElements / result.size) : -1;
+    expectedSize ??= result.size;
+    expectedTotalElements ??= result.totalElements;
+    expectedTotalPages ??= result.totalPages;
     const coherent = result.page === requestedPage
       && result.size > 0
       && result.totalElements >= 0
-      && result.totalPages >= 0
+      && result.totalPages === calculatedTotalPages
+      && result.size === expectedSize
+      && result.totalElements === expectedTotalElements
+      && result.totalPages === expectedTotalPages
+      && (result.totalPages === 0 ? result.page === 0 : result.page < result.totalPages)
       && result.hasNext === (result.page + 1 < result.totalPages)
-      && result.items.length <= result.size;
+      && result.items.length === Math.min(result.size, Math.max(0, result.totalElements - result.page * result.size));
     if (!coherent) throw new Error('分页元数据不一致，已停止继续读取');
     items.push(...result.items);
     if (!result.hasNext) {

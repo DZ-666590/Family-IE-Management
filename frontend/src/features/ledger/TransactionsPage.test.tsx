@@ -99,3 +99,20 @@ it('paginates category roots without losing stable parent-child order', async ()
   expect(await screen.findByText('分类-51')).toBeInTheDocument();
   expect(request).toHaveBeenCalledWith(expect.stringContaining('projection=tree&page=1'), { responseType: 'page' });
 });
+
+it('offers a parent category from a later reference page', async () => {
+  const roots = Array.from({ length: 50 }, (_, index) => ({ id: index + 1, kind: 'expense', name: `分类-${index + 1}`, color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }));
+  const request = vi.fn(async (path: string) => {
+    if (path.startsWith('/api/transactions') || path.startsWith('/api/accounts')) return pageResult([]);
+    if (path.includes('/api/categories') && path.includes('projection=flat')) return path.includes('page=1') ? pageResult([{ ...roots[0], id: 51, name: '跨页父分类' }], 1, 51) : pageResult(roots, 0, 51);
+    if (path.includes('/api/categories')) return pageResult(roots, 0, 51);
+    if (path === '/api/members') return [];
+    throw new Error(`unexpected ${path}`);
+  });
+  const user = userEvent.setup();
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><TransactionsPage request={request as RequestFn} role="OWNER" userId={7} /></QueryClientProvider>);
+  await user.click(await screen.findByRole('button', { name: '分类' }));
+  await user.click(screen.getByRole('button', { name: '新建分类' }));
+
+  expect(await within(screen.getByRole('dialog', { name: '新建分类' })).findByRole('option', { name: '跨页父分类' })).toBeInTheDocument();
+});

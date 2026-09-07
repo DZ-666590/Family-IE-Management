@@ -201,6 +201,14 @@ class BudgetUsageServiceTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].budget.active").value(false));
+
+        mvc.perform(get("/api/budgets/usage").session(session)
+                        .param("periodMonth", "2026-12").param("active", "false"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Total-Elements", "1"))
+                .andExpect(header().string("X-Total-Pages", "1"))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].budget.active").value(false));
     }
 
     @Test
