@@ -46,7 +46,7 @@ LedgerReceipt result = posting.post(new LedgerPostingCommand(h, "MANUAL", source
 
 ### Task 2: Accounts, transfers, income/expense and recurring cash integration
 
-**Files:** `ledger/AccountService.java`, `AccountResponse.java`, `AccountCreateRequest.java`, `AccountPatchRequest.java`, `FinancialAccount.java`, `DefaultAccountFactory.java`; `transaction/TransactionService.java` and request/response types; `ledger/recurring/RecurringConfirmationService.java`; new `accounting/CashTransferController.java`, `CashTransferService.java` and request/response; `config/DemoDataInitializer.java`; corresponding migrations beyondV14 and tests.
+**Files:** `ledger/AccountService.java`, `AccountResponse.java`, `AccountCreateRequest.java`, `AccountPatchRequest.java`, `FinancialAccount.java`, `DefaultFinancialAccountFactory.java`; `transaction/TransactionService.java` and request/response types; `ledger/recurring/RecurringConfirmationService.java`; new `accounting/CashTransferController.java`, `CashTransferService.java` and request/response; `config/DemoDataInitializer.java`; corresponding migrations beyondV14 and tests.
 
 **Interfaces:** Consume Task1 posting/read APIs. Add POST/GET `/api/transfers`, with fromAccountId,toAccountId,amount,occurredOn,idempotencyKey. Account responses add `balance`, `availableBalance`, opening confirmation/date semantics without removing existing fields. Register CASH and EQUITY opening counterpart; all real money writes must use it.
 
@@ -76,7 +76,7 @@ assertThat(read.balance(h, "CASH:"+b)).isEqualTo(9000L);
 
 ### Task 4: Asset/investment money sources and consistent reporting
 
-**Files:** `asset/AssetService.java` and request DTOs; `investment/InvestmentAccountService.java`, `InvestmentTradeService.java`, DTOs; `reporting/{NetWorthService,PortfolioService,ReportingService}.java` as present; budget and annual-plugin read adapters; focused accounting adapters, migrations and integration tests.
+**Files:** `asset/AssetService.java` and request DTOs; `investment/InvestmentAccountService.java`, `InvestmentTradeService.java`, DTOs; `reporting/{NetWorthService,PortfolioService,DashboardService,AnalysisService,NetWorthSnapshotService}.java`; `budget/BudgetUsageService.java`, `transaction/LedgerReadAdapter.java`; focused accounting adapters, migrations and integration tests.
 
 **Interfaces:** Consume posting kernel/cash rules; extend investment accounts with a household-scoped funding cash account and expose it. Asset additions distinguish OPENING from PURCHASE with funding account for purchase. Opened positions and actual buys must not be conflated. Extend unified read facade for income, expense, cash flows, liabilities and valuation bridge.
 
