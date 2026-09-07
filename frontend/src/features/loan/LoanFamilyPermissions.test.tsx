@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LoansPage, annualRatePercentError, formatAnnualRatePercent, loanCreatePayload, type LoanDraft } from './LoansPage';
 import { FamilyPage } from '../family/FamilyPage';
@@ -135,7 +135,12 @@ it('pages through a long loan schedule to the final installment', async () => {
   render(wrap(<LoansPage request={request as RequestFn} role="MEMBER" userId={7} />));
 
   await user.click(await screen.findByRole('button', { name: '查看计划' }));
-  for (let page = 1; page < 8; page += 1) await user.click(await screen.findByRole('button', { name: '下一页' }));
-  expect(await screen.findByText('360')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: '下一页' })).toBeDisabled();
-});
+  const scheduleDialog = await screen.findByRole('dialog', { name: /还款计划/ });
+  const pager = () => within(scheduleDialog).getByRole('navigation', { name: '还款计划分页' });
+  for (let page = 1; page < 8; page += 1) {
+    await user.click(within(pager()).getByRole('button', { name: '下一页' }));
+    await within(scheduleDialog).findByText(`第 ${page + 1} / 8 页`);
+  }
+  expect(within(scheduleDialog).getByText('360')).toBeInTheDocument();
+  expect(within(pager()).getByRole('button', { name: '下一页' })).toBeDisabled();
+}, 10_000);
