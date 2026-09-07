@@ -50,7 +50,7 @@ jobs:
           cd release
           sha256sum app.jar > app.jar.sha256
           gzip -n app.jar
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: release-${{ github.sha }}
           path: release/
@@ -58,7 +58,7 @@ jobs:
           if-no-files-found: error
       - name: Preserve Java test reports on failure
         if: failure()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: java-test-reports-${{ github.run_id }}
           path: target/surefire-reports/
@@ -87,7 +87,7 @@ jobs:
           else
             echo 'Skipping commit superseded by a newer push.' >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         if: steps.latest.outputs.deploy == 'true'
         with:
           name: release-${{ github.sha }}
