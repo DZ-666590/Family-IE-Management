@@ -64,6 +64,23 @@ it('blocks browser back and releases the intended navigation after confirmation'
   expect(await screen.findByText('之前页面')).toBeInTheDocument();
 });
 
+it.each(['/form', '/form?view=history'])('discards retained forms on navigation to %s and protects a new draft', async target => {
+  const router = createMemoryRouter([{ path: '/form', element: <DraftGuardProvider><Link to={target}>切换视图</Link><FormFixture /></DraftGuardProvider> }], { initialEntries: ['/form'] });
+  const user = userEvent.setup(); render(<RouterProvider router={router} />);
+  await user.type(screen.getByLabelText('金额'), '88');
+  await user.click(screen.getByRole('link', { name: '切换视图' }));
+  await user.click(screen.getByRole('button', { name: '放弃修改' }));
+  expect(screen.queryByLabelText('金额')).not.toBeInTheDocument();
+  expect(router.state.location.pathname + router.state.location.search).toBe(target);
+  await user.click(screen.getByRole('button', { name: '打开' }));
+  expect(screen.getByLabelText('金额')).toHaveValue('');
+  await user.type(screen.getByLabelText('金额'), '99');
+  await user.click(screen.getByRole('link', { name: '切换视图' }));
+  expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: '继续编辑' }));
+  expect(screen.getByLabelText('金额')).toHaveValue('99');
+});
+
 it('clears mandatory-session drafts even while a blocked navigation is waiting', async () => {
   function ClearSession() { const registry = useDraftRegistry(); return <button onClick={() => registry?.clear()}>会话结束</button>; }
   const router = createMemoryRouter([{ element: <DraftGuardProvider><ClearSession /><Outlet /></DraftGuardProvider>, children: [

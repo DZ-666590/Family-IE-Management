@@ -17,19 +17,25 @@ export function DraftGuardProvider({ children }: { children: ReactNode }) {
   const entries = useRef(new Map<string, Entry>()).current;
   const [generation, setGeneration] = useState(0);
   const blocker = useBlocker(() => [...entries.values()].some(entry => entry.dirty || entry.busy));
+  const proceeded = useRef<typeof blocker | null>(null);
+  const proceed = useCallback(() => {
+    if (blocker.state !== 'blocked' || proceeded.current === blocker) return;
+    proceeded.current = blocker;
+    blocker.proceed();
+  }, [blocker]);
   const clear = useCallback(() => { for (const entry of entries.values()) entry.discard(); entries.clear(); setGeneration(value => value + 1); }, [entries]);
   const changed = useCallback(() => setGeneration(value => value + 1), []);
   const value = useMemo(() => ({ entries, clear, changed }), [entries, clear, changed]);
   const busy = [...entries.values()].some(entry => entry.busy);
   useEffect(() => {
-    if (blocker.state === 'blocked' && ![...entries.values()].some(entry => entry.dirty || entry.busy)) blocker.proceed();
-  }, [blocker, entries, generation]);
+    if (![...entries.values()].some(entry => entry.dirty || entry.busy)) proceed();
+  }, [proceed, entries, generation]);
   return <DraftContext.Provider value={value}>{children}<ConfirmDialog
     open={blocker.state === 'blocked'} title={busy ? '正在保存，请稍候' : '放弃未保存的修改？'}
     detail={busy ? '保存完成后可以离开此页面。' : '离开后，本次尚未保存的输入将被清除。'}
     cancelLabel="继续编辑" confirmLabel="放弃修改" confirmDisabled={busy}
     onClose={() => blocker.state === 'blocked' && blocker.reset()}
-    onConfirm={() => { if (!busy && blocker.state === 'blocked') { entries.clear(); blocker.proceed(); } }}
+    onConfirm={() => { if (!busy && blocker.state === 'blocked') { clear(); proceed(); } }}
   /></DraftContext.Provider>;
 }
 
