@@ -5,12 +5,16 @@ import { TransactionsPage } from './TransactionsPage';
 import type { RequestFn } from '../common';
 import { ApiError } from '../../api/client';
 
+const pageResult = <T,>(items: T[], current = 0, total = items.length) => ({
+  items, page: current, size: 50, totalElements: total, totalPages: total === 0 ? 0 : Math.ceil(total / 50), hasNext: (current + 1) * 50 < total
+});
+
 it('creates a transaction with selected server account category and member', async () => {
   const request = vi.fn(async (path: string, options?: { method?: string; body?: unknown }) => {
     if (path.startsWith('/api/transactions') && options?.method === 'POST') return { id: 9 };
-    if (path.startsWith('/api/transactions')) return [];
-    if (path.startsWith('/api/accounts')) return { items: [{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }] };
-    if (path.startsWith('/api/categories')) return [{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }];
+    if (path.startsWith('/api/transactions')) return pageResult([]);
+    if (path.startsWith('/api/accounts')) return pageResult([{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }]);
+    if (path.startsWith('/api/categories')) return pageResult([{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }]);
     if (path === '/api/members') return [{ id: 3, name: '凯文', roleLabel: '本人', createdAt: '' }];
     throw new Error(`unexpected ${path}`);
   });
@@ -45,10 +49,10 @@ it('shows creator, paginates transactions, and links a complete csv export', asy
   const request = vi.fn(async (path: string) => {
     if (path.startsWith('/api/transactions')) {
       const page = new URLSearchParams(path.split('?')[1]).get('page');
-      return page === '1' ? [transactionItem(51)] : Array.from({ length: 50 }, (_, index) => transactionItem(index + 1));
+      return page === '1' ? { items: [transactionItem(51)], page: 1, size: 50, totalElements: 51, totalPages: 2, hasNext: false } : pageResult(Array.from({ length: 50 }, (_, index) => transactionItem(index + 1)), 0, 51);
     }
-    if (path.startsWith('/api/accounts')) return { items: [{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }] };
-    if (path.startsWith('/api/categories')) return [{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }];
+    if (path.startsWith('/api/accounts')) return pageResult([{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }]);
+    if (path.startsWith('/api/categories')) return pageResult([{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }]);
     if (path === '/api/members') return [{ id: 3, name: '凯文', roleLabel: '本人', createdAt: '' }];
     throw new Error(`unexpected ${path}`);
   });
@@ -58,7 +62,7 @@ it('shows creator, paginates transactions, and links a complete csv export', asy
   expect(screen.getByRole('link', { name: '导出 CSV' })).toHaveAttribute('href', '/api/export.csv?month=2026-09');
   await user.click(screen.getByRole('button', { name: '下一页' }));
   expect((await screen.findAllByText('-¥10.00')).length).toBeGreaterThan(0);
-  expect(request).toHaveBeenCalledWith(expect.stringContaining('page=1'));
+  expect(request).toHaveBeenCalledWith(expect.stringContaining('page=1'), { responseType: 'page' });
 });
 
 it('keeps a permission error visible when deleting another member transaction is denied', async () => {
@@ -66,9 +70,9 @@ it('keeps a permission error visible when deleting another member transaction is
     if (path.startsWith('/api/transactions') && options?.method === 'DELETE') {
       throw new ApiError('无权操作他人创建的收支记录', { status: 403, code: 'FORBIDDEN' });
     }
-    if (path.startsWith('/api/transactions')) return [transactionItem(1, '其他成员')];
-    if (path.startsWith('/api/accounts')) return { items: [{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }] };
-    if (path.startsWith('/api/categories')) return [{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }];
+    if (path.startsWith('/api/transactions')) return pageResult([transactionItem(1, '其他成员')]);
+    if (path.startsWith('/api/accounts')) return pageResult([{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }]);
+    if (path.startsWith('/api/categories')) return pageResult([{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }]);
     if (path === '/api/members') return [{ id: 3, name: '凯文', roleLabel: '本人', createdAt: '' }];
     throw new Error(`unexpected ${path}`);
   });
@@ -82,9 +86,9 @@ it('keeps a permission error visible when deleting another member transaction is
 it('paginates category roots without losing stable parent-child order', async () => {
   const roots = Array.from({ length: 50 }, (_, index) => ({ id: index + 1, kind: 'expense', name: `分类-${index + 1}`, color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }));
   const request = vi.fn(async (path: string) => {
-    if (path.startsWith('/api/transactions')) return [];
-    if (path.startsWith('/api/accounts')) return { items: [] };
-    if (path.startsWith('/api/categories')) return path.includes('page=1') ? [{ ...roots[0], id: 51, name: '分类-51' }] : roots;
+    if (path.startsWith('/api/transactions')) return pageResult([]);
+    if (path.startsWith('/api/accounts')) return pageResult([]);
+    if (path.startsWith('/api/categories')) return path.includes('page=1') ? pageResult([{ ...roots[0], id: 51, name: '分类-51' }], 1, 51) : pageResult(roots, 0, path.includes('projection=tree') ? 51 : 50);
     if (path === '/api/members') return [];
     throw new Error(`unexpected ${path}`);
   });
@@ -93,5 +97,5 @@ it('paginates category roots without losing stable parent-child order', async ()
   await user.click(await screen.findByRole('button', { name: '分类' }));
   await user.click(screen.getByRole('button', { name: '下一页' }));
   expect(await screen.findByText('分类-51')).toBeInTheDocument();
-  expect(request).toHaveBeenCalledWith(expect.stringContaining('projection=tree&page=1'));
+  expect(request).toHaveBeenCalledWith(expect.stringContaining('projection=tree&page=1'), { responseType: 'page' });
 });

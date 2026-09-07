@@ -1,4 +1,4 @@
-import type { ApiEnvelope, ApiFailure, CsrfToken } from './contracts';
+import type { ApiEnvelope, ApiFailure, CsrfToken, Page } from './contracts';
 
 export const SESSION_EXPIRED_MESSAGE = '登录会话已过期，请重新登录。';
 
@@ -31,7 +31,7 @@ export class ApiError extends Error {
 export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
   handleUnauthorized?: boolean;
-  responseType?: 'json' | 'blob' | 'text';
+  responseType?: 'json' | 'blob' | 'text' | 'page';
 }
 
 interface ApiClientOptions {
@@ -60,6 +60,41 @@ function requestIdFrom(response: Response): string | undefined {
 async function readEnvelope(response: Response): Promise<ApiEnvelope<unknown> | undefined> {
   if (response.status === 204) return undefined;
   return response.json().catch(() => undefined) as Promise<ApiEnvelope<unknown> | undefined>;
+}
+
+function pageNumber(response: Response, name: string): number {
+  const raw = response.headers.get(name);
+  const value = raw === null ? Number.NaN : Number(raw);
+  if (!Number.isInteger(value) || value < 0) throw new Error(`分页响应缺少有效的 ${name} 元数据`);
+  return value;
+}
+
+function pageBoolean(response: Response, name: string): boolean {
+  const raw = response.headers.get(name);
+  if (raw !== 'true' && raw !== 'false') throw new Error(`分页响应缺少有效的 ${name} 元数据`);
+  return raw === 'true';
+}
+
+function isPage(value: unknown): value is Page<unknown> {
+  if (!value || typeof value !== 'object') return false;
+  const page = value as Partial<Page<unknown>>;
+  return Array.isArray(page.items)
+    && Number.isInteger(page.page) && Number.isInteger(page.size)
+    && Number.isInteger(page.totalElements) && Number.isInteger(page.totalPages)
+    && typeof page.hasNext === 'boolean';
+}
+
+function readPage(response: Response, data: unknown): Page<unknown> {
+  if (isPage(data)) return data;
+  if (!Array.isArray(data)) throw new Error('分页响应 data 必须是数组或 Page 对象');
+  return {
+    items: data,
+    page: pageNumber(response, 'X-Page'),
+    size: pageNumber(response, 'X-Page-Size'),
+    totalElements: pageNumber(response, 'X-Total-Elements'),
+    totalPages: pageNumber(response, 'X-Total-Pages'),
+    hasNext: pageBoolean(response, 'X-Has-Next')
+  };
 }
 
 export function createApiClient({
@@ -148,6 +183,7 @@ export function createApiClient({
     if (responseType === 'blob') return await response.blob() as T;
     if (responseType === 'text') return await response.text() as T;
     const envelope = await readEnvelope(response);
+    if (responseType === 'page') return readPage(response, envelope?.data) as T;
     return envelope?.data as T;
   }
 

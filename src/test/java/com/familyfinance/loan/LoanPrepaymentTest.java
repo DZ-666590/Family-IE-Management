@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,9 @@ class LoanPrepaymentTest {
   assertThat(jdbc.queryForObject("select current_principal_cents from loans where id=?",Long.class,loan)).isEqualTo(before-10_000L);
   assertThat(jdbc.queryForObject("select count(*) from loan_installments where loan_id=? and status='PAID'",Long.class,loan)).isEqualTo(1L);
   assertThat(jdbc.queryForObject("select count(*) from loan_installments where loan_id=? and status='PENDING'",Long.class,loan)).isPositive();
+  long scheduleRows=jdbc.queryForObject("select count(*) from loan_installments where loan_id=?",Long.class,loan);
+  mvc.perform(get("/api/loans/{id}/schedule",loan).session(owner))
+    .andExpect(status().isOk()).andExpect(header().string("X-Total-Elements",Long.toString(scheduleRows)));
   long remaining=jdbc.queryForObject("select current_principal_cents from loans where id=?",Long.class,loan);
   prepay(owner,loan,String.format(java.util.Locale.ROOT,"%.2f",remaining/100.0),"full-1");
   assertThat(jdbc.queryForObject("select current_principal_cents from loans where id=?",Long.class,loan)).isZero();

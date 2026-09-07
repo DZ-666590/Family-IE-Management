@@ -32,6 +32,23 @@ class LoanApiTest {
   mvc.perform(get("/api/loans/{id}/schedule",id).session(owner)).andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(3)).andExpect(jsonPath("$.data[2].principal").value("336.66"));
   assertThat(jdbc.queryForObject("select count(*) from loan_installments where loan_id=?",Long.class,id)).isEqualTo(3L);
  }
+ @Test void scheduleExposesAllThreeHundredSixtyInstallmentsAcrossCappedPages() throws Exception {
+  MockHttpSession owner=login("demo","demo1234");
+  long account=jdbc.queryForObject("select min(id) from financial_accounts where household_id=1",Long.class);
+  long category=jdbc.queryForObject("select min(id) from categories where household_id=1 and kind='EXPENSE'",Long.class);
+  long id=create(owner,body(account,category)
+    .replace("\"principal\":\"1000.00\"","\"principal\":\"1000000.00\"")
+    .replace("\"termMonths\":3","\"termMonths\":360"));
+  mvc.perform(get("/api/loans/{id}/schedule",id).session(owner).param("page","0").param("size","50"))
+    .andExpect(status().isOk()).andExpect(header().string("X-Page","0"))
+    .andExpect(header().string("X-Total-Elements","360")).andExpect(header().string("X-Total-Pages","8"))
+    .andExpect(header().string("X-Has-Next","true")).andExpect(jsonPath("$.data.length()").value(50));
+  mvc.perform(get("/api/loans/{id}/schedule",id).session(owner).param("page","1").param("size","50"))
+    .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].installmentNo").value(51));
+  mvc.perform(get("/api/loans/{id}/schedule",id).session(owner).param("page","7").param("size","50"))
+    .andExpect(status().isOk()).andExpect(header().string("X-Has-Next","false"))
+    .andExpect(jsonPath("$.data[9].installmentNo").value(360));
+ }
  private long create(MockHttpSession s,String body)throws Exception{return node(mvc.perform(post("/api/loans").session(s).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isCreated()).andReturn()).path("data").path("id").asLong();}
  private String body(long account,long category){return "{\"name\":\"房贷\",\"type\":\"MORTGAGE\",\"paymentAccountId\":"+account+",\"paymentCategoryId\":"+category+",\"principal\":\"1000.00\",\"annualRate\":0.120000,\"termMonths\":3,\"repaymentMethod\":\"EQUAL_PAYMENT\",\"startOn\":\"2024-01-31\"}";}
  private MockHttpSession join(MockHttpSession owner,String email,HouseholdRole role)throws Exception{String token=node(mvc.perform(post("/api/family/invites").session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"role\":\""+role+"\"}")).andExpect(status().isCreated()).andReturn()).path("data").path("token").asText();mvc.perform(post("/api/auth/register").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"email\":\""+email+"\",\"displayName\":\"贷款成员\",\"password\":\"family-pass-2026\",\"mode\":\"JOIN\",\"inviteToken\":\""+token+"\"}")) .andExpect(status().isCreated());return login(email,"family-pass-2026");}

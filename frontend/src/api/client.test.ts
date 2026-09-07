@@ -106,3 +106,37 @@ it('passes the caller AbortSignal to fetch', async () => {
   await client.api('/api/assets', { signal: controller.signal });
   expect(capturedSignal).toBe(controller.signal);
 });
+
+it('builds a page from an array envelope and pagination headers', async () => {
+  const client = createApiClient({
+    fetchImpl: vi.fn(async () => jsonResponse(200, { data: [{ id: 51 }] }, {
+      'X-Page': '1', 'X-Page-Size': '50', 'X-Total-Elements': '51',
+      'X-Total-Pages': '2', 'X-Has-Next': 'false'
+    }))
+  });
+
+  await expect(client.api('/api/transactions?page=1&size=50', { responseType: 'page' })).resolves.toEqual({
+    items: [{ id: 51 }], page: 1, size: 50, totalElements: 51, totalPages: 2, hasNext: false
+  });
+});
+
+it('returns a structured page envelope through the same opt-in path', async () => {
+  const page = { items: [{ id: 1 }], page: 0, size: 20, totalElements: 1, totalPages: 1, hasNext: false };
+  const client = createApiClient({ fetchImpl: vi.fn(async () => jsonResponse(200, { data: page })) });
+
+  await expect(client.api('/api/assets?page=0&size=20', { responseType: 'page' })).resolves.toEqual(page);
+});
+
+it('honors metadata when an exact full page is the last page', async () => {
+  const items = Array.from({ length: 50 }, (_, id) => ({ id }));
+  const client = createApiClient({
+    fetchImpl: vi.fn(async () => jsonResponse(200, { data: items }, {
+      'X-Page': '0', 'X-Page-Size': '50', 'X-Total-Elements': '50',
+      'X-Total-Pages': '1', 'X-Has-Next': 'false'
+    }))
+  });
+
+  const page = await client.api<{ items: unknown[]; hasNext: boolean }>('/api/categories?page=0&size=50', { responseType: 'page' });
+  expect(page.items).toHaveLength(50);
+  expect(page.hasNext).toBe(false);
+});

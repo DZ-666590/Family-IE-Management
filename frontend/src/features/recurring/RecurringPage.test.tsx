@@ -6,12 +6,12 @@ import type { RequestFn } from '../common';
 
 it('allows monthly rules to use the 31st and relies on the server for month-end clamping', async () => {
   const request = vi.fn(async (path: string) => {
-    if (path === '/api/recurring-rules?includeInactive=true&page=0&size=50') return [];
-    if (path === '/api/recurring-occurrences?status=PENDING&page=0&size=50') return [];
-    if (path.startsWith('/api/accounts')) return { items: [{ id: 1, name: '日常账户', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }] };
-    if (path.startsWith('/api/categories')) return [{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }];
+    if (path === '/api/recurring-rules?includeInactive=true&page=0&size=50') return { items: [], page: 0, size: 50, totalElements: 0, totalPages: 0, hasNext: false };
+    if (path === '/api/recurring-occurrences?status=PENDING&page=0&size=50') return { items: [], page: 0, size: 50, totalElements: 0, totalPages: 0, hasNext: false };
+    if (path.startsWith('/api/accounts')) return { items: [{ id: 1, name: '日常账户', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }], page: 0, size: 50, totalElements: 1, totalPages: 1, hasNext: false };
+    if (path.startsWith('/api/categories')) return { items: [{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }], page: 0, size: 50, totalElements: 1, totalPages: 1, hasNext: false };
     if (path === '/api/members') return [{ id: 3, name: 'Kevin', roleLabel: '本人', createdAt: '' }];
-    if (path.startsWith('/api/family/memberships')) return { items: [{ id: 4, userId: 7, email: 'demo@example.com', displayName: '演示用户', role: 'OWNER', status: 'ACTIVE' }] };
+    if (path.startsWith('/api/family/memberships')) return { items: [{ id: 4, userId: 7, email: 'demo@example.com', displayName: '演示用户', role: 'OWNER', status: 'ACTIVE' }], page: 0, size: 50, totalElements: 1, totalPages: 1, hasNext: false };
     throw new Error(`unexpected ${path}`);
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

@@ -8,7 +8,7 @@ function renderPortfolio(unpricedPositions: number) {
   const request = (async (path: string) => {
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '80.00', marketValue: '100.00', realizedProfit: '5.00', unrealizedProfit: '15.00', totalProfit: '20.00', unpricedPositions } };
     if (path === '/api/market-quotes') return [];
-    return { items: [] };
+    return { items: [], page: 0, size: 50, totalElements: 0, totalPages: 0, hasNext: false };
   }) as RequestFn;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<QueryClientProvider client={client}><InvestmentsPage request={request} role="MEMBER"/></QueryClientProvider>);

@@ -66,7 +66,8 @@ public class InviteService {
         permissions.requireAdmin(context);
         int safePage = Math.max(0, page); int safeSize = Math.min(50, Math.max(1, size));
         var result = invites.findByHouseholdId(context.householdId(), PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "id")));
-        return new InvitePage(result.getContent().stream().map(InviteView::from).toList(), safePage, safeSize, result.hasNext());
+        return new InvitePage(result.getContent().stream().map(InviteView::from).toList(), safePage, safeSize,
+                result.getTotalElements(), result.getTotalPages(), result.hasNext());
     }
 
     @Transactional
@@ -112,5 +113,5 @@ public class InviteService {
     public record InviteView(Long id, HouseholdRole role, Instant expiresAt, int maxUses, int usedCount, Instant revokedAt, Instant createdAt) {
         static InviteView from(FamilyInvite invite) { return new InviteView(invite.getId(), invite.getRole(), invite.getExpiresAt(), invite.getMaxUses(), invite.getUsedCount(), invite.getRevokedAt(), invite.getCreatedAt()); }
     }
-    public record InvitePage(List<InviteView> items, int page, int size, boolean hasNext) {}
+    public record InvitePage(List<InviteView> items, int page, int size, long totalElements, int totalPages, boolean hasNext) {}
 }

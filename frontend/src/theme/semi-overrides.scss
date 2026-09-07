@@ -486,6 +486,8 @@ a:hover { text-decoration: underline; }
   .mobile-card-list { display: grid; gap: 8px; }
   .record-card { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--ledger-border); border-radius: 7px; background: #fff; }
   .record-card header, .record-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .pagination-controls { justify-content: space-between; }
+  .pagination-controls button { min-height: 44px; min-width: 84px; }
   .record-card header > div { display: flex; align-items: center; gap: 7px; }.record-card p { margin: 0; color: var(--ledger-muted); font-size: 11px; }
   .two-column-layout, .family-layout, .analysis-grid { grid-template-columns: 1fr; }
   .metric-grid { grid-template-columns: 1fr 1fr; }

@@ -9,13 +9,14 @@ import type { RequestFn } from '../common';
 import { ApiError } from '../../api/client';
 
 const wrap = (node: React.ReactNode) => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>;
+const page = <T,>(items: T[]) => ({ items, page: 0, size: 50, totalElements: items.length, totalPages: items.length ? 1 : 0, hasNext: false });
 
 it('shows server asset values and quote provenance without member mutations', async () => {
   const request = vi.fn(async (path: string) => {
-    if (path.startsWith('/api/assets')) return { items: [{ id: 4, name: '滨江小家', type: 'PROPERTY', ownerMemberId: 1, acquiredOn: '2021-05-01', purchaseValue: '2600000.00', currentValue: '2850000.00', status: 'ACTIVE', createdBy: 7, archivedAt: null, property: { address: '滨江区', areaSqm: 89, usageType: '自住' }, vehicle: null }] };
+    if (path.startsWith('/api/assets')) return page([{ id: 4, name: '滨江小家', type: 'PROPERTY', ownerMemberId: 1, acquiredOn: '2021-05-01', purchaseValue: '2600000.00', currentValue: '2850000.00', status: 'ACTIVE', createdBy: 7, archivedAt: null, property: { address: '滨江区', areaSqm: 89, usageType: '自住' }, vehicle: null }]);
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '0.00', marketValue: '0.00', realizedProfit: '0.00', unrealizedProfit: '0.00', totalProfit: '0.00', unpricedPositions: 0 } };
-    if (path.startsWith('/api/investment-accounts')) return { items: [] };
-    if (path.startsWith('/api/investment-trades')) return { items: [] };
+    if (path.startsWith('/api/investment-accounts')) return page([]);
+    if (path.startsWith('/api/investment-trades')) return page([]);
     if (path === '/api/market-quotes') return [{ securityId: 8, tsCode: '600000.SH', name: '浦发银行', price: '10.25', source: 'MANUAL', tradeDate: '2026-08-31', fetchedAt: null, stale: true, error: null }];
     throw new Error(`unexpected ${path}`);
   });
@@ -32,10 +33,10 @@ it('shows server asset values and quote provenance without member mutations', as
 it('offers security registration when an investment search has no matches', async () => {
   const request = vi.fn(async (path: string) => {
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '0.00', marketValue: '0.00', realizedProfit: '0.00', unrealizedProfit: '0.00', totalProfit: '0.00', unpricedPositions: 0 } };
-    if (path.startsWith('/api/investment-accounts')) return { items: [{ id: 1, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }] };
-    if (path.startsWith('/api/investment-trades')) return { items: [] };
+    if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
+    if (path.startsWith('/api/investment-trades')) return page([]);
     if (path === '/api/market-quotes') return [];
-    if (path.startsWith('/api/securities/search')) return { items: [] };
+    if (path.startsWith('/api/securities/search')) return page([]);
     throw new Error(`unexpected ${path}`);
   });
   render(wrap(<InvestmentsPage request={request as RequestFn} role="OWNER" />));
@@ -76,11 +77,11 @@ it('records a buy without sending an explicit trade source that the public API r
   const today = new Date().toISOString().slice(0, 10);
   const request = vi.fn(async (path: string, options?: { method?: string }) => {
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '0.00', marketValue: '0.00', realizedProfit: '0.00', unrealizedProfit: '0.00', totalProfit: '0.00', unpricedPositions: 0 } };
-    if (path.startsWith('/api/investment-accounts')) return { items: [{ id: 1, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }] };
+    if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
     if (path.startsWith('/api/investment-trades') && options?.method === 'POST') return {};
-    if (path.startsWith('/api/investment-trades')) return { items: [] };
+    if (path.startsWith('/api/investment-trades')) return page([]);
     if (path === '/api/market-quotes') return [];
-    if (path.startsWith('/api/securities/search')) return { items: [{ id: 5, tsCode: '000001.SZ', name: '平安银行' }] };
+    if (path.startsWith('/api/securities/search')) return page([{ id: 5, tsCode: '000001.SZ', name: '平安银行' }]);
     throw new Error(`unexpected ${path}`);
   });
   const user = userEvent.setup();
@@ -109,10 +110,10 @@ it('keeps the loan-reference conflict visible when archiving a loan-linked asset
     if (path.startsWith('/api/assets') && options?.method === 'DELETE') {
       throw new ApiError('资产仍被贷款引用，无法归档', { status: 409, code: 'RESOURCE_IN_USE' });
     }
-    if (path.startsWith('/api/assets')) return { items: [{ id: 4, name: '滨江小家', type: 'PROPERTY', ownerMemberId: 1, acquiredOn: '2021-05-01', purchaseValue: '2600000.00', currentValue: '2850000.00', status: 'ACTIVE', createdBy: 7, archivedAt: null, property: { address: '滨江区', areaSqm: 89, usageType: '自住' }, vehicle: null }] };
+    if (path.startsWith('/api/assets')) return page([{ id: 4, name: '滨江小家', type: 'PROPERTY', ownerMemberId: 1, acquiredOn: '2021-05-01', purchaseValue: '2600000.00', currentValue: '2850000.00', status: 'ACTIVE', createdBy: 7, archivedAt: null, property: { address: '滨江区', areaSqm: 89, usageType: '自住' }, vehicle: null }]);
     if (path.startsWith('/api/members')) return [];
     if (path === '/api/net-worth') return { asset: '2850000.00', liability: '0.00', netWorth: '2850000.00' };
-    if (path.startsWith('/api/loans')) return { items: [] };
+    if (path.startsWith('/api/loans')) return page([]);
     throw new Error(`unexpected ${path}`);
   });
   const user = userEvent.setup();
