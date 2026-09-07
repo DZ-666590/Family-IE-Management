@@ -1,10 +1,11 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import { X, Plus, CircleAlert, LoaderCircle } from 'lucide-react';
 import { EmptyIllustration } from './visuals';
 import { ApiError, type ApiRequestOptions } from '../api/client';
 import type { HouseholdRole } from '../api/contracts';
+import { useDraftProtection } from '../shared/draft-guard';
 
 export type RequestFn = <T>(path: string, options?: ApiRequestOptions) => Promise<T>;
 
@@ -84,32 +85,64 @@ function useModal(open: boolean, onClose: () => void) {
   return { id, ref };
 }
 
-export function Drawer({ open, title, description, onClose, children }: { open: boolean; title: string; description?: string; onClose: () => void; children: ReactNode }) {
-  const {id,ref} = useModal(open,onClose);
+export function Drawer({ open, title, description, onClose, children, draft, busy = false, sessionKey, savedKey, onSessionStart }: {
+  open: boolean; title: string; description?: string; onClose: () => void; children: ReactNode;
+  draft?: unknown; busy?: boolean; sessionKey?: unknown; savedKey?: unknown; onSessionStart?: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const protection = useDraftProtection({ active: open, draft, busy, sessionKey, savedKey, onDiscard: onClose });
+  const start = useRef(onSessionStart); start.current = onSessionStart;
+  useLayoutEffect(() => { setConfirming(false); if (open) start.current?.(); }, [open, sessionKey]);
+  const requestClose = () => { if (busy) return; if (protection.dirty) setConfirming(true); else onClose(); };
+  const {id,ref} = useModal(open,requestClose);
   if (!open) return null;
-  return createPortal(<div className="sheet-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+  return createPortal(<><div className="sheet-backdrop" onMouseDown={event => event.target === event.currentTarget && requestClose()}>
     <aside ref={ref} tabIndex={-1} className="side-sheet" role="dialog" aria-modal="true" aria-labelledby={id}>
-      <header><div><h2 id={id}>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}><X size={20} aria-hidden="true"/></button></header>
-      <div className="sheet-body">{children}</div>
+      <header><div><h2 id={id}>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button" aria-label="关闭" disabled={busy} onClick={requestClose}><X size={20} aria-hidden="true"/></button></header>
+      <div className="sheet-body"><fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'grid', gap: 'inherit' }} onSubmitCapture={event => { if (busy) { event.preventDefault(); event.stopPropagation(); } }}>{children}</fieldset></div>
     </aside>
-  </div>, document.body);
+  </div><ConfirmDialog open={confirming} title="放弃未保存的修改？" detail="关闭后，本次尚未保存的输入将被清除。" cancelLabel="继续编辑" confirmLabel="放弃修改" onClose={() => setConfirming(false)} onConfirm={() => { setConfirming(false); onClose(); }} /></>, document.body);
 }
 
-export function ConfirmDialog({ open, title, detail, confirmLabel = '确认', danger, onConfirm, onClose, loading = false }: { open: boolean; title: string; detail: ReactNode; confirmLabel?: string; danger?: boolean; onConfirm: () => void; onClose: () => void; loading?: boolean }) {
+export function ConfirmDialog({ open, title, detail, confirmLabel = '确认', cancelLabel = '取消', confirmDisabled = false, danger, onConfirm, onClose, loading = false }: { open: boolean; title: string; detail: ReactNode; confirmLabel?: string; cancelLabel?: string; confirmDisabled?: boolean; danger?: boolean; onConfirm: () => void; onClose: () => void; loading?: boolean }) {
   const {id,ref} = useModal(open,onClose);
   if (!open) return null;
   return createPortal(<div className="sheet-backdrop dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}>
     <section ref={ref} tabIndex={-1} className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby={id}>
       <div className="confirmation-symbol"><CircleAlert size={24} aria-hidden="true"/></div><h2 id={id}>{title}</h2><div className="confirm-detail">{detail}</div>
-      <footer><Button onClick={onClose}>取消</Button><Button theme="solid" loading={loading} type={danger ? 'danger' : 'primary'} onClick={onConfirm}>{confirmLabel}</Button></footer>
+      <footer><Button onClick={onClose}>{cancelLabel}</Button><Button theme="solid" loading={loading} disabled={confirmDisabled} type={danger ? 'danger' : 'primary'} onClick={onConfirm}>{confirmLabel}</Button></footer>
     </section>
   </div>, document.body);
 }
 
-export function FormError({ error }: { error: unknown }) {
+export function FormError({ error, scopeKey }: { error: unknown; scopeKey?: unknown }) {
+  const id = useId();
+  const ref = useRef<HTMLDivElement>(null);
+  const fields = error instanceof ApiError ? error.fields : undefined;
+  useLayoutEffect(() => {
+    if (!error || !ref.current) return;
+    const root = ref.current.closest('form') ?? ref.current.closest('[role="dialog"]');
+    const controls = Array.from(root?.querySelectorAll<HTMLElement>('input, select, textarea, [data-field]') ?? []);
+    const linked: Array<{ element: HTMLElement; previous: string | null; invalid: string | null }> = [];
+    Object.keys(fields ?? {}).forEach((field, index) => {
+      const element = controls.find(control => control.getAttribute('name') === field || control.id === field || control.getAttribute('data-field') === field)
+        ?? controls.find(control => control.getAttribute('name') === field.replace(/^(property|vehicle)\./, ''));
+      if (!element) return;
+      const previous = element.getAttribute('aria-describedby');
+      linked.push({ element, previous, invalid: element.getAttribute('aria-invalid') });
+      element.setAttribute('aria-describedby', [previous, `${id}-${index}`].filter(Boolean).join(' '));
+      element.setAttribute('aria-invalid', 'true');
+    });
+    const target = linked[0]?.element ?? ref.current;
+    target.focus(); target.scrollIntoView?.({ block: 'nearest' });
+    return () => linked.forEach(({ element, previous, invalid }) => {
+      if (previous === null) element.removeAttribute('aria-describedby'); else element.setAttribute('aria-describedby', previous);
+      if (invalid === null) element.removeAttribute('aria-invalid'); else element.setAttribute('aria-invalid', invalid);
+    });
+  }, [error, fields, id, scopeKey]);
   if (!error) return null;
   const apiError = error instanceof ApiError ? error : null;
-  return <div className="form-alert" role="alert">{error instanceof Error ? error.message : '保存失败，请检查后重试'}{apiError?.fields && <ul>{Object.entries(apiError.fields).map(([field,message])=><li key={field}>{message}</li>)}</ul>}{apiError?.requestId && <div className="request-id">请求 ID：{apiError.requestId}</div>}</div>;
+  return <div ref={ref} tabIndex={-1} className="form-alert" role="alert">{error instanceof Error ? error.message : '保存失败，请检查后重试'}{apiError?.fields && <ul>{Object.entries(apiError.fields).map(([field,message], index)=><li id={`${id}-${index}`} key={field}>{message}</li>)}</ul>}{apiError?.requestId && <div className="request-id">请求 ID：{apiError.requestId}</div>}</div>;
 }
 
 export const isManager = (role: HouseholdRole) => role === 'OWNER' || role === 'ADMIN';

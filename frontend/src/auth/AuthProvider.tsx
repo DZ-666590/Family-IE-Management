@@ -4,6 +4,7 @@ import { createApiClient } from '../api/client';
 import type { ApiRequestOptions } from '../api/client';
 import type { ChangePasswordRequest, RegisterRequest, RegisterResponse, Session } from '../api/contracts';
 import { refreshAfterWrite } from '../shared/write-refresh';
+import { useDraftRegistry } from '../shared/draft-guard';
 
 export type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
@@ -26,16 +27,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [notice, setNotice] = useState<string | null>(null);
   const generation = useRef(0);
+  const drafts = useDraftRegistry();
 
   const client = useMemo(() => createApiClient({
     invalidatePendingWork: () => { generation.current += 1; queryClient.clear(); },
     onSessionExpired: message => {
+      drafts?.clear();
       client.resetSessionScope();
       setSession(null);
       setStatus('anonymous');
       setNotice(message);
     }
-  }), [queryClient]);
+  }), [queryClient, drafts]);
 
   useEffect(() => {
     const scope = generation.current;
@@ -88,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [client, login, beginSessionTransition, assertCurrent]);
 
   const logout = useCallback(async () => {
+    drafts?.clear();
     const scope = beginSessionTransition();
     try {
       await client.api<void>('/api/auth/logout', { method: 'POST' });
@@ -100,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         client.invalidateCsrf();
       }
     }
-  }, [client, queryClient, beginSessionTransition]);
+  }, [client, queryClient, beginSessionTransition, drafts]);
 
   const request = useCallback(async <T,>(path: string, options?: ApiRequestOptions): Promise<T> => {
     const scope = generation.current;
@@ -112,9 +116,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [client, queryClient, assertCurrent]);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const scope = generation.current;
     const request: ChangePasswordRequest = { currentPassword, newPassword };
     await client.api<void>('/api/auth/change-password', { method: 'POST', body: request });
-  }, [client]);
+    assertCurrent(scope);
+  }, [client, assertCurrent]);
 
   const value = useMemo<AuthContextValue>(() => ({
     session,

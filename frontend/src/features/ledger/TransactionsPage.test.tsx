@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TransactionsPage } from './TransactionsPage';
 import type { RequestFn } from '../common';
@@ -7,6 +7,55 @@ import { ApiError } from '../../api/client';
 
 const pageResult = <T,>(items: T[], current = 0, total = items.length) => ({
   items, page: current, size: 50, totalElements: total, totalPages: total === 0 ? 0 : Math.ceil(total / 50), hasNext: (current + 1) * 50 < total
+});
+
+it('retains a failed draft, links its field error, and clears errors on reopen', async () => {
+  const request: RequestFn = async <T,>(path: string, options?: { method?: string }) => {
+    if (options?.method === 'POST') throw new ApiError('保存失败', { status: 400, fields: { amount: '金额必须大于零' } });
+    if (path === '/api/members') return [] as T;
+    return pageResult([]) as T;
+  };
+  const user = userEvent.setup();
+  render(<QueryClientProvider client={new QueryClient()}><TransactionsPage request={request} role="OWNER" userId={7} /></QueryClientProvider>);
+  await user.click(screen.getByRole('button', { name: '记一笔' }));
+  await user.type(screen.getByLabelText('金额'), '28.50');
+  fireEvent.submit(screen.getByLabelText('金额').closest('form')!);
+  await screen.findByText('金额必须大于零');
+  expect(screen.getByLabelText('金额')).toHaveValue('28.50');
+  expect(screen.getByLabelText('金额')).toHaveAccessibleDescription('金额必须大于零');
+  expect(screen.getByLabelText('金额')).toHaveFocus();
+  await user.keyboard('{Escape}');
+  await user.click(screen.getByRole('button', { name: '放弃修改' }));
+  await user.click(screen.getByRole('button', { name: '记一笔' }));
+  expect(screen.queryByText('金额必须大于零')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('金额')).toHaveValue('');
+});
+
+it('keeps a pending save in its form session and closes successfully without a discard prompt', async () => {
+  let complete!: () => void;
+  const pending = new Promise<void>(resolve => { complete = resolve; });
+  const request: RequestFn = async <T,>(path: string, options?: { method?: string }) => {
+    if (options?.method === 'POST') { await pending; return { id: 9 } as T; }
+    if (path === '/api/members') return [] as T;
+    return pageResult([]) as T;
+  };
+  const user = userEvent.setup();
+  render(<QueryClientProvider client={new QueryClient()}><TransactionsPage request={request} role="OWNER" userId={7} /></QueryClientProvider>);
+  await user.click(screen.getByRole('button', { name: '记一笔' }));
+  await user.type(screen.getByLabelText('金额'), '28.50');
+  fireEvent.submit(screen.getByLabelText('金额').closest('form')!);
+  expect(await screen.findByRole('button', { name: '关闭' })).toBeDisabled();
+  expect(screen.getByLabelText('金额')).toBeDisabled();
+  await user.keyboard('{Escape}');
+  fireEvent.mouseDown(screen.getByRole('dialog').parentElement!);
+  expect(screen.getByLabelText('金额')).toHaveValue('28.50');
+  expect(screen.queryByRole('dialog', { name: '放弃未保存的修改？' })).not.toBeInTheDocument();
+  await act(async () => complete());
+  await screen.findByRole('button', { name: '记一笔' });
+  await user.click(screen.getByRole('button', { name: '记一笔' }));
+  expect(screen.getByLabelText('金额')).toHaveValue('');
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
 it('creates a transaction with selected server account category and member', async () => {

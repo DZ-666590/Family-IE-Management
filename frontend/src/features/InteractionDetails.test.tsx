@@ -30,3 +30,9 @@ it('shows field guidance and never paints a nonzero bar for zero money', () => {
   expect([...bars].every(bar=>bar.getAttribute('height')==='0')).toBe(true);
   expect([...container.querySelectorAll('.history-figure circle title')].map(item=>item.textContent)).toEqual(['2026-09-01：¥10.00','2026-09-02：-¥20.00']);
 });
+
+it('links grouped validation errors to the relevant editable fieldset', () => {
+  render(<form><FormError error={new ApiError('请检查期次', { status: 400, fields: { customSchedule: '期次数量不匹配' } })} /><fieldset tabIndex={-1} data-field="customSchedule"><legend>自定义期次</legend><input aria-label="期次金额" /></fieldset></form>);
+  expect(screen.getByRole('group', { name: '自定义期次' })).toHaveFocus();
+  expect(screen.getByRole('group', { name: '自定义期次' })).toHaveAccessibleDescription('期次数量不匹配');
+});

@@ -8,5 +8,9 @@ export function errorMessage(error: unknown): { message: string; requestId?: str
 }
 
 export function focusField(field: string): void {
-  queueMicrotask(() => document.getElementById(field)?.focus());
+  queueMicrotask(() => {
+    const element = document.getElementById(field);
+    element?.focus();
+    element?.scrollIntoView?.({ block: 'nearest' });
+  });
 }

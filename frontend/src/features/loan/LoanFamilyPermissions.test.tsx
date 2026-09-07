@@ -1,11 +1,55 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LoansPage, annualRatePercentError, formatAnnualRatePercent, loanCreatePayload, type LoanDraft } from './LoansPage';
 import { FamilyPage } from '../family/FamilyPage';
 import type { RequestFn } from '../common';
+import { ApiError } from '../../api/client';
 
 const wrap = (node: React.ReactNode) => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>;
+
+it('returns server validation to the earlier wizard step and preserves the whole draft', async () => {
+  const request: RequestFn = async <T,>(path: string, options?: { method?: string }) => {
+    if (options?.method === 'POST') throw new ApiError('请检查合同', { status: 400, fields: { principal: '本金不符合要求' } });
+    return (path === '/api/members' ? [] : { items: [], page: 0, size: 50, totalElements: 0, totalPages: 0, hasNext: false }) as T;
+  };
+  const user = userEvent.setup(); render(wrap(<LoansPage request={request} role="OWNER" />));
+  await user.click(screen.getByRole('button', { name: '新建贷款' }));
+  await user.type(screen.getByLabelText('贷款名称'), '保留合同');
+  await user.type(screen.getByLabelText('本金'), '1000');
+  fireEvent.submit(screen.getByLabelText('本金').closest('form')!);
+  await user.type(screen.getByLabelText('年利率（%）'), '3.6');
+  fireEvent.submit(screen.getByLabelText('年利率（%）').closest('form')!);
+  fireEvent.submit(screen.getByLabelText('关联资产').closest('form')!);
+  await screen.findByText('本金不符合要求');
+  expect(screen.getByLabelText('本金')).toHaveValue('1000');
+  expect(screen.getByLabelText('本金')).toHaveFocus();
+  expect(screen.getByLabelText('贷款名称')).toHaveValue('保留合同');
+  fireEvent.submit(screen.getByLabelText('本金').closest('form')!);
+  expect(screen.getByLabelText('年利率（%）')).toHaveValue('3.6');
+});
+
+it('closes an invite success view cleanly and starts the next invite with defaults', async () => {
+  const request: RequestFn = async <T,>(path: string, options?: { method?: string }) => {
+    if (options?.method === 'POST') return { token: 'one-time-token', role: 'ADMIN', maxUses: 8, expiresAt: '2026-09-08' } as T;
+    if (path === '/api/family') return { id: 1, name: '家庭', status: 'ACTIVE', archivedAt: null } as T;
+    return { items: [], page: 0, size: 50, totalElements: 0, totalPages: 0, hasNext: false } as T;
+  };
+  const user = userEvent.setup(); render(wrap(<FamilyPage request={request} role="OWNER" />));
+  await user.click(screen.getByRole('button', { name: '邀请成员' }));
+  await user.selectOptions(screen.getByLabelText('邀请角色'), 'ADMIN');
+  await user.clear(screen.getByLabelText('最多使用次数'));
+  await user.type(screen.getByLabelText('最多使用次数'), '8');
+  await user.click(screen.getByRole('button', { name: '创建邀请' }));
+  await screen.findByText('邀请已创建');
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: '邀请成员' }));
+  expect(screen.getByLabelText('邀请角色')).toHaveValue('MEMBER');
+  expect(screen.getByLabelText('最多使用次数')).toHaveValue(5);
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
 
 it('keeps financial management read-only for members and owner controls exclusive', async () => {
   const request = vi.fn(async (path: string) => {

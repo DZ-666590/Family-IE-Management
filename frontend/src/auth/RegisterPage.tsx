@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import Input from '@douyinfe/semi-ui/lib/es/input';
 import Radio from '@douyinfe/semi-ui/lib/es/radio';
@@ -8,6 +8,7 @@ import type { RegisterRequest } from '../api/contracts';
 import { useAuth } from './AuthProvider';
 import { AuthDiagnostics, AuthFrame } from './AuthFrame';
 import { errorMessage, focusField } from './form-utils';
+import { useDraftProtection } from '../shared/draft-guard';
 
 type Mode = RegisterRequest['mode'];
 type FormErrors = Record<string, string>;
@@ -29,6 +30,15 @@ export function RegisterPage() {
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string>();
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const field = Object.keys(errors)[0];
+    if (!busy && field) focusField(field);
+  }, [busy, errors]);
+  const generation = useRef(0);
+  useEffect(() => () => { generation.current += 1; }, []);
+  const protection = useDraftProtection({ draft: { mode, email, displayName, password, householdName, inviteToken }, busy,
+    onDiscard: () => { generation.current += 1; setBusy(false); setMode('CREATE'); setEmail(''); setDisplayName(''); setPassword(''); setHouseholdName(''); setInviteToken(''); setErrors({}); setGeneralError(null); setRequestId(undefined); }
+  });
 
   function validate(): FormErrors {
     const next: FormErrors = {};
@@ -42,6 +52,8 @@ export function RegisterPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
+    const scope = generation.current;
     const nextErrors = validate();
     if (Object.keys(nextErrors).length) {
       setErrors(nextErrors);
@@ -62,8 +74,11 @@ export function RegisterPage() {
     setRequestId(undefined);
     try {
       await register(request);
+      if (scope !== generation.current) return;
+      protection.release();
       navigate('/workspace/overview', { replace: true });
     } catch (cause) {
+      if (scope !== generation.current) return;
       const failure = errorMessage(cause);
       setErrors(failure.fields ?? {});
       setGeneralError(failure.message);
@@ -71,7 +86,7 @@ export function RegisterPage() {
       const firstField = Object.keys(failure.fields ?? {})[0];
       if (firstField) focusField(firstField);
     } finally {
-      setBusy(false);
+      if (scope === generation.current) setBusy(false);
     }
   }
 
@@ -81,6 +96,7 @@ export function RegisterPage() {
       footer={<>已有账号？ <Link to="/login">返回登录</Link></>}
     >
       <RadioGroup
+        disabled={busy}
         className="registration-mode"
         value={mode}
         onChange={event => {
@@ -97,28 +113,28 @@ export function RegisterPage() {
       {generalError && <div className="form-alert" role="alert">{generalError}</div>}
       <form className="auth-form" onSubmit={submit} noValidate>
         <label htmlFor="email">邮箱</label>
-        <Input id="email" value={email} onChange={setEmail} autoComplete="email" inputMode="email" aria-describedby={errors.email ? 'email-error' : undefined} placeholder="name@example.com" />
+        <Input disabled={busy} id="email" value={email} onChange={setEmail} autoComplete="email" inputMode="email" aria-describedby={errors.email ? 'email-error' : undefined} placeholder="name@example.com" />
         <FieldError id="email-error">{errors.email}</FieldError>
 
         <label htmlFor="displayName">姓名</label>
-        <Input id="displayName" value={displayName} onChange={setDisplayName} autoComplete="name" aria-describedby={errors.displayName ? 'displayName-error' : undefined} placeholder="家庭成员如何称呼你" maxLength={40} />
+        <Input disabled={busy} id="displayName" value={displayName} onChange={setDisplayName} autoComplete="name" aria-describedby={errors.displayName ? 'displayName-error' : undefined} placeholder="家庭成员如何称呼你" maxLength={40} />
         <FieldError id="displayName-error">{errors.displayName}</FieldError>
 
         <label htmlFor="password">密码</label>
-        <Input id="password" mode="password" value={password} onChange={setPassword} autoComplete="new-password" aria-describedby={errors.password ? 'password-help password-error' : 'password-help'} placeholder="设置登录密码" />
+        <Input disabled={busy} id="password" mode="password" value={password} onChange={setPassword} autoComplete="new-password" aria-describedby={errors.password ? 'password-help password-error' : 'password-help'} placeholder="设置登录密码" />
         <p className="field-help" id="password-help">8–72 个字符</p>
         <FieldError id="password-error">{errors.password}</FieldError>
 
         {mode === 'CREATE' ? (
           <>
             <label htmlFor="householdName">家庭名称</label>
-            <Input id="householdName" value={householdName} onChange={setHouseholdName} aria-describedby={errors.householdName ? 'householdName-error' : undefined} placeholder="例如：凯文之家" />
+            <Input disabled={busy} id="householdName" value={householdName} onChange={setHouseholdName} aria-describedby={errors.householdName ? 'householdName-error' : undefined} placeholder="例如：凯文之家" />
             <FieldError id="householdName-error">{errors.householdName}</FieldError>
           </>
         ) : (
           <>
             <label htmlFor="inviteToken">邀请码</label>
-            <Input id="inviteToken" value={inviteToken} onChange={setInviteToken} aria-describedby={errors.inviteToken ? 'inviteToken-error' : undefined} placeholder="粘贴家庭管理员发来的邀请码" />
+            <Input disabled={busy} id="inviteToken" value={inviteToken} onChange={setInviteToken} aria-describedby={errors.inviteToken ? 'inviteToken-error' : undefined} placeholder="粘贴家庭管理员发来的邀请码" />
             <FieldError id="inviteToken-error">{errors.inviteToken}</FieldError>
           </>
         )}

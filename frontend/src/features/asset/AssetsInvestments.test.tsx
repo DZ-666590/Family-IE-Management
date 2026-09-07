@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AssetsPage } from './AssetsPage';
 import { InvestmentsPage } from '../investment/InvestmentsPage';
@@ -10,6 +10,66 @@ import { ApiError } from '../../api/client';
 
 const wrap = (node: React.ReactNode) => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>;
 const page = <T,>(items: T[]) => ({ items, page: 0, size: 50, totalElements: items.length, totalPages: items.length ? 1 : 0, hasNext: false });
+
+it('protects programmatic security selection and only dismisses the top nested confirmation', async () => {
+  let registered = false;
+  const request: RequestFn = async <T,>(path: string) => {
+    if (path === '/api/portfolio') return { positions: [], totals: { cost: '0', marketValue: '0', realizedProfit: '0', unrealizedProfit: '0', totalProfit: '0', unpricedPositions: 0 } } as T;
+    if (path === '/api/market-quotes') return [] as T;
+    if (path === '/api/securities/resolve') { registered = true; return { id: 5, tsCode: '000001.SZ', name: '平安银行' } as T; }
+    if (path.startsWith('/api/securities/search')) return page(registered ? [{ id: 5, tsCode: '000001.SZ', name: '平安银行' }] : []) as T;
+    return page([]) as T;
+  };
+  const user = userEvent.setup(); render(wrap(<InvestmentsPage request={request} role="OWNER" />));
+  await user.click(screen.getByRole('button', { name: '记一笔投资' }));
+  await user.click(screen.getByRole('button', { name: '登记证券' }));
+  await user.type(screen.getByLabelText('六位代码'), '000001');
+  await user.keyboard('{Escape}');
+  await user.keyboard('{Escape}');
+  expect(screen.getByRole('dialog', { name: '登记 A 股证券' })).toBeInTheDocument();
+  expect(screen.queryByRole('dialog', { name: '放弃未保存的修改？' })).not.toBeInTheDocument();
+  await user.type(screen.getByLabelText('证券名称'), '平安银行');
+  await user.click(screen.getByRole('button', { name: '登记并选择' }));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '登记 A 股证券' })).not.toBeInTheDocument());
+  expect(screen.getByRole('button', { name: '登记证券' })).toHaveFocus();
+  expect(await screen.findByRole('option', { name: '000001.SZ · 平安银行' })).toBeInTheDocument();
+  expect(screen.getByLabelText('证券')).toHaveValue('5');
+  await user.keyboard('{Escape}');
+  expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeInTheDocument();
+});
+
+it('makes a saved valuation clean and discards unfinished valuation fields when closing', async () => {
+  let saves = 0;
+  const asset = { id: 4, name: '车辆', type: 'OTHER', ownerMemberId: null, acquiredOn: null, purchaseValue: null, currentValue: '500', status: 'ACTIVE', createdBy: 7, archivedAt: null, property: null, vehicle: null };
+  const request: RequestFn = async <T,>(path: string, options?: { method?: string }) => {
+    if (options?.method === 'POST') { if (++saves > 1) throw new ApiError('估值保存失败', { status: 400 }); return { id: 9 } as T; }
+    if (path.includes('/valuations')) return page([]) as T;
+    if (path.startsWith('/api/assets')) return page([asset]) as T;
+    if (path === '/api/members') return [] as T;
+    if (path === '/api/net-worth') return { asset: '500', liability: '0', netWorth: '500' } as T;
+    return page([]) as T;
+  };
+  const user = userEvent.setup(); render(wrap(<AssetsPage request={request} role="OWNER" />));
+  await user.click((await screen.findAllByRole('button', { name: '估值' }))[0]);
+  await user.type(screen.getByLabelText('当前价值'), '600');
+  fireEvent.submit(screen.getByLabelText('当前价值').closest('form')!);
+  await waitFor(() => expect(screen.getByLabelText('当前价值')).toHaveValue(''));
+  await user.type(screen.getByLabelText('当前价值'), '700');
+  fireEvent.submit(screen.getByLabelText('当前价值').closest('form')!);
+  await screen.findByText('估值保存失败');
+  await user.keyboard('{Escape}');
+  expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: '继续编辑' }));
+  await user.clear(screen.getByLabelText('当前价值'));
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  await user.click(screen.getAllByRole('button', { name: '估值' })[0]);
+  await user.type(screen.getByLabelText('依据说明'), '应清除的旧草稿');
+  await user.keyboard('{Escape}');
+  await user.click(screen.getByRole('button', { name: '放弃修改' }));
+  await user.click(screen.getAllByRole('button', { name: '估值' })[0]);
+  expect(screen.getByLabelText('依据说明')).toHaveValue('');
+});
 
 it('shows server asset values and quote provenance without member mutations', async () => {
   const request = vi.fn(async (path: string) => {

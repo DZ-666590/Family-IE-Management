@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { createMemoryRouter, Link, MemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
+import { DraftGuardProvider, useDraftRegistry } from '../shared/draft-guard';
 import { ApiError } from '../api/client';
 import { AuthContext, type AuthContextValue } from './AuthProvider';
 import { AuthProvider, useAuth } from './AuthProvider';
@@ -25,6 +26,96 @@ const renderWithAuth = (ui: React.ReactNode, value: AuthContextValue) => render(
     <AuthContext.Provider value={value}>{ui}</AuthContext.Provider>
   </MemoryRouter>
 );
+
+it.each(['registration', 'password'])('protects standalone %s input on navigation', async kind => {
+  const router = createMemoryRouter([{ element: <DraftGuardProvider><AuthContext.Provider value={authValue()}><Outlet /></AuthContext.Provider></DraftGuardProvider>, children: [
+    { path: '/', element: <><Link to="/login">离开页面</Link>{kind === 'registration' ? <RegisterPage /> : <ChangePasswordPage />}</> },
+    { path: '/login', element: <p>登录目标</p> }
+  ] }]);
+  const user = userEvent.setup(); render(<RouterProvider router={router} />);
+  const field = kind === 'registration' ? '邮箱' : '当前密码';
+  await user.type(screen.getByLabelText(field), 'private-draft');
+  await user.click(screen.getByRole('link', { name: '离开页面' }));
+  expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: '继续编辑' }));
+  expect(screen.getByLabelText(field)).toHaveValue('private-draft');
+  await user.click(screen.getByRole('link', { name: '离开页面' }));
+  await user.click(screen.getByRole('button', { name: '放弃修改' }));
+  expect(await screen.findByText('登录目标')).toBeInTheDocument();
+});
+
+it('allows successful registration to navigate without blocking its own submitted draft', async () => {
+  const router = createMemoryRouter([{ element: <DraftGuardProvider><AuthContext.Provider value={authValue({ register: async () => {} })}><Outlet /></AuthContext.Provider></DraftGuardProvider>, children: [
+    { path: '/', element: <RegisterPage /> }, { path: '/workspace/overview', element: <p>家庭空间</p> }
+  ] }]);
+  const user = userEvent.setup(); render(<RouterProvider router={router} />);
+  await user.type(screen.getByLabelText('邮箱'), 'parent@example.com');
+  await user.type(screen.getByLabelText('姓名'), '成员');
+  await user.type(screen.getByLabelText('密码'), 'family-123');
+  await user.type(screen.getByLabelText('家庭名称'), '共同之家');
+  await user.click(screen.getByRole('button', { name: '创建家庭' }));
+  expect(await screen.findByText('家庭空间')).toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
+it.each(['logout', 'expiry'])('clears private settings inputs and pending route guards on %s', async reason => {
+  const session = { userId: 7, householdId: 1, email: 'a@example.com', displayName: 'A', role: 'OWNER', username: 'a' };
+  const json = (data: unknown) => new Response(JSON.stringify({ data }), { status: 200 });
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === '/api/session') return json(session);
+    if (path === '/api/csrf') return json({ headerName: 'X-CSRF', token: 'test', parameterName: '_csrf' });
+    if (path === '/api/expire') return new Response(JSON.stringify({ error: { code: 'AUTH_REQUIRED', message: 'expired' } }), { status: 401 });
+    return json(null);
+  });
+  function SessionControls() {
+    const auth = useAuth();
+    return <><p>{auth.status}</p><button onClick={() => reason === 'logout' ? void auth.logout() : void auth.request('/api/expire').catch(() => {})}>结束会话</button><Link to="/next">离开设置</Link><ChangePasswordPage /></>;
+  }
+  const router = createMemoryRouter([{ element: <DraftGuardProvider><AuthProvider><Outlet /></AuthProvider></DraftGuardProvider>, children: [
+    { path: '/', element: <SessionControls /> }, { path: '/next', element: <p>离开完成</p> }
+  ] }]);
+  const user = userEvent.setup(); render(<QueryClientProvider client={new QueryClient()}><RouterProvider router={router} /></QueryClientProvider>);
+  await screen.findByText('authenticated');
+  await user.type(screen.getByLabelText('当前密码'), 'private-password');
+  await user.click(screen.getByRole('button', { name: '结束会话' }));
+  await screen.findByText('anonymous');
+  expect(screen.getByLabelText('当前密码')).toHaveValue('');
+  await user.click(screen.getByRole('link', { name: '离开设置' }));
+  expect(await screen.findByText('离开完成')).toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  vi.unstubAllGlobals();
+});
+
+it('does not apply a late settings failure after mandatory draft cleanup', async () => {
+  let rejectSave!: (error: Error) => void;
+  const pending = new Promise<void>((_, reject) => { rejectSave = reject; });
+  function ClearControl() { const registry = useDraftRegistry(); return <button onClick={() => registry?.clear()}>清除会话</button>; }
+  const router = createMemoryRouter([{ path: '*', element: <DraftGuardProvider><ClearControl /><AuthContext.Provider value={authValue({ changePassword: () => pending })}><ChangePasswordPage /></AuthContext.Provider></DraftGuardProvider> }]);
+  const user = userEvent.setup(); render(<RouterProvider router={router} />);
+  await user.type(screen.getByLabelText('当前密码'), 'old-secret');
+  await user.type(screen.getByLabelText('新密码'), 'new-secret');
+  await user.type(screen.getByLabelText('确认新密码'), 'new-secret');
+  await user.click(screen.getByRole('button', { name: '更新密码' }));
+  expect(screen.getByLabelText('当前密码')).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: '清除会话' }));
+  await act(async () => rejectSave(new ApiError('旧请求错误', { status: 400 })));
+  expect(screen.getByLabelText('当前密码')).toHaveValue('');
+  expect(screen.queryByText('旧请求错误')).not.toBeInTheDocument();
+});
+
+it('focuses and describes the failed password field after re-enabling settings inputs', async () => {
+  const user = userEvent.setup();
+  renderWithAuth(<ChangePasswordPage />, authValue({ changePassword: async () => { throw new ApiError('密码更新失败', { status: 400, fields: { currentPassword: '当前密码不正确' } }); } }));
+  await user.type(screen.getByLabelText('当前密码'), 'old-secret');
+  await user.type(screen.getByLabelText('新密码'), 'new-secret');
+  await user.type(screen.getByLabelText('确认新密码'), 'new-secret');
+  await user.click(screen.getByRole('button', { name: '更新密码' }));
+  await screen.findByText('当前密码不正确');
+  expect(screen.getByLabelText('当前密码')).toHaveValue('old-secret');
+  expect(screen.getByLabelText('当前密码')).toHaveFocus();
+  expect(screen.getByLabelText('当前密码')).toHaveAccessibleDescription('当前密码不正确');
+});
 
 function AuthWriteProbe() {
   const auth = useAuth();
