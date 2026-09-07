@@ -53,6 +53,14 @@ public class InvestmentTrade {
     @Column(name = "traded_on", nullable = false)
     private LocalDate tradedOn;
 
+    @Column(name = "cash_account_id")
+    private Long cashAccountId;
+    @Column(name = "accounting_confirmed", nullable = false)
+    private boolean accountingConfirmed;
+    public Long getCashAccountId() { return cashAccountId; }
+    public boolean isAccountingConfirmed() { return accountingConfirmed; }
+    void confirmAccounting(Long cashId) { cashAccountId=cashId; accountingConfirmed=true; }
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by", nullable = false, updatable = false)
     private AppUser createdBy;

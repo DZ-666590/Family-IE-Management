@@ -21,10 +21,12 @@ public class AssetController {
 
     private final AssetService assets;
     private final AssetValuationService valuations;
+    private final com.familyfinance.accounting.AccountingCommandExecutor executor;
 
-    public AssetController(AssetService assets, AssetValuationService valuations) {
+    public AssetController(AssetService assets, AssetValuationService valuations,com.familyfinance.accounting.AccountingCommandExecutor executor) {
         this.assets = assets;
         this.valuations = valuations;
+        this.executor=executor;
     }
 
     @GetMapping
@@ -45,20 +47,26 @@ public class AssetController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    ApiEnvelope<AssetResponse> create(Authentication authentication, @RequestBody AssetCreateRequest request) {
-        return ApiEnvelope.data(assets.create(authentication, request));
+    ApiEnvelope<AssetResponse> create(Authentication authentication, @RequestBody AssetCreateRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        return ApiEnvelope.data(executor.execute(()->assets.create(authentication, request,key)));
     }
 
     @PatchMapping("/{id}")
     ApiEnvelope<AssetResponse> update(
-            Authentication authentication, @PathVariable long id, @RequestBody AssetPatchRequest request) {
-        return ApiEnvelope.data(assets.update(authentication, id, request));
+            Authentication authentication, @PathVariable long id, @RequestBody AssetPatchRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        return ApiEnvelope.data(executor.execute(()->assets.update(authentication, id, request,key)));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void archive(Authentication authentication, @PathVariable long id) {
-        assets.archive(authentication, id);
+    void archive(Authentication authentication, @PathVariable long id,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        executor.execute(()->{assets.archive(authentication, id,key);return null;});
     }
 
     @GetMapping("/{id}/valuations")
@@ -76,8 +84,17 @@ public class AssetController {
     ApiEnvelope<AssetValuationResponse> createValuation(
             Authentication authentication,
             @PathVariable long id,
-            @RequestBody AssetValuationRequest request) {
-        return ApiEnvelope.data(valuations.create(authentication, id, request));
+            @RequestBody AssetValuationRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        return ApiEnvelope.data(executor.execute(()->valuations.create(authentication, id, request,key)));
+    }
+
+    @PostMapping("/{id}/dispose")
+    ApiEnvelope<AssetResponse> dispose(Authentication authentication,@PathVariable long id,@RequestBody AssetDisposalRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        return ApiEnvelope.data(executor.execute(()->assets.dispose(authentication,id,request,key)));
     }
 
     private static <T> ResponseEntity<ApiEnvelope<T>> pageResponse(

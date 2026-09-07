@@ -108,13 +108,13 @@ class ReportingApiTest {
     }
 
     @Test
-    void netWorthReadEnsuresTodaysSnapshotIsAvailableToTheDashboard() throws Exception {
+    void netWorthReadDoesNotCreateSnapshots() throws Exception {
         MockHttpSession session = login();
 
         mvc.perform(get("/api/net-worth").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.history.length()")
-                        .value(org.hamcrest.Matchers.greaterThan(0)));
+                        .value(0));
     }
 
     private MockHttpSession login() throws Exception {

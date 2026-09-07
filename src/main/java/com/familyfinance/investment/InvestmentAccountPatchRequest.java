@@ -7,5 +7,6 @@ public record InvestmentAccountPatchRequest(
         String brokerName,
         String currency,
         Long createdBy,
-        Instant archivedAt) {
+        Instant archivedAt, Long fundingAccountId) {
+    public InvestmentAccountPatchRequest(String name,String brokerName,String currency,Long createdBy,Instant archivedAt){this(name,brokerName,currency,createdBy,archivedAt,null);}
 }

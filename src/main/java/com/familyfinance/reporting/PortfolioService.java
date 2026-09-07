@@ -20,22 +20,32 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@Transactional(readOnly = true)
+@Transactional(readOnly = true, isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
 public class PortfolioService {
     private final InvestmentTradeRepository trades;
     private final QuoteRefreshService prices;
+    private final com.familyfinance.accounting.LedgerReportingService ledger;
+    private final java.time.Clock clock;
     private final PositionCalculator calculator = new PositionCalculator();
 
-    public PortfolioService(InvestmentTradeRepository trades, QuoteRefreshService prices) {
+    public PortfolioService(InvestmentTradeRepository trades, QuoteRefreshService prices,com.familyfinance.accounting.LedgerReportingService ledger,java.time.Clock clock) {
         this.trades = trades;
         this.prices = prices;
+        this.ledger=ledger;this.clock=clock;
     }
 
     public PortfolioResponse portfolio(long householdId) {
+        return portfolio(householdId,java.time.LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai"))));
+    }
+
+    public PortfolioResponse portfolio(long householdId,java.time.LocalDate asOf) {
+        ledger.requireComplete(householdId);
+        if(asOf==null||asOf.getYear()<1000||asOf.isAfter(java.time.LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai")))))
+            throw new com.familyfinance.shared.RequestValidationException(java.util.Map.of("asOf","截止日期必须在1000年至今天之间"));
+        var ledgerCosts=ledger.balancesAsOf(householdId,asOf);
         Map<Long, MarketPriceResponse> effective = new LinkedHashMap<>();
-        prices.effectivePrices(householdId).forEach(price -> effective.put(price.securityId(), price));
         Map<PositionKey, List<InvestmentTrade>> grouped = new LinkedHashMap<>();
-        for (InvestmentTrade trade : trades.findActiveAccountTradesByHouseholdId(householdId)) {
+        for (InvestmentTrade trade : trades.historyAsOf(householdId,asOf)) {
             grouped.computeIfAbsent(new PositionKey(trade.getAccount().getId(), trade.getSecurity().getId()), ignored -> new ArrayList<>())
                     .add(trade);
         }
@@ -43,13 +53,16 @@ public class PortfolioService {
         List<CalculatedPosition> calculated = new ArrayList<>();
         for (List<InvestmentTrade> history : grouped.values()) {
             InvestmentTrade first = history.get(0);
-            MarketPriceResponse price = effective.get(first.getSecurity().getId());
+            MarketPriceResponse price = effective.computeIfAbsent(first.getSecurity().getId(),id->prices.effectivePriceAsOf(householdId,first.getSecurity(),asOf));
             Long priceCents = price == null || price.price() == null ? null : Money.parseCents(price.price());
             InvestmentPosition position = calculator.calculate(history.stream()
                     .map(trade -> new PositionTrade(trade.getId(), trade.getTradedOn(), trade.getType(), trade.getQuantity(),
                             trade.getPriceCents(), trade.getFeeCents()))
                     .toList(), priceCents);
-            if (position.quantity().signum() > 0) calculated.add(new CalculatedPosition(first, position, price));
+            if(position.costCents()!=ledgerCosts.getOrDefault("POSITION:"+first.getAccount().getId()+":"+first.getSecurity().getId(),0L))
+                throw new com.familyfinance.shared.ResourceConflictException("ACCOUNTING_BALANCE_MISMATCH","持仓历史成本与截止日账务成本不一致，请核对来源");
+            if(position.quantity().signum()==0)position=calculator.calculate(history.stream().map(trade -> new PositionTrade(trade.getId(),trade.getTradedOn(),trade.getType(),trade.getQuantity(),trade.getPriceCents(),trade.getFeeCents())).toList(),0L);
+            calculated.add(new CalculatedPosition(first, position, price));
         }
         calculated.sort(Comparator.comparing((CalculatedPosition value) -> value.trade().getAccount().getName())
                 .thenComparing(value -> value.trade().getSecurity().getTsCode())
@@ -74,7 +87,9 @@ public class PortfolioService {
                 Money.formatCents(position.costCents()), price == null ? null : price.price(), cents(position.marketValueCents()),
                 Money.formatCents(position.realizedProfitCents()), cents(position.unrealizedProfitCents()), cents(totalProfit), allocation,
                 price == null ? null : price.source(), price == null ? null : price.tradeDate(), price == null ? null : price.fetchedAt(),
-                price == null || price.stale(), price == null ? "NO_QUOTE" : price.error());
+                price == null || price.stale(), price == null ? "NO_QUOTE" : price.error(),
+                Money.formatCents(position.marketValueCents()==null?position.costCents():position.marketValueCents()),
+                position.quantity().signum()==0?"CLOSED":position.marketValueCents()==null?"COST_ESTIMATE":"QUOTED");
     }
 
     private static String cents(Long value) {
@@ -84,16 +99,18 @@ public class PortfolioService {
     private record PositionKey(long accountId, long securityId) { }
     private record CalculatedPosition(InvestmentTrade trade, InvestmentPosition position, MarketPriceResponse price) { }
 
-    private record Totals(long cost, long realized, Long marketValue, Long unrealized, int unpriced) {
+    private record Totals(long cost, long realized, Long marketValue, Long unrealized, int unpriced,long estimated) {
         static Totals from(List<CalculatedPosition> positions) {
             BigInteger cost = BigInteger.ZERO;
             BigInteger realized = BigInteger.ZERO;
             BigInteger value = BigInteger.ZERO;
             BigInteger unrealized = BigInteger.ZERO;
+            BigInteger estimated=BigInteger.ZERO;
             int unpriced = 0;
             for (CalculatedPosition position : positions) {
                 cost = cost.add(BigInteger.valueOf(position.position().costCents()));
                 realized = realized.add(BigInteger.valueOf(position.position().realizedProfitCents()));
+                estimated=estimated.add(BigInteger.valueOf(position.position().marketValueCents()==null?position.position().costCents():position.position().marketValueCents()));
                 if (position.position().marketValueCents() == null) unpriced++;
                 else {
                     value = value.add(BigInteger.valueOf(position.position().marketValueCents()));
@@ -101,13 +118,13 @@ public class PortfolioService {
                 }
             }
             return new Totals(cost.longValueExact(), realized.longValueExact(), unpriced == 0 ? value.longValueExact() : null,
-                    unpriced == 0 ? unrealized.longValueExact() : null, unpriced);
+                    unpriced == 0 ? unrealized.longValueExact() : null, unpriced,estimated.longValueExact());
         }
 
         PortfolioTotalsResponse response() {
             Long total = unrealized == null ? null : Math.addExact(realized, unrealized);
             return new PortfolioTotalsResponse(Money.formatCents(cost), cents(marketValue), Money.formatCents(realized),
-                    cents(unrealized), cents(total), unpriced);
+                    cents(unrealized), cents(total), unpriced,Money.formatCents(estimated));
         }
     }
 }

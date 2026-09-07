@@ -27,8 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 @SpringBootTest(properties = "app.seed.enabled=false")
 @Transactional
 class DashboardServiceTest {
+    @Autowired org.springframework.context.ApplicationContext context;
 
-    private static final Instant TEST_TIME = Instant.parse("2026-09-01T00:00:00Z");
+    private static final Instant TEST_TIME = Instant.parse("2025-09-01T00:00:00Z");
 
     @Autowired
     DashboardService dashboardService;
@@ -71,7 +72,7 @@ class DashboardServiceTest {
                 salary,
                 TransactionKind.INCOME,
                 500000L,
-                LocalDate.parse("2026-09-05"),
+                LocalDate.parse("2025-09-05"),
                 "公司",
                 "杭州",
                 "工资",
@@ -85,7 +86,7 @@ class DashboardServiceTest {
                 food,
                 TransactionKind.EXPENSE,
                 12000L,
-                LocalDate.parse("2026-09-10"),
+                LocalDate.parse("2025-09-10"),
                 "菜场",
                 "杭州",
                 "餐饮",
@@ -99,14 +100,15 @@ class DashboardServiceTest {
                 transport,
                 TransactionKind.EXPENSE,
                 8000L,
-                LocalDate.parse("2026-09-07"),
+                LocalDate.parse("2025-09-07"),
                 "地铁",
                 "杭州",
                 "交通",
                 TEST_TIME,
                 TEST_TIME));
 
-        DashboardResponse dashboard = dashboardService.dashboard(household.getId(), YearMonth.parse("2026-09"));
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,household.getId());
+        DashboardResponse dashboard = dashboardService.dashboard(household.getId(), YearMonth.parse("2025-09"));
 
         assertThat(dashboard.summary().income()).isEqualTo("5000.00");
         assertThat(dashboard.summary().expense()).isEqualTo("200.00");
@@ -114,9 +116,9 @@ class DashboardServiceTest {
         assertThat(dashboard.daily())
                 .extracting(DailyTrendResponse::date, DailyTrendResponse::income, DailyTrendResponse::expense)
                 .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple("2026-09-05", "5000.00", "0.00"),
-                        org.assertj.core.groups.Tuple.tuple("2026-09-07", "0.00", "80.00"),
-                        org.assertj.core.groups.Tuple.tuple("2026-09-10", "0.00", "120.00"));
+                        org.assertj.core.groups.Tuple.tuple("2025-09-05", "5000.00", "0.00"),
+                        org.assertj.core.groups.Tuple.tuple("2025-09-07", "0.00", "80.00"),
+                        org.assertj.core.groups.Tuple.tuple("2025-09-10", "0.00", "120.00"));
         assertThat(dashboard.expenseByCategory())
                 .extracting(
                         ExpenseCategoryResponse::categoryName,

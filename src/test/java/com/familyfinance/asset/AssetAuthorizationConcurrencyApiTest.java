@@ -73,7 +73,7 @@ class AssetAuthorizationConcurrencyApiTest {
             Future<MvcResult> result = executor.submit(() -> mvc.perform(post("/api/assets")
                             .session(admin).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                             .content("""
-                                    {"name":"降级后资产","type":"OTHER","ownerMemberId":null,
+                                    {"name":"降级后资产","accountingMode":"OPENING","accountingOn":"2026-01-01","type":"OTHER","ownerMemberId":null,
                                      "acquiredOn":null,"purchaseValue":null,"currentValue":"1.00"}
                                     """))
                     .andReturn());

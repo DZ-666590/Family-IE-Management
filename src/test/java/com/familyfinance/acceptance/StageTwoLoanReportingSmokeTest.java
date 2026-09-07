@@ -58,12 +58,14 @@ class StageTwoLoanReportingSmokeTest {
                     {"kind":"EXPENSE","name":"贷款验收分类","color":"#3370FF"}
                     """), 201)).path("id").asLong();
 
+            long defaultCash=owner.data(owner.get("/api/accounts")).path("items").get(0).path("id").asLong();
+            owner.expect(owner.write("PATCH","/api/accounts/"+defaultCash,"{\"openingBalance\":\"0.00\",\"openingOn\":\"2026-01-01\"}"),200);
             JsonNode account = owner.data(owner.expect(owner.write("POST", "/api/accounts", """
                     {"name":"还款验收账户","type":"BANK","currency":"CNY","openingBalance":"10000.00","openingOn":"2026-01-01"}
                     """), 201));
             long accountId = account.path("id").asLong();
             JsonNode property = owner.data(owner.expect(owner.write("POST", "/api/assets", """
-                    {"name":"贷款抵押房产","type":"PROPERTY","acquiredOn":"2020-01-01",
+                    {"name":"贷款抵押房产","accountingMode":"OPENING","accountingOn":"2026-01-01","type":"PROPERTY","acquiredOn":"2020-01-01",
                      "purchaseValue":"9000.00","currentValue":"9000.00",
                      "property":{"address":"杭州验收路 1 号","areaSqm":"80.00","usageType":"SELF_USE"}}
                     """), 201));
@@ -96,14 +98,14 @@ class StageTwoLoanReportingSmokeTest {
             assertThat(owner.data(owner.get("/api/debt-analysis")).path("liability").asString()).isEqualTo("0.00");
 
             owner.data(owner.expect(owner.write("POST", "/api/notifications/generate", null), 200));
-            assertThat(owner.data(owner.get("/api/notifications")).path("items").toString()).contains("BUDGET_LIMIT");
+            assertThat(owner.data(owner.get("/api/notifications")).path("items").toString()).doesNotContain("BUDGET_LIMIT");
             AcceptanceClock.set(Instant.parse("2026-10-05T02:00:00Z"));
             owner.data(owner.expect(owner.write("POST", "/api/notifications/generate", null), 200));
             String notifications = owner.data(owner.get("/api/notifications")).path("items").toString();
-            assertThat(notifications).contains("BUDGET_LIMIT", "ASSET_VALUATION_STALE");
+            assertThat(notifications).contains("ASSET_VALUATION_STALE").doesNotContain("BUDGET_LIMIT");
             first.context().getBean(NetWorthSnapshotService.class).generate(householdId, TODAY);
             first.context().getBean(NetWorthSnapshotService.class).generate(householdId, TODAY);
-            assertThat(owner.data(owner.get("/api/net-worth")).path("history")).hasSize(2);
+            assertThat(owner.data(owner.get("/api/net-worth")).path("history")).hasSize(1);
             state = new State(loanId, installmentId, transactionId);
         }
 
@@ -113,8 +115,8 @@ class StageTwoLoanReportingSmokeTest {
             assertThat(owner.data(owner.get("/api/loans/" + state.loanId())).path("currentPrincipal").asString()).isEqualTo("0.00");
             assertThat(owner.data(owner.get("/api/loans/" + state.loanId() + "/schedule")).get(0)
                     .path("confirmedTransactionId").asLong()).isEqualTo(state.transactionId());
-            assertThat(owner.data(owner.get("/api/net-worth")).path("history")).hasSize(2);
-            assertThat(owner.data(owner.get("/api/notifications")).path("items").toString()).contains("BUDGET_LIMIT");
+            assertThat(owner.data(owner.get("/api/net-worth")).path("history")).hasSize(1);
+            assertThat(owner.data(owner.get("/api/notifications")).path("items").toString()).doesNotContain("BUDGET_LIMIT");
         }
     }
 

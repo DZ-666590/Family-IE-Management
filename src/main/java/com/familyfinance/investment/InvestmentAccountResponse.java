@@ -9,12 +9,12 @@ public record InvestmentAccountResponse(
         String currency,
         InvestmentAccountStatus status,
         long createdBy,
-        Instant archivedAt) {
+        Instant archivedAt, Long fundingAccountId) {
 
     static InvestmentAccountResponse from(InvestmentAccount account) {
         return new InvestmentAccountResponse(
                 account.getId(), account.getName(), account.getBrokerName(), account.getCurrency(),
                 account.isArchived() ? InvestmentAccountStatus.ARCHIVED : InvestmentAccountStatus.ACTIVE,
-                account.getCreatedBy().getId(), account.getArchivedAt());
+                account.getCreatedBy().getId(), account.getArchivedAt(), account.getFundingAccountId());
     }
 }

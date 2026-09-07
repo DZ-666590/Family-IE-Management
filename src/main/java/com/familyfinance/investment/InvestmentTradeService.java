@@ -45,6 +45,9 @@ public class InvestmentTradeService {
     private final FamilyMutationAuthorization mutationAuthorization;
     private final PositionCalculator calculator;
     private final Clock clock;
+    private final com.familyfinance.accounting.AccountingRequests requests;
+    private final InvestmentAccountingService accounting;
+    private final jakarta.persistence.EntityManager entities;
 
     public InvestmentTradeService(
             InvestmentTradeRepository trades,
@@ -52,7 +55,8 @@ public class InvestmentTradeService {
             SecurityService securityService,
             CurrentMembership currentMembership,
             FamilyMutationAuthorization mutationAuthorization,
-            Clock clock) {
+            Clock clock,com.familyfinance.accounting.AccountingRequests requests,
+            InvestmentAccountingService accounting,jakarta.persistence.EntityManager entities) {
         this.trades = trades;
         this.accountService = accountService;
         this.securityService = securityService;
@@ -60,6 +64,7 @@ public class InvestmentTradeService {
         this.mutationAuthorization = mutationAuthorization;
         this.calculator = new PositionCalculator();
         this.clock = clock;
+        this.requests=requests;this.accounting=accounting;this.entities=entities;
     }
 
     public InvestmentTradePage list(
@@ -103,15 +108,31 @@ public class InvestmentTradeService {
 
     @Transactional
     public InvestmentTradeMutationResponse create(Authentication authentication, InvestmentTradeRequest request) {
+        return create(authentication,request,com.familyfinance.accounting.AccountingRequests.key(null));
+    }
+    @Transactional
+    public InvestmentTradeMutationResponse create(Authentication authentication,InvestmentTradeRequest request,String key) {
         var access = mutationAuthorization.requireAdmin(authentication);
         long householdId = access.context().householdId();
+        String digest=requests.digest("INVESTMENT_TRADE_CREATE",access.context().userId(),request);
+        Long original=requests.replay(householdId,key,digest);
+        if(original!=null)return replayResponse(householdId,original);
         ParsedTrade parsed = parseCreate(householdId, request);
         if (parsed.account().isArchived()) throw archivedAccount();
+        var history=currentHistory(householdId,parsed.account().getId(),parsed.security().getId());
+        requireAppend(history,parsed.tradedOn(),parsed.type());
+        InvestmentPosition before=calculate(history);
+        accounting.requireBalance(householdId,parsed.account().getId(),parsed.security().getId(),before.costCents());
         try {
-            InvestmentTrade trade = trades.saveAndFlush(new InvestmentTrade(
+            InvestmentTrade trade = new InvestmentTrade(
                     access.household(), parsed.account(), parsed.security(), parsed.type(), parsed.quantity(),
-                    parsed.priceCents(), parsed.feeCents(), parsed.tradedOn(), access.membership().getUser()));
-            InvestmentPosition position = replay(householdId, parsed.account().getId(), parsed.security().getId());
+                    parsed.priceCents(), parsed.feeCents(), parsed.tradedOn(), access.membership().getUser());
+            trade.confirmAccounting(parsed.type()==InvestmentTradeType.OPENING?null:parsed.account().getFundingAccountId());
+            trades.saveAndFlush(trade);
+            history.add(trade);
+            InvestmentPosition position = calculate(history);
+            accounting.post(trade,before,position,access.context().userId(),key,false);
+            requests.record(householdId,key,digest,trade.getId());
             return mutationResponse(trade, position);
         } catch (DataIntegrityViolationException exception) {
             throw persistenceConflict();
@@ -121,27 +142,41 @@ public class InvestmentTradeService {
     @Transactional
     public InvestmentTradeMutationResponse update(
             Authentication authentication, long id, InvestmentTradePatchRequest request) {
+        return update(authentication,id,request,com.familyfinance.accounting.AccountingRequests.key(null));
+    }
+    @Transactional
+    public InvestmentTradeMutationResponse update(Authentication authentication,long id,InvestmentTradePatchRequest request,String key) {
         var access = mutationAuthorization.requireAdmin(authentication);
         long householdId = access.context().householdId();
-        InvestmentTrade trade = findOne(householdId, id);
+        String digest=requests.digest("INVESTMENT_TRADE_UPDATE:"+id,access.context().userId(),request);
+        if(requests.replay(householdId,key,digest)!=null)return replayResponse(householdId,id);
+        InvestmentTrade trade = findCurrent(householdId, id);
         requireManual(trade);
         rejectImmutablePatch(request);
         long oldAccountId = trade.getAccount().getId();
         long oldSecurityId = trade.getSecurity().getId();
+        var oldHistory=currentHistory(householdId,oldAccountId,oldSecurityId);
+        trade=oldHistory.stream().filter(t->t.getId()==id).findFirst().orElseThrow();
+        requireTail(oldHistory,id);
+        InvestmentPosition oldPosition=calculate(oldHistory);
+        accounting.requireBalance(householdId,oldAccountId,oldSecurityId,oldPosition.costCents());
+        oldHistory.removeIf(t->t.getId()==id);
         ParsedTrade parsed = parsePatch(householdId, trade, request);
-        if (parsed.account().isArchived() && parsed.account().getId() != oldAccountId) {
-            throw archivedAccount();
-        }
+        if(parsed.account().isArchived())throw archivedAccount();
+        if(oldAccountId!=parsed.account().getId()||oldSecurityId!=parsed.security().getId())
+            throw new ResourceConflictException("TRADE_POSITION_IMMUTABLE","更正不能更换投资账户或证券，请撤销尾笔后重新添加");
+        if(parsed.type()!=trade.getType())throw new ResourceConflictException("TRADE_TYPE_IMMUTABLE","更正不能更换交易类型，请撤销尾笔后重新添加");
+        requireAppend(oldHistory,parsed.tradedOn(),parsed.type());
+        InvestmentPosition before=calculate(oldHistory);
         try {
             trade.update(
                     parsed.account(), parsed.security(), parsed.type(), parsed.quantity(), parsed.priceCents(),
                     parsed.feeCents(), parsed.tradedOn());
             trades.flush();
-            if (oldAccountId != parsed.account().getId() || oldSecurityId != parsed.security().getId()) {
-                replay(householdId, oldAccountId, oldSecurityId);
-            }
-            InvestmentPosition position = replay(
-                    householdId, parsed.account().getId(), parsed.security().getId());
+            oldHistory.add(trade);
+            InvestmentPosition position = calculate(oldHistory);
+            accounting.post(trade,before,position,access.context().userId(),key,true);
+            requests.record(householdId,key,digest,id);
             return mutationResponse(trade, position);
         } catch (DataIntegrityViolationException exception) {
             throw persistenceConflict();
@@ -150,15 +185,26 @@ public class InvestmentTradeService {
 
     @Transactional
     public void delete(Authentication authentication, long id) {
+        delete(authentication,id,com.familyfinance.accounting.AccountingRequests.key(null));
+    }
+    @Transactional
+    public void delete(Authentication authentication,long id,String key) {
         var access = mutationAuthorization.requireAdmin(authentication);
         long householdId = access.context().householdId();
-        InvestmentTrade trade = findOne(householdId, id);
+        String digest=requests.digest("INVESTMENT_TRADE_DELETE:"+id,access.context().userId(),null);
+        if(requests.replay(householdId,key,digest)!=null)return;
+        InvestmentTrade trade = findCurrent(householdId, id);
         requireManual(trade);
         long accountId = trade.getAccount().getId();
         long securityId = trade.getSecurity().getId();
+        if(accountService.findCurrent(householdId,accountId).isArchived())throw archivedAccount();
+        var history=currentHistory(householdId,accountId,securityId);
+        requireTail(history,id);
+        accounting.requireBalance(householdId,accountId,securityId,calculate(history).costCents());
+        accounting.reverse(trade,access.context().userId(),key);
         trades.delete(trade);
         trades.flush();
-        replay(householdId, accountId, securityId);
+        requests.record(householdId,key,digest,id);
     }
 
     private ParsedTrade parseCreate(long householdId, InvestmentTradeRequest request) {
@@ -190,7 +236,7 @@ public class InvestmentTradeService {
             long householdId, InvestmentTrade trade, InvestmentTradePatchRequest request) {
         Map<String, String> fields = new LinkedHashMap<>();
         InvestmentAccount account = request == null || request.accountId() == null
-                ? trade.getAccount()
+                ? accountService.findCurrent(householdId,trade.getAccount().getId())
                 : resolveAccount(householdId, request.accountId(), fields);
         Security security = resolveSecurity(
                 request == null ? null : request.securityId(),
@@ -221,7 +267,7 @@ public class InvestmentTradeService {
             return null;
         }
         try {
-            return accountService.findOne(householdId, id);
+            return accountService.findCurrent(householdId, id);
         } catch (ResourceNotFoundException exception) {
             fields.put("accountId", "投资账户不存在");
             return null;
@@ -305,6 +351,7 @@ public class InvestmentTradeService {
 
     private static void validateShape(
             InvestmentTradeType type, BigDecimal quantity, Long fee, Map<String, String> fields) {
+        if(type==InvestmentTradeType.OPENING && fee!=null && fee!=0)fields.put("fee","期初持仓不能附加交易费用");
         if ((type == InvestmentTradeType.DIVIDEND || type == InvestmentTradeType.FEE)
                 && fee != null && fee != 0) {
             fields.put("fee", "分红和独立费用不能再填写附加费用");
@@ -314,13 +361,9 @@ public class InvestmentTradeService {
         }
     }
 
-    private InvestmentPosition replay(long householdId, long accountId, long securityId) {
+    private InvestmentPosition calculate(java.util.List<InvestmentTrade> history) {
         try {
-            return calculator.calculate(
-                    trades.findByHouseholdIdAndAccountIdAndSecurityId(
-                                    householdId, accountId, securityId, REPLAY_SORT)
-                            .stream().map(InvestmentTrade::toPositionTrade).toList(),
-                    null);
+            return calculator.calculate(history.stream().map(InvestmentTrade::toPositionTrade).toList(),null);
         } catch (InsufficientHoldingException exception) {
             throw new ResourceConflictException("INSUFFICIENT_HOLDING", exception.getMessage());
         } catch (ArithmeticException exception) {
@@ -334,6 +377,7 @@ public class InvestmentTradeService {
                 : trade.getQuantity().multiply(BigDecimal.valueOf(trade.getPriceCents()))
                         .setScale(0, RoundingMode.HALF_UP).longValueExact();
         return switch (trade.getType()) {
+            case OPENING -> 0;
             case BUY -> Math.negateExact(Math.addExact(gross, trade.getFeeCents()));
             case SELL -> Math.subtractExact(gross, trade.getFeeCents());
             case DIVIDEND -> gross;
@@ -359,6 +403,34 @@ public class InvestmentTradeService {
     private InvestmentTrade findOne(long householdId, long id) {
         return trades.findByIdAndHouseholdId(id, householdId)
                 .orElseThrow(() -> new ResourceNotFoundException("投资交易不存在"));
+    }
+
+    private InvestmentTrade findCurrent(long h,long id) {
+        var trade=trades.findCurrent(id,h).orElseThrow(()->new ResourceNotFoundException("投资交易不存在"));
+        entities.detach(trade);
+        return trades.findCurrent(id,h).orElseThrow();
+    }
+    private java.util.List<InvestmentTrade> currentHistory(long h,long account,long security) {
+        // Refresh can fall back to a snapshot select after Hibernate already holds the lock.
+        // Evict just these unchanged roots, then hydrate them with another explicit locking query.
+        trades.currentHistory(h,account,security).forEach(entities::detach);
+        var history=new java.util.ArrayList<>(trades.currentHistory(h,account,security));
+        if(history.stream().anyMatch(t->!t.isAccountingConfirmed()))
+            throw new ResourceConflictException("ACCOUNTING_NOT_INITIALIZED","该持仓包含未确认的旧交易，不能追加、更正或删除");
+        return history;
+    }
+    private InvestmentTradeMutationResponse replayResponse(long h,long id) {
+        var trade=findCurrent(h,id);
+        var history=currentHistory(h,trade.getAccount().getId(),trade.getSecurity().getId());
+        return mutationResponse(history.stream().filter(t->t.getId()==id).findFirst().orElseThrow(),calculate(history));
+    }
+    private static void requireTail(java.util.List<InvestmentTrade> history,long id) {
+        if(history.isEmpty()||history.get(history.size()-1).getId()!=id)
+            throw new ResourceConflictException("HISTORICAL_TRADE_DEPENDENCY","后续交易依赖本笔成本，请从最后一笔交易开始更正或撤销");
+    }
+    private static void requireAppend(java.util.List<InvestmentTrade> history,LocalDate day,InvestmentTradeType type) {
+        if(!history.isEmpty()&&(type==InvestmentTradeType.OPENING||day.isBefore(history.get(history.size()-1).getTradedOn())))
+            throw new ResourceConflictException("HISTORICAL_TRADE_DEPENDENCY","期初只能作为首笔，新增或更正日期不能早于该持仓最后一笔");
     }
 
     private static InvestmentTradeMutationResponse mutationResponse(

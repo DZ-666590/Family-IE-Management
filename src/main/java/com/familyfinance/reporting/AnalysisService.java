@@ -1,8 +1,8 @@
 package com.familyfinance.reporting;
 
 import com.familyfinance.category.TransactionKind;
-import com.familyfinance.transaction.FinancialTransaction;
-import com.familyfinance.transaction.FinancialTransactionRepository;
+import com.familyfinance.accounting.LedgerActivity;
+import com.familyfinance.accounting.LedgerReportingService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@Transactional(readOnly = true)
+@Transactional(readOnly = true, isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
 public class AnalysisService {
 
     private static final Sort MONTH_SORT = Sort.by(
@@ -27,9 +27,9 @@ public class AnalysisService {
             Sort.Order.desc("occurredOn"),
             Sort.Order.desc("id"));
 
-    private final FinancialTransactionRepository transactionRepository;
+    private final LedgerReportingService transactionRepository;
 
-    public AnalysisService(FinancialTransactionRepository transactionRepository) {
+    public AnalysisService(LedgerReportingService transactionRepository) {
         this.transactionRepository = transactionRepository;
     }
 
@@ -38,16 +38,9 @@ public class AnalysisService {
     }
 
     public AnalysisResponse analysis(long householdId, YearMonth month, boolean rollupCategories) {
-        List<FinancialTransaction> currentTransactions = transactionRepository.findByHouseholdIdAndOccurredOnBetween(
-                householdId,
-                month.atDay(1),
-                month.atEndOfMonth(),
-                MONTH_SORT);
-        List<FinancialTransaction> historyTransactions = transactionRepository.findByHouseholdIdAndKindAndOccurredOnBefore(
-                householdId,
-                TransactionKind.EXPENSE,
-                month.atDay(1),
-                HISTORY_SORT);
+        List<LedgerActivity> currentTransactions = transactionRepository.activities(householdId,month.atDay(1),month.plusMonths(1).atDay(1));
+        List<LedgerActivity> historyTransactions = transactionRepository.activities(householdId,LocalDate.of(1000,1,1),month.atDay(1)).stream()
+                .sorted(Comparator.comparing(LedgerActivity::getOccurredOn).reversed().thenComparing(LedgerActivity::getId)).toList();
 
         long currentExpenseCents = expenseTotal(currentTransactions);
         Map<YearMonth, Long> historyByMonth = historicalExpenseTotals(historyTransactions);
@@ -68,9 +61,9 @@ public class AnalysisService {
         return new AnalysisResponse(historyStatus, insights.stream().limit(3).toList());
     }
 
-    private static long expenseTotal(List<FinancialTransaction> transactions) {
+    private static long expenseTotal(List<LedgerActivity> transactions) {
         long totalCents = 0L;
-        for (FinancialTransaction transaction : transactions) {
+        for (LedgerActivity transaction : transactions) {
             if (transaction.getKind() == TransactionKind.EXPENSE) {
                 totalCents += transaction.getAmountCents();
             }
@@ -78,9 +71,9 @@ public class AnalysisService {
         return totalCents;
     }
 
-    private static Map<YearMonth, Long> historicalExpenseTotals(List<FinancialTransaction> transactions) {
+    private static Map<YearMonth, Long> historicalExpenseTotals(List<LedgerActivity> transactions) {
         Map<YearMonth, Long> totals = new LinkedHashMap<>();
-        for (FinancialTransaction transaction : transactions) {
+        for (LedgerActivity transaction : transactions) {
             if (transaction.getKind() == TransactionKind.EXPENSE) {
                 YearMonth month = YearMonth.from(transaction.getOccurredOn());
                 if (!totals.containsKey(month) && totals.size() == 3) {
@@ -135,11 +128,11 @@ public class AnalysisService {
     }
 
     private static java.util.Optional<InsightResponse> topCategory(
-            List<FinancialTransaction> transactions,
+            List<LedgerActivity> transactions,
             long currentExpenseCents,
             boolean rollupCategories) {
         Map<Long, CategoryTotal> totals = new LinkedHashMap<>();
-        for (FinancialTransaction transaction : transactions) {
+        for (LedgerActivity transaction : transactions) {
             if (transaction.getKind() == TransactionKind.EXPENSE) {
                 var reportingCategory = rollupCategories && transaction.getCategory().getParent() != null
                         ? transaction.getCategory().getParent()
@@ -167,13 +160,13 @@ public class AnalysisService {
                 });
     }
 
-    private static java.util.Optional<InsightResponse> largestExpense(List<FinancialTransaction> transactions) {
+    private static java.util.Optional<InsightResponse> largestExpense(List<LedgerActivity> transactions) {
         return transactions.stream()
                 .filter(transaction -> transaction.getKind() == TransactionKind.EXPENSE)
-                .sorted(Comparator.comparingLong(FinancialTransaction::getAmountCents)
+                .sorted(Comparator.comparingLong(LedgerActivity::getAmountCents)
                         .reversed()
-                        .thenComparing(FinancialTransaction::getOccurredOn)
-                        .thenComparingLong(FinancialTransaction::getId))
+                        .thenComparing(LedgerActivity::getOccurredOn)
+                        .thenComparingLong(LedgerActivity::getId))
                 .findFirst()
                 .map(transaction -> new InsightResponse(
                         "LARGEST_EXPENSE",
@@ -182,7 +175,7 @@ public class AnalysisService {
                         DashboardService.formatCents(transaction.getAmountCents())));
     }
 
-    private static String largestExpenseMessage(FinancialTransaction transaction) {
+    private static String largestExpenseMessage(LedgerActivity transaction) {
         String label = transaction.getNote() == null ? transaction.getCategory().getName() : transaction.getNote();
         return transaction.getOccurredOn() + " 的 " + label + " 是本月最大单笔支出，金额 "
                 + DashboardService.formatCents(transaction.getAmountCents()) + "。";

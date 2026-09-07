@@ -9,6 +9,10 @@ public interface AssetRepository extends JpaRepository<Asset, Long> {
 
     Optional<Asset> findByIdAndHouseholdId(Long id, Long householdId);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select a from Asset a where a.id=:id and a.household.id=:household")
+    Optional<Asset> findCurrent(long id,long household);
+
     Page<Asset> findByHouseholdIdAndStatus(Long householdId, AssetStatus status, Pageable pageable);
 
     Page<Asset> findByHouseholdIdAndTypeAndStatus(

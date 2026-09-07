@@ -10,7 +10,7 @@ import com.familyfinance.loan.Loan;
 import com.familyfinance.loan.LoanRepository;
 import com.familyfinance.loan.LoanStatus;
 import com.familyfinance.shared.ResourceConflictException;
-import com.familyfinance.transaction.FinancialTransactionRepository;
+import com.familyfinance.accounting.LedgerReportingService;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
@@ -24,7 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@Transactional(readOnly = true)
+@Transactional(readOnly = true, isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
 public class NetWorthService {
     private static final BigInteger MAX_LONG = BigInteger.valueOf(Long.MAX_VALUE);
     private final FinancialAccountRepository accounts;
@@ -32,11 +32,11 @@ public class NetWorthService {
     private final LoanRepository loans;
     private final PortfolioService portfolio;
     private final BudgetRepository budgets;
-    private final FinancialTransactionRepository transactions;
+    private final LedgerReportingService transactions;
     private final Clock clock;
 
     public NetWorthService(FinancialAccountRepository accounts, AssetRepository assets, LoanRepository loans,
-            PortfolioService portfolio, BudgetRepository budgets, FinancialTransactionRepository transactions, Clock clock) {
+            PortfolioService portfolio, BudgetRepository budgets, LedgerReportingService transactions, Clock clock) {
         this.accounts = accounts;
         this.assets = assets;
         this.loans = loans;
@@ -47,33 +47,35 @@ public class NetWorthService {
     }
 
     public NetWorthResult calculate(long householdId, LocalDate asOf) {
-        long cash = sum(accounts.findActiveBalancesByHouseholdIdAndOccurredOnBefore(householdId, asOf).stream()
-                .map(value -> value.balanceCents()).toList());
-        long nonCashAssets = sum(assets.findAllByHouseholdIdAndStatus(householdId, AssetStatus.ACTIVE).stream()
-                .map(value -> value.getCurrentValueCents()).toList());
-        PortfolioResponse portfolioResponse = portfolio.portfolio(householdId);
+        transactions.requireComplete(householdId);
+        if(asOf==null||asOf.isAfter(LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai"))))||asOf.getYear()<1000)
+            throw new com.familyfinance.shared.RequestValidationException(java.util.Map.of("asOf","截止日期必须在1000年至今天之间"));
+        var balances=transactions.balancesAsOf(householdId,asOf);
+        long cash = sum(balances.entrySet().stream().filter(e->e.getKey().startsWith("CASH:")).map(java.util.Map.Entry::getValue).toList());
+        long nonCashAssets = sum(balances.entrySet().stream().filter(e->e.getKey().startsWith("ASSET:")).map(java.util.Map.Entry::getValue).toList());
+        PortfolioResponse portfolioResponse = portfolio.portfolio(householdId,asOf);
         InvestmentSummary investment = investment(portfolioResponse);
-        long liabilities = sum(loans.findAllByHouseholdIdAndStatus(householdId, LoanStatus.ACTIVE).stream()
-                .map(Loan::getCurrentPrincipalCents).toList());
-        long assetCents = sum(List.of(cash, nonCashAssets, investment.marketValueCents()));
+        long liabilities = sum(balances.entrySet().stream().filter(e->e.getKey().startsWith("LOAN:")).map(java.util.Map.Entry::getValue).toList());
+        long assetCents = sum(List.of(cash, nonCashAssets, investment.estimatedValueCents()));
         long netWorth = subtract(assetCents, liabilities);
-        List<Loan> activeLoans = loans.findAllByHouseholdIdAndStatus(householdId, LoanStatus.ACTIVE);
+        List<Loan> activeLoans = loans.findAllByHouseholdIdAndAccountingOnLessThanEqual(householdId,asOf);
         return new NetWorthResult(assetCents, liabilities, netWorth,
-                allocation(cash, nonCashAssets, investment.marketValueCents()), ratio(liabilities, assetCents),
-                debtProgress(activeLoans), budget(householdId, YearMonth.from(asOf)), investment);
+                allocation(cash, nonCashAssets, investment.estimatedValueCents()), ratio(liabilities, assetCents),
+                debtProgress(activeLoans,balances), budget(householdId, YearMonth.from(asOf),asOf.plusDays(1)), investment,
+                subtract(balances.getOrDefault("INCOME:VALUATION_GAIN",0L),balances.getOrDefault("EXPENSE:VALUATION_LOSS",0L)));
     }
 
     private InvestmentSummary investment(PortfolioResponse portfolioResponse) {
-        long market = parseCents(portfolioResponse.totals().marketValue());
+        Long market = portfolioResponse.totals().marketValue()==null?null:parseCents(portfolioResponse.totals().marketValue());
         boolean manual = portfolioResponse.positions().stream().anyMatch(position -> position.source() != null
                 && position.source().name().equals("MANUAL"));
         boolean stale = portfolioResponse.positions().stream().anyMatch(PortfolioPositionResponse::stale);
         boolean missing = portfolioResponse.positions().stream().anyMatch(position -> position.marketValue() == null);
         return new InvestmentSummary(market, portfolioResponse.positions().size(),
-                portfolioResponse.totals().unpricedPositions(), manual, stale, missing);
+                portfolioResponse.totals().unpricedPositions(), manual, stale, missing,parseCents(portfolioResponse.totals().estimatedValue()));
     }
 
-    private BudgetSummary budget(long householdId, YearMonth month) {
+    private BudgetSummary budget(long householdId, YearMonth month,LocalDate end) {
         List<Budget> active = budgets.findAllByHouseholdIdAndPeriodMonthAndActiveTrue(householdId, month.toString());
         BigInteger planned = BigInteger.ZERO;
         BigInteger spent = BigInteger.ZERO;
@@ -81,7 +83,7 @@ public class NetWorthService {
         int over = 0;
         for (Budget budget : active) {
             long used = parseAggregateCents(transactions.sumBudgetExpenseCents(householdId, month.atDay(1),
-                    month.plusMonths(1).atDay(1), budget.getScopeType().name(),
+                    end, budget.getScopeType().name(),
                     budget.getCategory() == null ? null : budget.getCategory().getId(),
                     budget.getMember() == null ? null : budget.getMember().getId(), true));
             planned = planned.add(BigInteger.valueOf(budget.getAmountCents()));
@@ -130,10 +132,10 @@ public class NetWorthService {
         return List.copyOf(rounded);
     }
 
-    private static List<DebtProgress> debtProgress(List<Loan> loans) {
+    private static List<DebtProgress> debtProgress(List<Loan> loans,java.util.Map<String,Long> balances) {
         return loans.stream().sorted(Comparator.comparing(Loan::getId)).map(loan -> new DebtProgress(loan.getId(), loan.getName(),
-                loan.getPrincipalCents(), loan.getCurrentPrincipalCents(), ratio(
-                        subtract(loan.getPrincipalCents(), loan.getCurrentPrincipalCents()), loan.getPrincipalCents())))
+                loan.getPrincipalCents(), balances.getOrDefault("LOAN:"+loan.getId(),0L), ratio(
+                        subtract(loan.getPrincipalCents(), balances.getOrDefault("LOAN:"+loan.getId(),0L)), loan.getPrincipalCents())))
                 .toList();
     }
 

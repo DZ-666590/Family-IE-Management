@@ -20,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class InvestmentAccountController {
 
     private final InvestmentAccountService accounts;
+    private final com.familyfinance.accounting.AccountingCommandExecutor executor;
 
-    public InvestmentAccountController(InvestmentAccountService accounts) {
+    public InvestmentAccountController(InvestmentAccountService accounts,com.familyfinance.accounting.AccountingCommandExecutor executor) {
         this.accounts = accounts;
+        this.executor=executor;
     }
 
     @GetMapping
@@ -49,19 +51,25 @@ public class InvestmentAccountController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     ApiEnvelope<InvestmentAccountResponse> create(
-            Authentication authentication, @RequestBody InvestmentAccountCreateRequest request) {
-        return ApiEnvelope.data(accounts.create(authentication, request));
+            Authentication authentication, @RequestBody InvestmentAccountCreateRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        return ApiEnvelope.data(executor.execute(()->accounts.create(authentication, request,key)));
     }
 
     @PatchMapping("/{id}")
     ApiEnvelope<InvestmentAccountResponse> update(
-            Authentication authentication, @PathVariable long id, @RequestBody InvestmentAccountPatchRequest request) {
-        return ApiEnvelope.data(accounts.update(authentication, id, request));
+            Authentication authentication, @PathVariable long id, @RequestBody InvestmentAccountPatchRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        return ApiEnvelope.data(executor.execute(()->accounts.update(authentication, id, request,key)));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void archive(Authentication authentication, @PathVariable long id) {
-        accounts.archive(authentication, id);
+    void archive(Authentication authentication, @PathVariable long id,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        executor.execute(()->{accounts.archive(authentication, id,key);return null;});
     }
 }

@@ -66,7 +66,7 @@ class MarketApiTest {
     }
     private long account(MockHttpSession session) throws Exception {
         return body(mvc.perform(post("/api/investment-accounts").session(session).with(csrf())
-                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"行情账户\",\"brokerName\":\"测试券商\",\"currency\":\"CNY\"}"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"行情账户\",\"brokerName\":\"测试券商\",\"currency\":\"CNY\",\"fundingAccountId\":1}"))
                 .andExpect(status().isCreated()).andReturn()).path("data").path("id").asLong();
     }
     private void buy(MockHttpSession session, long account, long security) throws Exception {

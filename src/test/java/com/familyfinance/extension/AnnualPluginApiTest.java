@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class AnnualPluginApiTest {
     @Autowired MockMvc mvc;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Test void requiresLogin() throws Exception {
         mvc.perform(get("/api/plugins")).andExpect(status().isUnauthorized());
@@ -49,6 +50,8 @@ class AnnualPluginApiTest {
         var session = (MockHttpSession) mvc.perform(post("/api/auth/login").with(csrf())
                 .param("username", "plugin-test@example.com").param("password", "family-pass-2026"))
                 .andExpect(status().isOk()).andReturn().getRequest().getSession(false);
+        long account=jdbc.queryForObject("select a.id from financial_accounts a join app_users u on a.household_id=u.household_id where u.email='plugin-test@example.com'",Long.class);
+        mvc.perform(patch("/api/accounts/"+account).session(session).with(csrf()).contentType("application/json").content("{\"openingBalance\":\"0.00\",\"openingOn\":\"2026-01-01\"}")).andExpect(status().isOk());
         mvc.perform(get("/api/plugins/annual-stats?year=2026&householdId=1").session(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.summary.income").value("0.00"));
     }

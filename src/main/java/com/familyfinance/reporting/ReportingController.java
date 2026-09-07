@@ -22,6 +22,7 @@ public class ReportingController {
     private final NetWorthService netWorthService;
     private final NetWorthSnapshotService snapshots;
     private final CurrentHousehold currentHousehold;
+    private final java.time.Clock clock;
 
     public ReportingController(
             DashboardService dashboardService,
@@ -29,13 +30,14 @@ public class ReportingController {
             PortfolioService portfolioService,
             NetWorthService netWorthService,
             NetWorthSnapshotService snapshots,
-            CurrentHousehold currentHousehold) {
+            CurrentHousehold currentHousehold,java.time.Clock clock) {
         this.dashboardService = dashboardService;
         this.analysisService = analysisService;
         this.portfolioService = portfolioService;
         this.netWorthService = netWorthService;
         this.snapshots = snapshots;
         this.currentHousehold = currentHousehold;
+        this.clock=clock;
     }
 
     @GetMapping("/api/dashboard")
@@ -57,29 +59,29 @@ public class ReportingController {
     }
 
     @GetMapping("/api/portfolio")
-    ApiEnvelope<PortfolioResponse> portfolio(Authentication authentication) {
-        return ApiEnvelope.data(portfolioService.portfolio(currentHousehold.id(authentication)));
+    ApiEnvelope<PortfolioResponse> portfolio(Authentication authentication,@RequestParam(required=false) LocalDate asOf) {
+        return ApiEnvelope.data(asOf==null?portfolioService.portfolio(currentHousehold.id(authentication)):portfolioService.portfolio(currentHousehold.id(authentication),asOf));
     }
 
     @GetMapping("/api/net-worth")
-    ApiEnvelope<NetWorthResponse> netWorth(Authentication authentication) {
+    ApiEnvelope<NetWorthResponse> netWorth(Authentication authentication,@RequestParam(required=false) LocalDate asOf) {
         long householdId = currentHousehold.id(authentication);
-        LocalDate today = LocalDate.now(ZoneId.of("Asia/Shanghai"));
-        snapshots.generate(householdId, today);
-        NetWorthResult result = netWorthService.calculate(householdId, today);
-        return ApiEnvelope.data(NetWorthResponse.from(result, snapshots.history(householdId)));
+        LocalDate today = LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai")));
+        LocalDate day=asOf==null?today:asOf;
+        NetWorthResult result = netWorthService.calculate(householdId, day);
+        return ApiEnvelope.data(NetWorthResponse.from(result, snapshots.history(householdId),day));
     }
 
     @GetMapping("/api/debt-analysis")
-    ApiEnvelope<DebtAnalysisResponse> debtAnalysis(Authentication authentication) {
+    ApiEnvelope<DebtAnalysisResponse> debtAnalysis(Authentication authentication,@RequestParam(required=false) LocalDate asOf) {
         long householdId = currentHousehold.id(authentication);
         return ApiEnvelope.data(DebtAnalysisResponse.from(netWorthService.calculate(
-                householdId, LocalDate.now(ZoneId.of("Asia/Shanghai")))));
+                householdId, asOf==null?LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))):asOf)));
     }
 
-    private static YearMonth parseMonth(String rawMonth) {
+    private YearMonth parseMonth(String rawMonth) {
         if (rawMonth == null || rawMonth.isBlank()) {
-            return YearMonth.now();
+            return YearMonth.now(clock.withZone(ZoneId.of("Asia/Shanghai")));
         }
         try {
             return YearMonth.parse(rawMonth.trim());

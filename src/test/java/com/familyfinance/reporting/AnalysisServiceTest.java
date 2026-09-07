@@ -27,8 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 @SpringBootTest(properties = "app.seed.enabled=false")
 @Transactional
 class AnalysisServiceTest {
+    @Autowired org.springframework.context.ApplicationContext context;
 
-    private static final Instant TEST_TIME = Instant.parse("2026-09-01T00:00:00Z");
+    private static final Instant TEST_TIME = Instant.parse("2025-09-01T00:00:00Z");
 
     @Autowired
     AnalysisService analysisService;
@@ -54,13 +55,14 @@ class AnalysisServiceTest {
     @Test
     void analysisReturnsOrderedRuleBasedInsightsFromCurrentAndHistoricalExpenses() {
         Fixture fixture = fixture();
-        saveExpense(fixture, 100000L, "2026-06-03", fixture.food(), "六月家庭餐饮");
-        saveExpense(fixture, 90000L, "2026-07-04", fixture.food(), "七月家庭餐饮");
-        saveExpense(fixture, 110000L, "2026-08-05", fixture.food(), "八月家庭餐饮");
-        saveExpense(fixture, 90000L, "2026-09-08", fixture.food(), "九月家庭餐饮");
-        saveExpense(fixture, 60000L, "2026-09-11", fixture.transport(), "九月交通");
+        saveExpense(fixture, 100000L, "2025-06-03", fixture.food(), "六月家庭餐饮");
+        saveExpense(fixture, 90000L, "2025-07-04", fixture.food(), "七月家庭餐饮");
+        saveExpense(fixture, 110000L, "2025-08-05", fixture.food(), "八月家庭餐饮");
+        saveExpense(fixture, 90000L, "2025-09-08", fixture.food(), "九月家庭餐饮");
+        saveExpense(fixture, 60000L, "2025-09-11", fixture.transport(), "九月交通");
 
-        AnalysisResponse analysis = analysisService.analysis(fixture.household().getId(), YearMonth.parse("2026-09"));
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,fixture.household().getId());
+        AnalysisResponse analysis = analysisService.analysis(fixture.household().getId(), YearMonth.parse("2025-09"));
 
         assertThat(analysis.historyStatus()).isEqualTo("sufficient");
         assertThat(analysis.insights())
@@ -76,10 +78,11 @@ class AnalysisServiceTest {
     @Test
     void analysisMarksInsufficientHistoryWithoutMonthlyComparison() {
         Fixture fixture = fixture();
-        saveExpense(fixture, 100000L, "2026-08-03", fixture.food(), "八月家庭餐饮");
-        saveExpense(fixture, 150000L, "2026-09-09", fixture.food(), "九月家庭餐饮");
+        saveExpense(fixture, 100000L, "2025-08-03", fixture.food(), "八月家庭餐饮");
+        saveExpense(fixture, 150000L, "2025-09-09", fixture.food(), "九月家庭餐饮");
 
-        AnalysisResponse analysis = analysisService.analysis(fixture.household().getId(), YearMonth.parse("2026-09"));
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,fixture.household().getId());
+        AnalysisResponse analysis = analysisService.analysis(fixture.household().getId(), YearMonth.parse("2025-09"));
 
         assertThat(analysis.historyStatus()).isEqualTo("insufficient");
         assertThat(analysis.insights())
@@ -90,11 +93,12 @@ class AnalysisServiceTest {
     @Test
     void analysisTreatsEqualCurrentExpenseAndHistoryAverageAsStable() {
         Fixture fixture = fixture();
-        saveExpense(fixture, 100000L, "2026-07-03", fixture.food(), "七月家庭餐饮");
-        saveExpense(fixture, 100000L, "2026-08-03", fixture.food(), "八月家庭餐饮");
-        saveExpense(fixture, 100000L, "2026-09-09", fixture.food(), "九月家庭餐饮");
+        saveExpense(fixture, 100000L, "2025-07-03", fixture.food(), "七月家庭餐饮");
+        saveExpense(fixture, 100000L, "2025-08-03", fixture.food(), "八月家庭餐饮");
+        saveExpense(fixture, 100000L, "2025-09-09", fixture.food(), "九月家庭餐饮");
 
-        AnalysisResponse analysis = analysisService.analysis(fixture.household().getId(), YearMonth.parse("2026-09"));
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,fixture.household().getId());
+        AnalysisResponse analysis = analysisService.analysis(fixture.household().getId(), YearMonth.parse("2025-09"));
 
         assertThat(analysis.historyStatus()).isEqualTo("sufficient");
         assertThat(analysis.insights().get(0).type()).isEqualTo("MONTHLY_STABLE");
@@ -106,17 +110,18 @@ class AnalysisServiceTest {
     @Test
     void analysisUsesTheThreeMostRecentPopulatedExpenseMonthsAcrossCalendarGaps() {
         Fixture fixture = fixture();
-        saveExpense(fixture, 100000L, "2026-08-03", fixture.food(), "八月支出");
-        saveExpense(fixture, 200000L, "2026-06-03", fixture.food(), "六月支出");
-        saveExpense(fixture, 300000L, "2026-03-03", fixture.food(), "三月支出");
-        saveExpense(fixture, 900000L, "2026-01-03", fixture.food(), "第四个更早月份");
-        saveExpense(fixture, 150000L, "2026-09-09", fixture.food(), "本月支出");
-        saveExpense(fixture, 900000L, "2026-10-03", fixture.food(), "未来支出");
+        saveExpense(fixture, 100000L, "2025-08-03", fixture.food(), "八月支出");
+        saveExpense(fixture, 200000L, "2025-06-03", fixture.food(), "六月支出");
+        saveExpense(fixture, 300000L, "2025-03-03", fixture.food(), "三月支出");
+        saveExpense(fixture, 900000L, "2025-01-03", fixture.food(), "第四个更早月份");
+        saveExpense(fixture, 150000L, "2025-09-09", fixture.food(), "本月支出");
+        saveExpense(fixture, 900000L, "2025-10-03", fixture.food(), "未来支出");
 
         Fixture outsider = fixture();
-        saveExpense(outsider, 900000L, "2026-08-04", outsider.food(), "其他家庭支出");
+        saveExpense(outsider, 900000L, "2025-08-04", outsider.food(), "其他家庭支出");
 
-        AnalysisResponse analysis = analysisService.analysis(fixture.household().getId(), YearMonth.parse("2026-09"));
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,fixture.household().getId());
+        AnalysisResponse analysis = analysisService.analysis(fixture.household().getId(), YearMonth.parse("2025-09"));
 
         assertThat(analysis.historyStatus()).isEqualTo("sufficient");
         assertThat(analysis.insights().get(0).type()).isEqualTo("MONTHLY_DECREASE");
@@ -127,11 +132,12 @@ class AnalysisServiceTest {
     @Test
     void analysisDoesNotFabricateInsightsForEmptyCurrentMonth() {
         Fixture fixture = fixture();
-        saveExpense(fixture, 100000L, "2026-06-03", fixture.food(), "六月家庭餐饮");
-        saveExpense(fixture, 90000L, "2026-07-04", fixture.food(), "七月家庭餐饮");
-        saveExpense(fixture, 110000L, "2026-08-05", fixture.food(), "八月家庭餐饮");
+        saveExpense(fixture, 100000L, "2025-06-03", fixture.food(), "六月家庭餐饮");
+        saveExpense(fixture, 90000L, "2025-07-04", fixture.food(), "七月家庭餐饮");
+        saveExpense(fixture, 110000L, "2025-08-05", fixture.food(), "八月家庭餐饮");
 
-        AnalysisResponse analysis = analysisService.analysis(fixture.household().getId(), YearMonth.parse("2026-09"));
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,fixture.household().getId());
+        AnalysisResponse analysis = analysisService.analysis(fixture.household().getId(), YearMonth.parse("2025-09"));
 
         assertThat(analysis.historyStatus()).isEqualTo("sufficient");
         assertThat(analysis.insights()).isEmpty();

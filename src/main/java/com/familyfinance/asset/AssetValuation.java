@@ -83,12 +83,4 @@ public class AssetValuation {
     public AppUser getCreatedBy() { return createdBy; }
     public Instant getFetchedAt() { return fetchedAt; }
 
-    void replaceManual(long valueCents, String note, Instant fetchedAt) {
-        if (source != AssetValuationSource.MANUAL) {
-            throw new IllegalStateException("Only manual valuations can be replaced");
-        }
-        this.valueCents = valueCents;
-        this.note = note;
-        this.fetchedAt = Objects.requireNonNull(fetchedAt, "fetchedAt must not be null");
-    }
 }

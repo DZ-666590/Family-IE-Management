@@ -8,8 +8,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AssetValuationRepository extends JpaRepository<AssetValuation, Long> {
 
-    Optional<AssetValuation> findByAssetIdAndValuedOnAndSource(
-            Long assetId, LocalDate valuedOn, AssetValuationSource source);
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select v from AssetValuation v where v.id=:id and v.household.id=:household")
+    Optional<AssetValuation> findCurrent(long id,long household);
 
     Optional<AssetValuation> findFirstByAssetIdOrderByValuedOnDescFetchedAtDescIdDesc(Long assetId);
 

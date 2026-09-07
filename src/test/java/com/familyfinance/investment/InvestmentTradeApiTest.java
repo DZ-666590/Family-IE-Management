@@ -265,13 +265,13 @@ class InvestmentTradeApiTest {
         mvc.perform(patch("/api/investment-trades/{id}", firstBuy).session(owner).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":\"5.0000\"}"))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("INSUFFICIENT_HOLDING"));
+                .andExpect(jsonPath("$.error.code").value("HISTORICAL_TRADE_DEPENDENCY"));
         assertThat(jdbc.queryForObject(
                 "select quantity from investment_trades where id=?", java.math.BigDecimal.class, firstBuy))
                 .isEqualByComparingTo("100.0000");
         mvc.perform(delete("/api/investment-trades/{id}", firstBuy).session(owner).with(csrf()))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("INSUFFICIENT_HOLDING"));
+                .andExpect(jsonPath("$.error.code").value("HISTORICAL_TRADE_DEPENDENCY"));
         assertThat(jdbc.queryForObject("select count(*) from investment_trades where id=?", Long.class, firstBuy))
                 .isEqualTo(1L);
 
@@ -286,57 +286,20 @@ class InvestmentTradeApiTest {
 
         mvc.perform(patch("/api/investment-trades/{id}", sellId).session(owner).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":\"50.0000\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.position.quantity").value(100.0000));
-        mvc.perform(delete("/api/investment-trades/{id}", firstBuy).session(owner).with(csrf()))
-                .andExpect(status().isNoContent());
-        assertThat(jdbc.queryForObject("select count(*) from investment_trades where id=?", Long.class, firstBuy))
-                .isZero();
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("HISTORICAL_TRADE_DEPENDENCY"));
+        assertThat(jdbc.queryForObject("select count(*) from investment_trades where id=?", Long.class, firstBuy)).isEqualTo(1L);
     }
 
     @Test
-    void crossAccountAndSecurityMoveRollsBackInvalidTargetThenReplaysBothPositions() throws Exception {
-        MockHttpSession owner = login("demo", "demo1234");
-        long originAccount = createAccount(owner, "原账户");
-        long targetAccount = createAccount(owner, "目标账户");
-        long originSecurity = resolveSecurity(owner, "600000.SH", "浦发银行");
-        long targetSecurity = resolveSecurity(owner, "000001.SZ", "平安银行");
-        long originBuy = createTrade(owner, tradeBody(
-                originAccount, originSecurity, "BUY", "100.0000", "10.00", "0.00", "2026-01-01"));
-        long movedSell = createTrade(owner, tradeBody(
-                originAccount, originSecurity, "SELL", "60.0000", "15.00", "0.00", "2026-01-02"));
-        createTrade(owner, tradeBody(
-                targetAccount, targetSecurity, "BUY", "20.0000", "10.00", "0.00", "2026-01-01"));
-        String before = tradeRow(movedSell);
-
-        mvc.perform(patch("/api/investment-trades/{id}", movedSell).session(owner).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"accountId\":" + targetAccount + ",\"securityId\":" + targetSecurity + "}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("INSUFFICIENT_HOLDING"));
-        assertThat(tradeRow(movedSell)).isEqualTo(before);
-
-        createTrade(owner, tradeBody(
-                targetAccount, targetSecurity, "BUY", "80.0000", "10.00", "0.00", "2026-01-01"));
-
-        mvc.perform(patch("/api/investment-trades/{id}", movedSell).session(owner).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"accountId\":" + targetAccount + ",\"securityId\":" + targetSecurity + "}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.position.accountId").value(targetAccount))
-                .andExpect(jsonPath("$.data.position.security.id").value(targetSecurity))
-                .andExpect(jsonPath("$.data.position.quantity").value(40.0000))
-                .andExpect(jsonPath("$.data.position.cost").value("400.00"))
-                .andExpect(jsonPath("$.data.trade.createdBy").value(1))
-                .andExpect(jsonPath("$.data.trade.sourceType").value("MANUAL"));
-        mvc.perform(patch("/api/investment-trades/{id}", originBuy).session(owner).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.position.accountId").value(originAccount))
-                .andExpect(jsonPath("$.data.position.security.id").value(originSecurity))
-                .andExpect(jsonPath("$.data.position.quantity").value(100.0000))
-                .andExpect(jsonPath("$.data.position.cost").value("1000.00"));
-        assertThat(tradeRow(movedSell)).contains("|1|MANUAL|NULL");
+    void tradePositionChangesAreGatedWithoutReassigningHistoricalCash() throws Exception {
+        MockHttpSession owner=login("demo","demo1234");
+        long origin=createAccount(owner,"原账户"),target=createAccount(owner,"目标账户");
+        long security=resolveSecurity(owner,"600000.SH","浦发银行");
+        long buy=createTrade(owner,tradeBody(origin,security,"BUY","10.0000","10.00","0.00","2026-01-01"));
+        String before=tradeRow(buy);
+        mvc.perform(patch("/api/investment-trades/{id}",buy).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"accountId\":"+target+"}")).andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("TRADE_POSITION_IMMUTABLE"));
+        assertThat(tradeRow(buy)).isEqualTo(before);
     }
 
     @Test
@@ -393,6 +356,7 @@ class InvestmentTradeApiTest {
                 .andExpect(status().isUnprocessableEntity());
 
         createTrade(owner, tradeBody(accountId, securityId, "BUY", "1.0000", "1.00", "0.00", "2026-01-01"));
+        createTrade(owner,tradeBody(accountId,securityId,"SELL","1.0000","1.00","0.00","2026-01-02"));
         mvc.perform(delete("/api/investment-accounts/{id}", accountId).session(owner).with(csrf()))
                 .andExpect(status().isNoContent());
         mvc.perform(post("/api/investment-trades").session(owner).with(csrf())
@@ -429,8 +393,9 @@ class InvestmentTradeApiTest {
     }
 
     private long createAccount(MockHttpSession session, String name) throws Exception {
+        long cashId=body(mvc.perform(post("/api/accounts").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"fund-"+System.nanoTime()+"\",\"type\":\"CASH\",\"currency\":\"CNY\",\"openingBalance\":\"100000.00\",\"openingOn\":\"2020-01-01\"}")).andExpect(status().isCreated()).andReturn()).path("data").path("id").asLong();
         return body(mvc.perform(post("/api/investment-accounts").session(session).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content(accountBody(name)))
+                        .contentType(MediaType.APPLICATION_JSON).content(accountBody(name).replace("}",",\"fundingAccountId\":"+cashId+"}")))
                 .andExpect(status().isCreated()).andReturn()).path("data").path("id").asLong();
     }
 

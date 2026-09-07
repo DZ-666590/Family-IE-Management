@@ -21,9 +21,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class InvestmentTradeController {
 
     private final InvestmentTradeService trades;
+    private final com.familyfinance.accounting.AccountingCommandExecutor executor;
 
-    public InvestmentTradeController(InvestmentTradeService trades) {
+    public InvestmentTradeController(InvestmentTradeService trades,com.familyfinance.accounting.AccountingCommandExecutor executor) {
         this.trades = trades;
+        this.executor=executor;
     }
 
     @GetMapping
@@ -55,19 +57,25 @@ public class InvestmentTradeController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     ApiEnvelope<InvestmentTradeMutationResponse> create(
-            Authentication authentication, @RequestBody InvestmentTradeRequest request) {
-        return ApiEnvelope.data(trades.create(authentication, request));
+            Authentication authentication, @RequestBody InvestmentTradeRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        return ApiEnvelope.data(executor.execute(()->trades.create(authentication, request,key)));
     }
 
     @PatchMapping("/{id}")
     ApiEnvelope<InvestmentTradeMutationResponse> update(
-            Authentication authentication, @PathVariable long id, @RequestBody InvestmentTradePatchRequest request) {
-        return ApiEnvelope.data(trades.update(authentication, id, request));
+            Authentication authentication, @PathVariable long id, @RequestBody InvestmentTradePatchRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        return ApiEnvelope.data(executor.execute(()->trades.update(authentication, id, request,key)));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void delete(Authentication authentication, @PathVariable long id) {
-        trades.delete(authentication, id);
+    void delete(Authentication authentication, @PathVariable long id,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String supplied) {
+        String key=com.familyfinance.accounting.AccountingRequests.key(supplied);
+        executor.execute(()->{trades.delete(authentication, id,key);return null;});
     }
 }

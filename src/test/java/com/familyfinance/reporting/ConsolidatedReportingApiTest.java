@@ -36,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class ConsolidatedReportingApiTest {
     @Autowired MockMvc mvc;
+    @Autowired org.springframework.context.ApplicationContext context;
     @Autowired AppUserRepository users;
     @Autowired FamilyMemberRepository members;
     @Autowired CategoryRepository categories;
@@ -62,6 +63,7 @@ class ConsolidatedReportingApiTest {
                 accounts, users, household, member, child, TransactionKind.EXPENSE, 1L,
                 LocalDate.of(2026, 9, 3), null, null, "一分子分类", now, now));
 
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,1L);
         mvc.perform(get("/api/net-worth").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.budget.planned").value("1591.36"))

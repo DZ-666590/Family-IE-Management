@@ -63,6 +63,35 @@ public class Asset {
     @Column(name = "archived_at")
     private Instant archivedAt;
 
+    @Enumerated(EnumType.STRING) @Column(name="accounting_mode")
+    private AssetAccountingMode accountingMode;
+    @Column(name="accounting_on") private LocalDate accountingOn;
+    @Column(name="initial_value_cents") private Long initialValueCents;
+    @Column(name="funding_account_id") private Long fundingAccountId;
+    @Column(name="last_accounting_on") private LocalDate lastAccountingOn;
+    @Column(name="disposed_on") private LocalDate disposedOn;
+    @Column(name="disposal_proceeds_cents") private Long disposalProceedsCents;
+    @Column(name="disposal_cash_account_id") private Long disposalCashAccountId;
+    @Column(name="disposed_by") private Long disposedBy;
+
+    public AssetAccountingMode getAccountingMode(){return accountingMode;}
+    public LocalDate getAccountingOn(){return accountingOn;}
+    public Long getInitialValueCents(){return initialValueCents;}
+    public Long getFundingAccountId(){return fundingAccountId;}
+    public LocalDate getLastAccountingOn(){return lastAccountingOn;}
+    public LocalDate getDisposedOn(){return disposedOn;}
+    public Long getDisposalProceedsCents(){return disposalProceedsCents;}
+    public Long getDisposalCashAccountId(){return disposalCashAccountId;}
+    public Long getDisposedBy(){return disposedBy;}
+    void initialize(AssetAccountingMode mode,LocalDate day,long initial,Long funding) {
+        accountingMode=mode;accountingOn=day;initialValueCents=initial;fundingAccountId=funding;lastAccountingOn=day;
+    }
+    void valuedOn(LocalDate day){lastAccountingOn=day;}
+    void dispose(LocalDate day,long proceeds,Long cash,long actor,Instant now) {
+        disposedOn=day;disposalProceedsCents=proceeds;disposalCashAccountId=cash;disposedBy=actor;
+        lastAccountingOn=day;currentValueCents=0L;archive(now);
+    }
+
     @OneToOne(mappedBy = "asset", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private PropertyAsset property;
 

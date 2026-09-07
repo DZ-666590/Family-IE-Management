@@ -38,6 +38,12 @@ public class InvestmentAccount {
     @Column(name = "archived_at")
     private Instant archivedAt;
 
+    @Column(name = "funding_account_id")
+    private Long fundingAccountId;
+
+    public Long getFundingAccountId() { return fundingAccountId; }
+    void fundingAccount(Long id) { fundingAccountId = id; }
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by", nullable = false, updatable = false)
     private AppUser createdBy;

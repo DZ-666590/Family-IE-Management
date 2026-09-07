@@ -16,9 +16,11 @@ public record AssetResponse(
         long createdBy,
         Instant archivedAt,
         PropertyAssetResponse property,
-        VehicleAssetResponse vehicle) {
+        VehicleAssetResponse vehicle, AssetAccountingMode accountingMode, LocalDate accountingOn,
+        String initialValue, Long fundingAccountId, LocalDate lastAccountingOn,
+        LocalDate disposedOn, String disposalProceeds, Long disposalCashAccountId, Long disposedBy,String disposalBookGain) {
 
-    static AssetResponse from(Asset asset) {
+    static AssetResponse from(Asset asset,Long disposalBookGainCents) {
         return new AssetResponse(
                 asset.getId(),
                 asset.getName(),
@@ -31,6 +33,10 @@ public record AssetResponse(
                 asset.getCreatedBy().getId(),
                 asset.getArchivedAt(),
                 asset.getProperty() == null ? null : PropertyAssetResponse.from(asset.getProperty()),
-                asset.getVehicle() == null ? null : VehicleAssetResponse.from(asset.getVehicle()));
+                asset.getVehicle() == null ? null : VehicleAssetResponse.from(asset.getVehicle()),
+                asset.getAccountingMode(),asset.getAccountingOn(),asset.getInitialValueCents()==null?null:Money.formatCents(asset.getInitialValueCents()),
+                asset.getFundingAccountId(),asset.getLastAccountingOn(),asset.getDisposedOn(),
+                asset.getDisposalProceedsCents()==null?null:Money.formatCents(asset.getDisposalProceedsCents()),asset.getDisposalCashAccountId(),asset.getDisposedBy(),
+                disposalBookGainCents==null?null:Money.formatCents(disposalBookGainCents));
     }
 }

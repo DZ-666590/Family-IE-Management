@@ -22,6 +22,13 @@ public class NetWorthSnapshot {
     @Column(name = "asset_cents", nullable = false) private long assetCents;
     @Column(name = "liability_cents", nullable = false) private long liabilityCents;
     @Column(name = "net_worth_cents", nullable = false) private long netWorthCents;
+    @Column(name = "accounting_basis", nullable = false) private String accountingBasis="LEGACY";
+    @Column(name = "valuation_estimated", nullable = false) private boolean valuationEstimated;
+    @Column(name = "unpriced_positions", nullable = false) private int unpricedPositions;
+    public String getAccountingBasis(){return accountingBasis;}
+    public boolean isValuationEstimated(){return valuationEstimated;}
+    public int getUnpricedPositions(){return unpricedPositions;}
+    void recordBasis(InvestmentSummary investment){accountingBasis="LEDGER_AS_OF";valuationEstimated=investment.missingPrice();unpricedPositions=investment.unpricedPositionCount();}
 
     protected NetWorthSnapshot() { }
 

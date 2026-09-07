@@ -19,6 +19,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class PortfolioServiceTest {
+    private static final java.time.Clock CLOCK=java.time.Clock.fixed(Instant.parse("2026-09-07T00:00:00Z"),java.time.ZoneOffset.UTC);
+    private static final LocalDate DAY=LocalDate.of(2026,9,7);
 
     @Test
     void handCalculatedPositionIncludesCostReturnAllocationAndManualFreshness() {
@@ -30,12 +32,12 @@ class PortfolioServiceTest {
                 trade(1L, account, security, InvestmentTradeType.BUY, "100.0000", 1000L, 100L, "2026-09-01"),
                 trade(2L, account, security, InvestmentTradeType.BUY, "50.0000", 1200L, 50L, "2026-09-02"),
                 trade(3L, account, security, InvestmentTradeType.SELL, "60.0000", 1500L, 80L, "2026-09-03"));
-        when(trades.findActiveAccountTradesByHouseholdId(1L)).thenReturn(history);
-        when(prices.effectivePrices(1L)).thenReturn(List.of(new MarketPriceResponse(
+        when(trades.historyAsOf(1L,DAY)).thenReturn(history);
+        when(prices.effectivePriceAsOf(1L,security,DAY)).thenReturn(new MarketPriceResponse(
                 7L, "000001.SZ", "平安银行", "16.00", QuoteSource.MANUAL,
-                LocalDate.of(2026, 9, 2), null, true, null)));
+                LocalDate.of(2026, 9, 2), null, true, null));
 
-        PortfolioResponse response = new PortfolioService(trades, prices).portfolio(1L);
+        PortfolioResponse response = new PortfolioService(trades, prices,reporting(history),CLOCK).portfolio(1L);
 
         PortfolioPositionResponse position = response.positions().get(0);
         assertThat(position.quantity()).isEqualByComparingTo("90.0000");
@@ -62,11 +64,11 @@ class PortfolioServiceTest {
         Security security = security(7L, "000001.SZ", "平安银行");
         List<InvestmentTrade> history = List.of(
                 trade(1L, account, security, InvestmentTradeType.BUY, "1.0000", 1000L, 0L, "2026-09-01"));
-        when(trades.findActiveAccountTradesByHouseholdId(1L)).thenReturn(history);
-        when(prices.effectivePrices(1L)).thenReturn(List.of(new MarketPriceResponse(
-                7L, "000001.SZ", "平安银行", null, null, null, null, true, "NO_QUOTE")));
+        when(trades.historyAsOf(1L,DAY)).thenReturn(history);
+        when(prices.effectivePriceAsOf(1L,security,DAY)).thenReturn(new MarketPriceResponse(
+                7L, "000001.SZ", "平安银行", null, null, null, null, true, "NO_QUOTE"));
 
-        PortfolioResponse unavailable = new PortfolioService(trades, prices).portfolio(1L);
+        PortfolioResponse unavailable = new PortfolioService(trades, prices,reporting(history),CLOCK).portfolio(1L);
 
         assertThat(unavailable.positions()).hasSize(1);
         assertThat(unavailable.positions().get(0).marketValue()).isNull();
@@ -76,12 +78,19 @@ class PortfolioServiceTest {
         assertThat(unavailable.positions().get(0).error()).isEqualTo("NO_QUOTE");
         assertThat(unavailable.totals().marketValue()).isNull();
 
-        when(trades.findActiveAccountTradesByHouseholdId(2L)).thenReturn(List.of());
+        when(trades.historyAsOf(2L,DAY)).thenReturn(List.of());
         when(prices.effectivePrices(2L)).thenReturn(List.of());
-        PortfolioResponse empty = new PortfolioService(trades, prices).portfolio(2L);
+        PortfolioResponse empty = new PortfolioService(trades, prices,reporting(history),CLOCK).portfolio(2L);
         assertThat(empty.positions()).isEmpty();
         assertThat(empty.totals().cost()).isEqualTo("0.00");
         assertThat(empty.totals().marketValue()).isEqualTo("0.00");
+    }
+
+    private static com.familyfinance.accounting.LedgerReportingService reporting(List<InvestmentTrade> history) {
+        var reporting=mock(com.familyfinance.accounting.LedgerReportingService.class);
+        long cost=history.size()==1?1000L:96090L;
+        when(reporting.balancesAsOf(1L,DAY)).thenReturn(java.util.Map.of("POSITION:3:7",cost));
+        return reporting;
     }
 
     private static InvestmentTrade trade(long id, InvestmentAccount account, Security security,

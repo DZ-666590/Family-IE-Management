@@ -222,6 +222,7 @@ class AssetApiTest {
             created.add(create(owner, otherBody("分页资产-" + index, memberId)));
         }
         long propertyId = create(owner, propertyBody("筛选房产", memberId, "66.66"));
+        createValuation(owner,created.get(0),"2026-09-01","0.00");
         mvc.perform(delete("/api/assets/{id}", created.get(0)).session(owner).with(csrf()))
                 .andExpect(status().isNoContent());
 
@@ -264,8 +265,9 @@ class AssetApiTest {
 
         mvc.perform(delete("/api/assets/{id}", assetId).session(owner).with(csrf()))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("RESOURCE_IN_USE"));
+                .andExpect(jsonPath("$.error.code").value("ASSET_VALUE_NOT_ZERO"));
         jdbc.update("delete from loans where linked_asset_id=?", assetId);
+        createValuation(owner,assetId,"2026-09-01","0.00");
 
         mvc.perform(delete("/api/assets/{id}", assetId).session(owner).with(csrf()))
                 .andExpect(status().isNoContent());
@@ -280,10 +282,10 @@ class AssetApiTest {
         assertThat(jdbc.queryForObject("select count(*) from property_assets where asset_id=?", Long.class, assetId))
                 .isEqualTo(1L);
         assertThat(jdbc.queryForObject("select count(*) from asset_valuations where asset_id=?", Long.class, assetId))
-                .isEqualTo(2L);
+                .isEqualTo(3L);
         mvc.perform(get("/api/assets/{id}/valuations", assetId).session(owner))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.items.length()").value(2));
+                .andExpect(jsonPath("$.data.items.length()").value(3));
         mvc.perform(post("/api/assets/{id}/valuations", assetId).session(owner).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"valuedOn\":\"2026-09-02\",\"value\":\"1.00\"}"))
@@ -346,7 +348,7 @@ class AssetApiTest {
         String owner = memberId == null ? "null" : memberId.toString();
         String areaField = area == null ? "" : ",\"areaSqm\":\"" + area + "\"";
         return """
-                {"name":"%s","type":"PROPERTY","ownerMemberId":%s,"acquiredOn":"2024-01-02",
+                {"name":"%s","accountingMode":"OPENING","accountingOn":"2026-01-01","type":"PROPERTY","ownerMemberId":%s,"acquiredOn":"2024-01-02",
                  "purchaseValue":"500000.00","currentValue":"550000.00",
                  "property":{"address":"杭州市西湖区 1 号"%s,"usageType":"SELF_USE"}}
                 """.formatted(name, owner, areaField);
@@ -355,7 +357,7 @@ class AssetApiTest {
     private static String vehicleBody(String name, Long memberId, String brandModel) {
         String owner = memberId == null ? "null" : memberId.toString();
         return """
-                {"name":"%s","type":"VEHICLE","ownerMemberId":%s,"acquiredOn":"2025-02-03",
+                {"name":"%s","accountingMode":"OPENING","accountingOn":"2026-01-01","type":"VEHICLE","ownerMemberId":%s,"acquiredOn":"2025-02-03",
                  "purchaseValue":"200000.00","currentValue":"180000.00",
                  "vehicle":{"brandModel":"%s","plateHint":"浙A***01","purchaseYear":2025}}
                 """.formatted(name, owner, brandModel);
@@ -364,7 +366,7 @@ class AssetApiTest {
     private static String otherBody(String name, Long memberId) {
         String owner = memberId == null ? "null" : memberId.toString();
         return """
-                {"name":"%s","type":"OTHER","ownerMemberId":%s,"acquiredOn":"2023-03-04",
+                {"name":"%s","accountingMode":"OPENING","accountingOn":"2026-01-01","type":"OTHER","ownerMemberId":%s,"acquiredOn":"2023-03-04",
                  "purchaseValue":"100.00","currentValue":"120.00"}
                 """.formatted(name, owner);
     }

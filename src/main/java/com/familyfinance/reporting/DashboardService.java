@@ -1,8 +1,8 @@
 package com.familyfinance.reporting;
 
 import com.familyfinance.category.TransactionKind;
-import com.familyfinance.transaction.FinancialTransaction;
-import com.familyfinance.transaction.FinancialTransactionRepository;
+import com.familyfinance.accounting.LedgerActivity;
+import com.familyfinance.accounting.LedgerReportingService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -17,16 +17,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@Transactional(readOnly = true)
+@Transactional(readOnly = true, isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
 public class DashboardService {
 
     private static final Sort MONTH_SORT = Sort.by(
             Sort.Order.asc("occurredOn"),
             Sort.Order.asc("id"));
 
-    private final FinancialTransactionRepository transactionRepository;
+    private final LedgerReportingService transactionRepository;
 
-    public DashboardService(FinancialTransactionRepository transactionRepository) {
+    public DashboardService(LedgerReportingService transactionRepository) {
         this.transactionRepository = transactionRepository;
     }
 
@@ -35,11 +35,7 @@ public class DashboardService {
     }
 
     public DashboardResponse dashboard(long householdId, YearMonth month, boolean rollupCategories) {
-        List<FinancialTransaction> transactions = transactionRepository.findByHouseholdIdAndOccurredOnBetween(
-                householdId,
-                month.atDay(1),
-                month.atEndOfMonth(),
-                MONTH_SORT);
+        List<LedgerActivity> transactions = transactionRepository.activities(householdId,month.atDay(1),month.plusMonths(1).atDay(1));
 
         long incomeCents = 0L;
         long expenseCents = 0L;
@@ -47,7 +43,7 @@ public class DashboardService {
         Map<Long, NamedTotal> categoryTotals = new LinkedHashMap<>();
         Map<Long, NamedTotal> memberTotals = new LinkedHashMap<>();
 
-        for (FinancialTransaction transaction : transactions) {
+        for (LedgerActivity transaction : transactions) {
             long amountCents = transaction.getAmountCents();
             DailyTotals daily = dailyTotals.computeIfAbsent(transaction.getOccurredOn(), ignored -> new DailyTotals());
             if (transaction.getKind() == TransactionKind.INCOME) {
@@ -75,11 +71,12 @@ public class DashboardService {
         }
 
         long totalExpenseCents = expenseCents;
+        var flow=transactionRepository.cashFlow(householdId,month.atDay(1),month.plusMonths(1).atDay(1));
         return new DashboardResponse(
                 new DashboardSummaryResponse(
                         formatCents(incomeCents),
                         formatCents(expenseCents),
-                        formatCents(incomeCents - expenseCents)),
+                        formatCents(incomeCents - expenseCents),formatCents(flow.cashIn()),formatCents(flow.cashOut()),formatCents(flow.principalPaid()),formatCents(flow.borrowed()),formatCents(flow.noncashValuationChange())),
                 dailyTotals.entrySet().stream()
                         .map(entry -> new DailyTrendResponse(
                                 entry.getKey().toString(),

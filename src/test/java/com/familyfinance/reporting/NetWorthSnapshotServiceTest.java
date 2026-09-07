@@ -32,7 +32,7 @@ class NetWorthSnapshotServiceTest {
                 new InvestmentSummary(0L, 0, 0, false, false, false)));
 
         NetWorthSnapshotService service = new NetWorthSnapshotService(households, snapshots, netWorth,
-                Clock.fixed(Instant.parse("2026-09-03T12:00:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-09-03T12:00:00Z"), ZoneOffset.UTC),mock(org.springframework.transaction.PlatformTransactionManager.class));
         NetWorthSnapshot snapshot = service.generate(7L, LocalDate.of(2026, 9, 3));
 
         assertThat(snapshot.getAssetCents()).isEqualTo(1_200_000L);

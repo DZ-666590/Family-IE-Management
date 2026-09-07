@@ -87,7 +87,7 @@ class AssetValuationServiceTest {
         MockHttpSession owner = login();
         long assetId = createOther(owner, "历史回填资产", "500.00", "550.00", "2024-01-01");
 
-        createValuation(owner, assetId, "2025-01-01", "400.00", "补录旧估值");
+        mvc.perform(post("/api/assets/{id}/valuations",assetId).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(valuationBody("2025-01-01","400.00","补录旧估值"))).andExpect(status().isConflict());
 
         assertCurrent(assetId, 55_000L);
     }
@@ -104,7 +104,7 @@ class AssetValuationServiceTest {
         mvc.perform(post("/api/assets").session(owner).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"应整体回滚车辆","type":"VEHICLE","ownerMemberId":null,
+                                {"name":"应整体回滚车辆","accountingMode":"OPENING","accountingOn":"2026-09-03","type":"VEHICLE","ownerMemberId":null,
                                  "acquiredOn":null,"purchaseValue":null,"currentValue":"180000.00",
                                  "vehicle":{"brandModel":"回滚车型","plateHint":null,"purchaseYear":2025}}
                                 """))
@@ -122,7 +122,7 @@ class AssetValuationServiceTest {
         MockHttpSession owner = login();
         clock.setInstant(Instant.parse("2026-09-02T15:59:59Z"));
         String body = """
-                {"name":"上海零点资产","type":"OTHER","ownerMemberId":null,
+                {"name":"上海零点资产","accountingMode":"OPENING","accountingOn":"2026-09-02","type":"OTHER","ownerMemberId":null,
                  "acquiredOn":"2026-09-03","purchaseValue":null,"currentValue":"1.00"}
                 """;
         mvc.perform(post("/api/assets").session(owner).with(csrf())
@@ -138,7 +138,7 @@ class AssetValuationServiceTest {
     }
 
     @Test
-    void localTodayValuationReplacesInPlaceExactlyAtShanghaiMidnight() throws Exception {
+    void localTodayValuationAppendsImmutableHistoryAtShanghaiMidnight() throws Exception {
         MockHttpSession owner = login();
         clock.setInstant(Instant.parse("2026-09-02T15:59:59Z"));
         long assetId = createOther(owner, "上海零点估值", null, "88.00", null);
@@ -156,14 +156,14 @@ class AssetValuationServiceTest {
         clock.setInstant(Instant.parse("2026-09-02T16:00:00Z"));
         long replacedId = createValuation(owner, assetId, "2026-09-03", "99.00", "零点后修订");
 
-        assertThat(replacedId).isEqualTo(valuationId);
+        assertThat(replacedId).isNotEqualTo(valuationId);
         assertThat(jdbc.queryForObject("select created_by from asset_valuations where id=?", Long.class, valuationId))
                 .isEqualTo(1L);
         assertCurrent(assetId, 9_900L);
     }
 
     @Test
-    void manualCurrentDayValuationReplacesInPlaceWhileOlderDatesStayImmutable() throws Exception {
+    void manualSameDayValuationsAppendWhileOlderDatesAreGated() throws Exception {
         MockHttpSession owner = login();
         long assetId = createOther(owner, "估值历史资产", "100.00", "100.00", "2026-08-01");
         long creationBaselineId = jdbc.queryForObject("""
@@ -181,36 +181,36 @@ class AssetValuationServiceTest {
 
         long replacementId = createValuation(owner, assetId, "2026-09-03", "210.00", "下午估值");
 
-        assertThat(firstManualId).isEqualTo(creationBaselineId);
-        assertThat(replacementId).isEqualTo(firstManualId);
+        assertThat(firstManualId).isNotEqualTo(creationBaselineId);
+        assertThat(replacementId).isNotEqualTo(firstManualId);
         assertThat(creatorId).isEqualTo(creationBaselineCreator);
         assertThat(jdbc.queryForObject("select created_by from asset_valuations where id=?", Long.class, firstManualId))
                 .isEqualTo(creatorId);
         assertThat(jdbc.queryForObject("select fetched_at from asset_valuations where id=?", Instant.class, firstManualId))
-                .isAfter(firstFetchedAt);
+                .isEqualTo(firstFetchedAt);
         assertThat(jdbc.queryForObject("select value_cents from asset_valuations where id=?", Long.class, firstManualId))
-                .isEqualTo(21_000L);
+                .isEqualTo(20_000L);
 
-        createValuation(owner, assetId, "2026-09-01", "150.00", "历史估值");
+
         mvc.perform(post("/api/assets/{id}/valuations", assetId).session(owner).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(valuationBody("2026-09-01", "151.00", "改写历史")))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("VALUATION_IMMUTABLE"));
+                .andExpect(jsonPath("$.error.code").value("ASSET_ACCOUNTING_CHRONOLOGY"));
     }
 
     @Test
     void latestOrderingUsesValuedOnThenFetchedAtThenIdAndBackdatingNeverRegressesCurrentValue() throws Exception {
         MockHttpSession owner = login();
         long assetId = createOther(owner, "最新估值资产", "100.00", "110.00", "2026-09-03");
-        long backdatedId = createValuation(owner, assetId, "2026-08-31", "999.00", "回填历史");
+        mvc.perform(post("/api/assets/{id}/valuations",assetId).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(valuationBody("2026-08-31","999.00","回填历史"))).andExpect(status().isConflict());
         assertCurrent(assetId, 11_000L);
 
         long todayId = createValuation(owner, assetId, "2026-09-03", "200.00", "今日估值");
         assertCurrent(assetId, 20_000L);
         clock.advanceSeconds(1);
         long replacedId = createValuation(owner, assetId, "2026-09-03", "190.00", "今日修订");
-        assertThat(replacedId).isEqualTo(todayId);
+        assertThat(replacedId).isNotEqualTo(todayId);
         assertCurrent(assetId, 19_000L);
 
         JsonNode items = body(mvc.perform(get("/api/assets/{id}/valuations", assetId).session(owner)
@@ -220,10 +220,10 @@ class AssetValuationServiceTest {
                 .andExpect(jsonPath("$.data.size").value(50))
                 .andExpect(header().string("X-Page-Size", "50"))
                 .andReturn()).path("data").path("items");
-        assertThat(items.get(0).path("id").asLong()).isEqualTo(todayId);
+        assertThat(items.get(0).path("id").asLong()).isEqualTo(replacedId);
         assertThat(items.get(0).path("source").asText()).isEqualTo("MANUAL");
         assertThat(items.get(0).path("fetchedAt").asText()).isNotBlank();
-        assertThat(items.get(1).path("id").asLong()).isEqualTo(backdatedId);
+        assertThat(items.get(1).path("id").asLong()).isEqualTo(todayId);
     }
 
     @Test
@@ -292,7 +292,7 @@ class AssetValuationServiceTest {
     }
 
     @Test
-    void concurrentCurrentDayRequestsLeaveOneManualFactAndNoServerError() throws Exception {
+    void concurrentCurrentDayRequestsAppendBothManualFactsAndNoServerError() throws Exception {
         MockHttpSession owner = login();
         long assetId = createOther(owner, "并发估值资产", null, "0.00", null);
         CountDownLatch ready = new CountDownLatch(2);
@@ -313,7 +313,7 @@ class AssetValuationServiceTest {
             assertThat(jdbc.queryForObject("""
                     select count(*) from asset_valuations
                     where asset_id=? and valued_on=date '2026-09-03' and source='MANUAL'
-                    """, Long.class, assetId)).isEqualTo(1L);
+                    """, Long.class, assetId)).isEqualTo(3L);
             assertThat(jdbc.queryForObject("select current_value_cents from assets where id=?", Long.class, assetId))
                     .isIn(30_000L, 40_000L);
         } finally {
@@ -380,8 +380,8 @@ class AssetValuationServiceTest {
         String acquired = acquiredOn == null ? "null" : "\"" + acquiredOn + "\"";
         String body = """
                 {"name":"%s","type":"OTHER","ownerMemberId":null,"acquiredOn":%s,
-                 "purchaseValue":%s,"currentValue":"%s"}
-                """.formatted(name, acquired, purchase, currentValue);
+                 "purchaseValue":%s,"currentValue":"%s","accountingMode":"OPENING","accountingOn":"%s"}
+                """.formatted(name, acquired, purchase, currentValue,java.time.LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))));
         return body(mvc.perform(post("/api/assets").session(session).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated()).andReturn()).path("data").path("id").asLong();

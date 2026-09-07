@@ -44,6 +44,7 @@ class CategoryHierarchyApiTest {
     private static final Instant TEST_TIME = Instant.parse("2026-09-03T00:00:00Z");
 
     @Autowired MockMvc mvc;
+    @Autowired org.springframework.context.ApplicationContext context;
     @Autowired ObjectMapper objectMapper;
     @Autowired HouseholdRepository households;
     @Autowired CategoryRepository categories;
@@ -208,6 +209,7 @@ class CategoryHierarchyApiTest {
     @Test
     void dashboardRollsChildrenIntoParentOnlyWhenExplicitlyRequested() throws Exception {
         MockHttpSession session = login();
+        mvc.perform(patch("/api/accounts/1").session(session).with(csrf()).contentType("application/json").content("{\"openingBalance\":\"1000.00\"}")).andExpect(status().isOk());
         Household household = currentHousehold();
         FamilyMember member = members.findByHouseholdOrderById(household).get(0);
         Category parent = categories.saveAndFlush(new Category(
@@ -216,15 +218,16 @@ class CategoryHierarchyApiTest {
                 household, TransactionKind.EXPENSE, unique("早餐"), "#654321", false, parent, TEST_TIME));
         transactions.saveAndFlush(TransactionTestFixtures.newTransaction(
                 accounts, users, household, member, child, TransactionKind.EXPENSE, 2500L,
-                LocalDate.parse("2026-10-08"), null, null, unique("rollup"), TEST_TIME, TEST_TIME));
+                LocalDate.parse("2026-02-08"), null, null, unique("rollup"), TEST_TIME, TEST_TIME));
 
-        mvc.perform(get("/api/dashboard").session(session).param("month", "2026-10"))
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,1L);
+        mvc.perform(get("/api/dashboard").session(session).param("month", "2026-02"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.expenseByCategory[0].categoryId").value(child.getId()))
                 .andExpect(jsonPath("$.data.expenseByCategory[0].categoryName").value(child.getName()));
 
         mvc.perform(get("/api/dashboard").session(session)
-                        .param("month", "2026-10").param("rollupCategories", "true"))
+                        .param("month", "2026-02").param("rollupCategories", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.summary.expense").value("25.00"))
                 .andExpect(jsonPath("$.data.expenseByCategory.length()").value(1))
@@ -233,7 +236,7 @@ class CategoryHierarchyApiTest {
                 .andExpect(jsonPath("$.data.expenseByCategory[0].amount").value("25.00"));
 
         MvcResult analysis = mvc.perform(get("/api/analysis").session(session)
-                        .param("month", "2026-10").param("rollupCategories", "true"))
+                        .param("month", "2026-02").param("rollupCategories", "true"))
                 .andExpect(status().isOk())
                 .andReturn();
         JsonNode topCategory = null;
@@ -273,7 +276,7 @@ class CategoryHierarchyApiTest {
         for (boolean active : List.of(true, false)) {
             long withRule = createCategory(session, "expense", unique(active ? "有效规则" : "历史规则"), null);
             jdbc.update("insert into recurring_rules (household_id,kind,amount_cents,schedule_type,interval_value,day_of_month,next_due_on,account_id,member_id,category_id,active,created_by) values (?,?,?,?,?,?,?,?,?,?,?,?)",
-                    household.getId(), "EXPENSE", 100L, "MONTHLY", 1, 1, LocalDate.parse("2026-10-01"),
+                    household.getId(), "EXPENSE", 100L, "MONTHLY", 1, 1, LocalDate.parse("2026-02-01"),
                     accountId, member.getId(), withRule, active, userId);
             assertDeleteBlocked(session, withRule, "周期规则");
         }
@@ -315,9 +318,9 @@ class CategoryHierarchyApiTest {
         jdbc.update("insert into budgets "
                         + "(household_id,period_month,scope_type,amount_cents,version,active) "
                         + "values (?,?,?,?,?,?)",
-                household.getId(), "2026-10", "TOTAL", 20000L, 2, true);
+                household.getId(), "2026-02", "TOTAL", 20000L, 2, true);
         long budgetId = jdbc.queryForObject(
-                "select id from budgets where household_id=? and period_month='2026-10' and scope_type='TOTAL'",
+                "select id from budgets where household_id=? and period_month='2026-02' and scope_type='TOTAL'",
                 Long.class,
                 household.getId());
         jdbc.update("insert into budget_revisions "
@@ -326,7 +329,7 @@ class CategoryHierarchyApiTest {
                         + "new_category_id,old_member_id,new_member_id,old_active,new_active) "
                         + "values (?,?,?,?,?,current_timestamp,?,?,?,?,?,?,?,?,?,?)",
                 household.getId(), budgetId, 10000L, 20000L, userId,
-                "2026-10", "2026-10", "CATEGORY", "TOTAL", categoryId,
+                "2026-02", "2026-02", "CATEGORY", "TOTAL", categoryId,
                 null, null, null, true, true);
 
         mvc.perform(patch("/api/categories/{id}", categoryId)

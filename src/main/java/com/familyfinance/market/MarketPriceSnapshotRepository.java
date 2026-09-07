@@ -9,5 +9,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface MarketPriceSnapshotRepository extends JpaRepository<MarketPriceSnapshot, Long> {
     Optional<MarketPriceSnapshot> findBySecurityIdAndTradeDate(Long securityId, LocalDate tradeDate);
     Optional<MarketPriceSnapshot> findFirstBySecurityIdOrderByTradeDateDescFetchedAtDescIdDesc(Long securityId);
+    Optional<MarketPriceSnapshot> findFirstBySecurityIdAndTradeDateLessThanEqualOrderByTradeDateDescFetchedAtDescIdDesc(Long securityId,LocalDate day);
     List<MarketPriceSnapshot> findBySecurityIdInAndTradeDate(Collection<Long> securityIds, LocalDate tradeDate);
 }

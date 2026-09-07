@@ -47,6 +47,9 @@ public class AssetService {
     private final FamilyMutationAuthorization mutationAuthorization;
     private final LoanRepository loans;
     private final Clock clock;
+    private final com.familyfinance.accounting.AccountingRequests requests;
+    private final AssetAccountingService accounting;
+    private final jakarta.persistence.EntityManager entities;
 
     public AssetService(
             AssetRepository assets,
@@ -55,7 +58,8 @@ public class AssetService {
             CurrentMembership currentMembership,
             FamilyMutationAuthorization mutationAuthorization,
             LoanRepository loans,
-            Clock clock) {
+            Clock clock,com.familyfinance.accounting.AccountingRequests requests,
+            AssetAccountingService accounting,jakarta.persistence.EntityManager entities) {
         this.assets = assets;
         this.valuations = valuations;
         this.members = members;
@@ -63,6 +67,7 @@ public class AssetService {
         this.mutationAuthorization = mutationAuthorization;
         this.loans = loans;
         this.clock = clock;
+        this.requests=requests;this.accounting=accounting;this.entities=entities;
     }
 
     public AssetPage list(
@@ -76,7 +81,7 @@ public class AssetService {
                 ? assets.findByHouseholdIdAndStatus(householdId, safeStatus, pageable)
                 : assets.findByHouseholdIdAndTypeAndStatus(householdId, type, safeStatus, pageable);
         return new AssetPage(
-                result.getContent().stream().map(AssetResponse::from).toList(),
+                result.getContent().stream().map(this::response).toList(),
                 safePage,
                 safeSize,
                 result.getTotalElements(),
@@ -86,13 +91,20 @@ public class AssetService {
 
     public AssetResponse get(Authentication authentication, long assetId) {
         long householdId = currentMembership.require(authentication).householdId();
-        return AssetResponse.from(findOne(householdId, assetId));
+        return response(findOne(householdId, assetId));
     }
 
     @Transactional
     public AssetResponse create(Authentication authentication, AssetCreateRequest request) {
+        return create(authentication,request,com.familyfinance.accounting.AccountingRequests.key(null));
+    }
+    @Transactional
+    public AssetResponse create(Authentication authentication,AssetCreateRequest request,String key) {
         FamilyMutationAuthorization.LockedFamilyAccess access = mutationAuthorization.requireAdmin(authentication);
         long householdId = access.context().householdId();
+        String digest=requests.digest("ASSET_CREATE",access.context().userId(),request);
+        Long replay=requests.replay(householdId,key,digest);
+        if(replay!=null)return response(findCurrent(householdId,replay));
         Map<String, String> fields = new LinkedHashMap<>();
         String name = normalizeRequired(request == null ? null : request.name(), 100, "name", "资产名称", fields);
         AssetType type = request == null ? null : request.type();
@@ -114,11 +126,20 @@ public class AssetService {
                 type, request == null ? null : request.property(), request == null ? null : request.vehicle(), true, fields);
         ParsedVehicle vehicle = validateVehicle(
                 type, request == null ? null : request.vehicle(), request == null ? null : request.property(), true, fields);
+        AssetAccountingMode mode=request==null?null:request.accountingMode();
+        if(mode==null)fields.put("accountingMode","请选择期初资产或真实购买");
+        if(mode==AssetAccountingMode.PURCHASE&&(purchaseValue==null||request.fundingAccountId()==null))
+            fields.put("fundingAccountId","真实购买必须填写购买价格和资金账户");
+        if(mode==AssetAccountingMode.OPENING&&request.fundingAccountId()!=null)
+            fields.put("fundingAccountId","期初资产不使用资金账户");
         throwIfInvalid(fields);
+        LocalDate accountingOn=accounting.day(request.accountingOn(),"accountingOn");
 
         Asset asset = new Asset(
                 access.household(), name, type, owner, acquiredOn, purchaseValue, currentValue,
                 access.membership().getUser());
+        long initial=mode==AssetAccountingMode.PURCHASE?purchaseValue:currentValue;
+        asset.initialize(mode,accountingOn,initial,request.fundingAccountId());
         if (property != null) {
             asset.attachProperty(new PropertyAsset(
                     asset, householdId, property.address(), property.areaSqm(), property.usageType()));
@@ -129,10 +150,13 @@ public class AssetService {
         }
         try {
             asset = assets.saveAndFlush(asset);
-            valuations.saveAndFlush(new AssetValuation(
-                    access.household(), asset, today, currentValue, AssetValuationSource.MANUAL,
+            AssetValuation valuation=valuations.saveAndFlush(new AssetValuation(
+                    access.household(), asset, accountingOn, currentValue, AssetValuationSource.MANUAL,
                     null, access.membership().getUser(), clock.instant()));
-            return AssetResponse.from(asset);
+            accounting.originate(asset,access.context().userId(),key);
+            accounting.revalue(asset,valuation.getId(),accountingOn,initial,currentValue,access.context().userId(),"asset-value:"+valuation.getId());
+            requests.record(householdId,key,digest,asset.getId());
+            return response(asset);
         } catch (DataIntegrityViolationException exception) {
             throw new ResourceConflictException("RESOURCE_CONFLICT", "资产无法保存，请刷新后重试");
         }
@@ -140,9 +164,16 @@ public class AssetService {
 
     @Transactional
     public AssetResponse update(Authentication authentication, long assetId, AssetPatchRequest request) {
+        return update(authentication,assetId,request,com.familyfinance.accounting.AccountingRequests.key(null));
+    }
+    @Transactional
+    public AssetResponse update(Authentication authentication,long assetId,AssetPatchRequest request,String key) {
         FamilyMutationAuthorization.LockedFamilyAccess access = mutationAuthorization.requireAdmin(authentication);
         long householdId = access.context().householdId();
-        Asset asset = findOne(householdId, assetId);
+        String digest=requests.digest("ASSET_UPDATE:"+assetId,access.context().userId(),request);
+        Long replay=requests.replay(householdId,key,digest);
+        Asset asset = findCurrent(householdId, assetId);
+        if(replay!=null)return response(asset);
         if (asset.isArchived()) throw archived();
         rejectImmutablePatch(request);
         Map<String, String> fields = new LinkedHashMap<>();
@@ -164,20 +195,60 @@ public class AssetService {
         if (property != null) asset.getProperty().update(property.address(), property.areaSqm(), property.usageType());
         if (vehicle != null) asset.getVehicle().update(vehicle.brandModel(), vehicle.plateHint(), vehicle.purchaseYear());
         assets.flush();
-        return AssetResponse.from(asset);
+        requests.record(householdId,key,digest,assetId);
+        return response(asset);
     }
 
     @Transactional
     public void archive(Authentication authentication, long assetId) {
+        archive(authentication,assetId,com.familyfinance.accounting.AccountingRequests.key(null));
+    }
+    @Transactional
+    public void archive(Authentication authentication,long assetId,String key) {
         FamilyMutationAuthorization.LockedFamilyAccess access = mutationAuthorization.requireAdmin(authentication);
         long householdId = access.context().householdId();
-        Asset asset = findOne(householdId, assetId);
-        if (asset.isArchived()) return;
+        String digest=requests.digest("ASSET_ARCHIVE:"+assetId,access.context().userId(),null);
+        if(requests.replay(householdId,key,digest)!=null)return;
+        Asset asset = findCurrent(householdId, assetId);
+        accounting.requireBalance(asset);
+        if(asset.getCurrentValueCents()!=0)throw new ResourceConflictException("ASSET_VALUE_NOT_ZERO","请先记录资产处置收入或损失，再归档");
         if (hasLoanReference(householdId, assetId)) {
             throw new ResourceConflictException("RESOURCE_IN_USE", "资产仍被贷款引用，无法归档");
         }
         asset.archive(clock.instant());
         assets.flush();
+        requests.record(householdId,key,digest,assetId);
+    }
+
+    @Transactional
+    public AssetResponse dispose(Authentication authentication,long assetId,AssetDisposalRequest request,String key) {
+        var access=mutationAuthorization.requireAdmin(authentication);
+        long h=access.context().householdId();
+        String digest=requests.digest("ASSET_DISPOSE:"+assetId,access.context().userId(),request);
+        Long replay=requests.replay(h,key,digest);
+        Asset asset=findCurrent(h,assetId);
+        if(replay!=null)return response(asset);
+        if(asset.isArchived())throw archived();
+        Map<String,String> fields=new LinkedHashMap<>();
+        Long proceeds=parseRequiredMoney(request==null?null:request.proceeds(),"proceeds",fields);
+        throwIfInvalid(fields);
+        LocalDate day=accounting.day(request.disposedOn(),"disposedOn");
+        accounting.dispose(asset,day,proceeds,request.cashAccountId(),access.context().userId(),key);
+        asset.dispose(day,proceeds,request.cashAccountId(),access.context().userId(),clock.instant());
+        assets.flush();
+        requests.record(h,key,digest,assetId);
+        return response(asset);
+    }
+
+    private AssetResponse response(Asset asset) {
+        boolean current=!org.springframework.transaction.support.TransactionSynchronizationManager.isCurrentTransactionReadOnly();
+        return AssetResponse.from(asset,accounting.disposalBookGain(asset,current));
+    }
+
+    Asset findCurrent(long h,long id) {
+        var asset=assets.findCurrent(id,h).orElseThrow(()->new ResourceNotFoundException("资产不存在"));
+        entities.detach(asset);
+        return assets.findCurrent(id,h).orElseThrow();
     }
 
     Asset findOne(long householdId, long assetId) {

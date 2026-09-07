@@ -134,6 +134,14 @@ public class QuoteRefreshService {
         return prices(householdId, heldSecurities(householdId));
     }
 
+    public MarketPriceResponse effectivePriceAsOf(long householdId,Security security,LocalDate day) {
+        var manual=overrides.findFirstByHouseholdIdAndSecurityIdAndEffectiveOnLessThanEqualOrderByEffectiveOnDescIdDesc(householdId,security.getId(),day);
+        if(manual.isPresent())return MarketPriceResponse.manual(security,manual.get(),manual.get().getEffectiveOn().isBefore(day));
+        return snapshots.findFirstBySecurityIdAndTradeDateLessThanEqualOrderByTradeDateDescFetchedAtDescIdDesc(security.getId(),day)
+            .map(value->MarketPriceResponse.tushare(security,value,value.getTradeDate().isBefore(day)))
+            .orElseGet(()->MarketPriceResponse.noQuote(security,"NO_QUOTE"));
+    }
+
     /**
      * Background refresh deliberately has no authenticated actor or manual one-minute limit.
      * A bad household/provider response is isolated so later households still get a chance to refresh.
@@ -194,7 +202,7 @@ public class QuoteRefreshService {
         for (InvestmentTrade trade : trades.findActiveAccountTradesByHouseholdId(householdId)) {
             String key = trade.getAccount().getId() + ":" + trade.getSecurity().getId();
             ids.put(key, trade.getSecurity().getId());
-            if (trade.getType() == InvestmentTradeType.BUY) quantity.merge(key, trade.getQuantity(), BigDecimal::add);
+            if (trade.getType() == InvestmentTradeType.BUY || trade.getType() == InvestmentTradeType.OPENING) quantity.merge(key, trade.getQuantity(), BigDecimal::add);
             if (trade.getType() == InvestmentTradeType.SELL) quantity.merge(key, trade.getQuantity().negate(), BigDecimal::add);
         }
         Set<Long> securityIds = new HashSet<>();

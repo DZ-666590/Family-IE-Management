@@ -26,11 +26,12 @@ public class PositionCalculator {
         for (PositionTrade trade : trades) {
             validate(trade);
             switch (trade.type()) {
-                case BUY -> {
+                case OPENING, BUY -> {
                     long gross = roundedProduct(trade.quantity(), trade.priceCents());
                     long addedCost = Math.addExact(gross, trade.feeCents());
                     costCents = Math.addExact(costCents, addedCost);
-                    cashImpactCents = Math.subtractExact(cashImpactCents, addedCost);
+                    if (trade.type() == InvestmentTradeType.BUY)
+                        cashImpactCents = Math.subtractExact(cashImpactCents, addedCost);
                     quantity = quantity.add(trade.quantity()).setScale(4);
                 }
                 case SELL -> {
@@ -93,7 +94,7 @@ public class PositionCalculator {
         if (trade.priceCents() <= 0 || trade.feeCents() < 0) {
             throw new IllegalArgumentException("价格必须为正数且费用不能为负数");
         }
-        if (trade.type() == InvestmentTradeType.BUY || trade.type() == InvestmentTradeType.SELL) {
+        if (trade.type() == InvestmentTradeType.OPENING || trade.type() == InvestmentTradeType.BUY || trade.type() == InvestmentTradeType.SELL) {
             if (trade.quantity() == null
                     || trade.quantity().signum() <= 0
                     || trade.quantity().scale() > 4) {

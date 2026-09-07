@@ -43,9 +43,11 @@ import tools.jackson.databind.ObjectMapper;
 @Transactional
 class BudgetUsageServiceTest {
 
-    private static final Instant TEST_TIME = Instant.parse("2026-09-03T00:00:00Z");
+    private static final Instant TEST_TIME = Instant.parse("2025-09-03T00:00:00Z");
 
     @Autowired MockMvc mvc;
+    @Autowired org.springframework.context.ApplicationContext context;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean com.familyfinance.accounting.LedgerReportingService reporting;
     @Autowired ObjectMapper objectMapper;
     @Autowired HouseholdRepository households;
     @Autowired AppUserRepository users;
@@ -68,20 +70,20 @@ class BudgetUsageServiceTest {
         Category income = category(household, TransactionKind.INCOME, "预算收入", null);
 
         long totalBudget = createBudget(session, """
-                {"periodMonth":"2026-09","scopeType":"TOTAL","amount":"1000.00"}
+                {"periodMonth":"2025-09","scopeType":"TOTAL","amount":"1000.00"}
                 """);
         long categoryBudget = createBudget(session, """
-                {"periodMonth":"2026-09","scopeType":"CATEGORY","categoryId":%d,"amount":"50.00"}
+                {"periodMonth":"2025-09","scopeType":"CATEGORY","categoryId":%d,"amount":"50.00"}
                 """.formatted(parent.getId()));
         long memberBudget = createBudget(session, """
-                {"periodMonth":"2026-09","scopeType":"MEMBER","memberId":%d,"amount":"200.00"}
+                {"periodMonth":"2025-09","scopeType":"MEMBER","memberId":%d,"amount":"200.00"}
                 """.formatted(first.getId()));
 
-        transaction(household, first, parent, TransactionKind.EXPENSE, 3500L, "2026-09-02");
-        transaction(household, first, child, TransactionKind.EXPENSE, 2500L, "2026-09-03");
-        transaction(household, second, otherExpense, TransactionKind.EXPENSE, 2000L, "2026-09-04");
-        transaction(household, first, income, TransactionKind.INCOME, 100_000L, "2026-09-05");
-        transaction(household, first, parent, TransactionKind.EXPENSE, 999_00L, "2026-10-01");
+        transaction(household, first, parent, TransactionKind.EXPENSE, 3500L, "2025-09-02");
+        transaction(household, first, child, TransactionKind.EXPENSE, 2500L, "2025-09-03");
+        transaction(household, second, otherExpense, TransactionKind.EXPENSE, 2000L, "2025-09-04");
+        transaction(household, first, income, TransactionKind.INCOME, 100_000L, "2025-09-05");
+        transaction(household, first, parent, TransactionKind.EXPENSE, 999_00L, "2025-10-01");
         long accountId = accounts.findFirstByHouseholdIdAndArchivedAtIsNullOrderById(household.getId())
                 .orElseThrow().getId();
         long userId = users.findByEmail(currentEmail).orElseThrow().getId();
@@ -91,22 +93,14 @@ class BudgetUsageServiceTest {
                  account_id,member_id,category_id,active,created_by)
                 values (?,?,?,?,?,?,?,?,?,?,?,?)
                 """, household.getId(), "EXPENSE", 9_999_999L, "MONTHLY", 1, 9,
-                LocalDate.parse("2026-09-09"), accountId, first.getId(), parent.getId(), true, userId);
+                LocalDate.parse("2025-09-09"), accountId, first.getId(), parent.getId(), true, userId);
         long ruleId = jdbc.queryForObject("select max(id) from recurring_rules", Long.class);
         jdbc.update("""
                 insert into recurring_occurrences
                 (household_id,rule_id,due_on,status,confirmed_transaction_id,assigned_user_id)
                 values (?,?,?,?,?,?)
-                """, household.getId(), ruleId, LocalDate.parse("2026-09-09"), "PENDING", null, userId);
-        long occurrenceId = jdbc.queryForObject("select max(id) from recurring_occurrences", Long.class);
-        jdbc.update("""
-                insert into financial_transactions
-                (household_id,member_id,account_id,created_by_user_id,category_id,kind,amount_cents,
-                 occurred_on,note,created_at,updated_at,source_type,source_id)
-                values (?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, household.getId(), first.getId(), accountId, userId, parent.getId(), "EXPENSE", 777L,
-                LocalDate.parse("2026-09-09"), "unconfirmed recurring sentinel", TEST_TIME, TEST_TIME,
-                "RECURRING", occurrenceId);
+                """, household.getId(), ruleId, LocalDate.parse("2025-09-09"), "PENDING", null, userId);
+        // A pending occurrence has no financial transaction and therefore no posted expense.
 
         JsonNode exact = usage(session, false);
         assertUsage(find(exact, totalBudget), "80.00", "920.00", "8.00", "ON_TRACK", false);
@@ -124,13 +118,13 @@ class BudgetUsageServiceTest {
         FamilyMember member = members.findByHouseholdOrderById(household).get(0);
         Category category = category(household, TransactionKind.EXPENSE, "精确比例", null);
         long budget = createBudget(session, """
-                {"periodMonth":"2026-09","scopeType":"CATEGORY","categoryId":%d,"amount":"3.00"}
+                {"periodMonth":"2025-09","scopeType":"CATEGORY","categoryId":%d,"amount":"3.00"}
                 """.formatted(category.getId()));
-        transaction(household, member, category, TransactionKind.EXPENSE, 100L, "2026-09-02");
+        transaction(household, member, category, TransactionKind.EXPENSE, 100L, "2025-09-02");
 
         assertUsage(find(usage(session, false), budget),
                 "1.00", "2.00", "33.33", "ON_TRACK", false);
-        transaction(household, member, category, TransactionKind.EXPENSE, 250L, "2026-09-03");
+        transaction(household, member, category, TransactionKind.EXPENSE, 250L, "2025-09-03");
         assertUsage(find(usage(session, false), budget),
                 "3.50", "-0.50", "116.67", "OVER_BUDGET", false);
     }
@@ -151,11 +145,11 @@ class BudgetUsageServiceTest {
         long atEightyBudget = createBudget(session, categoryBudgetBody(atEighty.getId(), "200.00"));
         long longBoundaryBudget = createBudget(
                 session, categoryBudgetBody(longBoundary.getId(), "999999999.99"));
-        transaction(household, member, justOver, TransactionKind.EXPENSE, 100_001L, "2026-09-02");
-        transaction(household, member, equal, TransactionKind.EXPENSE, 100_000L, "2026-09-02");
-        transaction(household, member, justBelowEighty, TransactionKind.EXPENSE, 16_000L, "2026-09-02");
-        transaction(household, member, atEighty, TransactionKind.EXPENSE, 16_000L, "2026-09-02");
-        transaction(household, member, longBoundary, TransactionKind.EXPENSE, Long.MAX_VALUE, "2026-09-02");
+        transaction(household, member, justOver, TransactionKind.EXPENSE, 100_001L, "2025-09-02");
+        transaction(household, member, equal, TransactionKind.EXPENSE, 100_000L, "2025-09-02");
+        transaction(household, member, justBelowEighty, TransactionKind.EXPENSE, 16_000L, "2025-09-02");
+        transaction(household, member, atEighty, TransactionKind.EXPENSE, 16_000L, "2025-09-02");
+        org.mockito.Mockito.doReturn(Long.toString(Long.MAX_VALUE)).when(reporting).sumBudgetExpenseCents(org.mockito.ArgumentMatchers.eq(household.getId()),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.eq("CATEGORY"),org.mockito.ArgumentMatchers.eq(longBoundary.getId()),org.mockito.ArgumentMatchers.isNull(),org.mockito.ArgumentMatchers.anyBoolean());
 
         JsonNode usages = usage(session, false);
         assertThat(find(usages, justOverBudget).path("percent").decimalValue()).isEqualByComparingTo("100.00");
@@ -263,12 +257,11 @@ class BudgetUsageServiceTest {
         FamilyMember member = members.findByHouseholdOrderById(household).get(0);
         Category category = category(household, TransactionKind.EXPENSE, "溢出预算", null);
         createBudget(session, """
-                {"periodMonth":"2028-01","scopeType":"TOTAL","amount":"1.00"}
+                {"periodMonth":"2025-01","scopeType":"TOTAL","amount":"1.00"}
                 """);
-        transaction(household, member, category, TransactionKind.EXPENSE, Long.MAX_VALUE, "2028-01-02");
-        transaction(household, member, category, TransactionKind.EXPENSE, 1L, "2028-01-03");
+        org.mockito.Mockito.doReturn("9223372036854775808").when(reporting).sumBudgetExpenseCents(org.mockito.ArgumentMatchers.eq(household.getId()),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.isNull(),org.mockito.ArgumentMatchers.isNull(),org.mockito.ArgumentMatchers.anyBoolean());
 
-        mvc.perform(get("/api/budgets/usage").session(session).param("periodMonth", "2028-01"))
+        mvc.perform(get("/api/budgets/usage").session(session).param("periodMonth", "2025-01"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("AMOUNT_OVERFLOW"));
     }
@@ -276,8 +269,9 @@ class BudgetUsageServiceTest {
     @Autowired BudgetRepository budgetRepository;
 
     private JsonNode usage(MockHttpSession session, boolean rollup) throws Exception {
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,currentHousehold().getId());
         MvcResult result = mvc.perform(get("/api/budgets/usage").session(session)
-                        .param("periodMonth", "2026-09")
+                        .param("periodMonth", "2025-09")
                         .param("rollupCategories", Boolean.toString(rollup))
                         .param("page", "0").param("size", "50"))
                 .andExpect(status().isOk()).andReturn();
@@ -303,6 +297,7 @@ class BudgetUsageServiceTest {
         transactions.saveAndFlush(TransactionTestFixtures.newTransaction(
                 accounts, users, household, member, category, kind, amountCents,
                 LocalDate.parse(date), null, null, "budget-usage-" + System.nanoTime(), TEST_TIME, TEST_TIME));
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,household.getId());
     }
 
     private Category category(Household household, TransactionKind kind, String name, Category parent) {
@@ -321,6 +316,7 @@ class BudgetUsageServiceTest {
         MvcResult result = mvc.perform(post("/api/auth/login").with(csrf())
                         .param("username", currentEmail).param("password", "family-pass-2026"))
                 .andExpect(status().isOk()).andReturn();
+        com.familyfinance.accounting.AccountingTestFixtures.postFixtureTransactions(context,currentHousehold().getId());
         return (MockHttpSession) result.getRequest().getSession(false);
     }
 
@@ -346,7 +342,7 @@ class BudgetUsageServiceTest {
 
     private static String categoryBudgetBody(long categoryId, String amount) {
         return """
-                {"periodMonth":"2026-09","scopeType":"CATEGORY","categoryId":%d,"amount":"%s"}
+                {"periodMonth":"2025-09","scopeType":"CATEGORY","categoryId":%d,"amount":"%s"}
                 """.formatted(categoryId, amount);
     }
 

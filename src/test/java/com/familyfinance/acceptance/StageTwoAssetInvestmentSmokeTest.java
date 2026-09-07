@@ -65,8 +65,10 @@ class StageTwoAssetInvestmentSmokeTest {
             JsonNode session = owner.data(owner.get("/api/session"));
             assertThat(session.path("role").asString()).isEqualTo("OWNER");
 
+            long cashId=owner.data(owner.get("/api/accounts")).path("items").get(0).path("id").asLong();
+            owner.expectStatus(owner.write("PATCH","/api/accounts/"+cashId,"{\"openingBalance\":\"10000.00\",\"openingOn\":\"2026-01-01\"}"),200);
             JsonNode property = owner.data(owner.expectStatus(owner.write("POST", "/api/assets", """
-                    {"name":"验收房产","type":"PROPERTY","acquiredOn":"2020-06-01",
+                    {"name":"验收房产","accountingMode":"OPENING","accountingOn":"2026-01-01","type":"PROPERTY","acquiredOn":"2020-06-01",
                      "purchaseValue":"1000000.00","currentValue":"1200000.00",
                      "property":{"address":"杭州验收路 8 号","areaSqm":"89.50","usageType":"SELF_USE"}}
                     """), 201));
@@ -82,8 +84,8 @@ class StageTwoAssetInvestmentSmokeTest {
             assertAsset(owner.data(owner.get("/api/assets/" + assetId)), assetId, "1250000.00");
 
             JsonNode account = owner.data(owner.expectStatus(owner.write("POST", "/api/investment-accounts", """
-                    {"name":"验收证券账户","brokerName":"本地券商","currency":"CNY"}
-                    """), 201));
+                    {"name":"验收证券账户","brokerName":"本地券商","currency":"CNY","fundingAccountId":%d}
+                    """.formatted(cashId)), 201));
             long accountId = account.path("id").asLong();
             JsonNode security = owner.data(owner.expectStatus(owner.write("POST", "/api/securities/resolve", """
                     {"tsCode":"600000.SH","name":"浦发银行"}
@@ -106,7 +108,7 @@ class StageTwoAssetInvestmentSmokeTest {
             assertThat(first.context().getBean(AcceptanceMarketStub.class).calls()).isEqualTo(1);
             assertPortfolio(owner, accountId, securityId, "TUSHARE", "12.00", "1200.00", "199.00");
 
-            assertThat(owner.data(owner.get("/api/assets/" + assetId + "/valuations")).path("items")).hasSize(1);
+            assertThat(owner.data(owner.get("/api/assets/" + assetId + "/valuations")).path("items")).hasSize(2);
             assertThat(owner.data(owner.get("/api/investment-trades?accountId=" + accountId)).path("items")).hasSize(1);
             state = new State(assetId, valuationId, accountId, securityId, tradeId);
         }
@@ -118,7 +120,7 @@ class StageTwoAssetInvestmentSmokeTest {
             assertThat(owner.data(owner.get("/api/session")).path("email").asString()).isEqualTo(EMAIL);
             assertAsset(owner.data(owner.get("/api/assets/" + state.assetId())), state.assetId(), "1250000.00");
             JsonNode valuations = owner.data(owner.get("/api/assets/" + state.assetId() + "/valuations")).path("items");
-            assertThat(valuations).hasSize(1);
+            assertThat(valuations).hasSize(2);
             assertThat(valuations.get(0).path("id").asLong()).isEqualTo(state.valuationId());
             assertThat(valuations.get(0).path("value").asString()).isEqualTo("1250000.00");
             JsonNode trade = owner.data(owner.get("/api/investment-trades/" + state.tradeId()));

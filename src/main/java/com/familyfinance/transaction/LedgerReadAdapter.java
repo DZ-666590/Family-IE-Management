@@ -1,6 +1,7 @@
 package com.familyfinance.transaction;
 
 import com.familyfinance.extension.LedgerReadPort;
+import com.familyfinance.accounting.LedgerReportingService;
 import com.familyfinance.shared.CurrentHousehold;
 import com.familyfinance.shared.RequestValidationException;
 import com.familyfinance.category.TransactionKind;
@@ -18,9 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class LedgerReadAdapter implements LedgerReadPort {
     private final CurrentHousehold household;
-    private final FinancialTransactionRepository transactions;
+    private final LedgerReportingService transactions;
 
-    public LedgerReadAdapter(CurrentHousehold household, FinancialTransactionRepository transactions) {
+    public LedgerReadAdapter(CurrentHousehold household, LedgerReportingService transactions) {
         this.household = household;
         this.transactions = transactions;
     }
@@ -35,20 +36,11 @@ public class LedgerReadAdapter implements LedgerReadPort {
         BigInteger[] income = new BigInteger[12], expense = new BigInteger[12];
         java.util.Arrays.fill(income, BigInteger.ZERO);
         java.util.Arrays.fill(expense, BigInteger.ZERO);
-        int page = 0;
-        org.springframework.data.domain.Page<FinancialTransaction> batch;
-        do {
-            batch = transactions.findAll((root, query, cb) -> cb.and(
-                    cb.equal(root.get("household").get("id"), householdId),
-                    cb.greaterThanOrEqualTo(root.get("occurredOn"), LocalDate.of(year, 1, 1)),
-                    cb.lessThan(root.get("occurredOn"), LocalDate.of(year + 1, 1, 1))),
-                    PageRequest.of(page++, 500, Sort.by("id")));
-            for (var transaction : batch) {
-                int index = transaction.getOccurredOn().getMonthValue() - 1;
-                var target = transaction.getKind() == TransactionKind.INCOME ? income : expense;
-                target[index] = target[index].add(BigInteger.valueOf(transaction.getAmountCents()));
-            }
-        } while (batch.hasNext());
+        for(var item:transactions.activities(householdId,LocalDate.of(year,1,1),LocalDate.of(year+1,1,1))) {
+            int index=item.occurredOn().getMonthValue()-1;
+            var target=item.kind()==TransactionKind.INCOME?income:expense;
+            target[index]=target[index].add(BigInteger.valueOf(item.amountCents()));
+        }
         List<MonthlyAmount> result = new ArrayList<>();
         for (int i = 0; i < 12; i++) result.add(new MonthlyAmount(i + 1, income[i], expense[i]));
         return List.copyOf(result);

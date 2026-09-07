@@ -5,5 +5,8 @@ import java.util.List;
 public record NetWorthResult(long assetCents, long liabilityCents, long netWorthCents,
                              List<AllocationSlice> allocation, int debtRatioTenths,
                              List<DebtProgress> debtProgress, BudgetSummary budget,
-                             InvestmentSummary investment) {
+                             InvestmentSummary investment,long cumulativeAssetValuationChangeCents) {
+    public NetWorthResult(long assetCents,long liabilityCents,long netWorthCents,List<AllocationSlice> allocation,int debtRatioTenths,List<DebtProgress> debtProgress,BudgetSummary budget,InvestmentSummary investment) {
+        this(assetCents,liabilityCents,netWorthCents,allocation,debtRatioTenths,debtProgress,budget,investment,0);
+    }
 }

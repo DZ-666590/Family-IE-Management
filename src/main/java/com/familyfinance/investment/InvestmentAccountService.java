@@ -26,16 +26,25 @@ public class InvestmentAccountService {
     private final CurrentMembership currentMembership;
     private final FamilyMutationAuthorization mutationAuthorization;
     private final Clock clock;
+    private final com.familyfinance.accounting.AccountingRequests requests;
+    private final com.familyfinance.ledger.FinancialAccountRepository cashAccounts;
+    private final com.familyfinance.accounting.CashAccountingService cash;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final jakarta.persistence.EntityManager entities;
 
     public InvestmentAccountService(
             InvestmentAccountRepository accounts,
             CurrentMembership currentMembership,
             FamilyMutationAuthorization mutationAuthorization,
-            Clock clock) {
+            Clock clock, com.familyfinance.accounting.AccountingRequests requests,
+            com.familyfinance.ledger.FinancialAccountRepository cashAccounts,
+            com.familyfinance.accounting.CashAccountingService cash, org.springframework.jdbc.core.JdbcTemplate jdbc,
+            jakarta.persistence.EntityManager entities) {
         this.accounts = accounts;
         this.currentMembership = currentMembership;
         this.mutationAuthorization = mutationAuthorization;
         this.clock = clock;
+        this.requests=requests; this.cashAccounts=cashAccounts; this.cash=cash; this.jdbc=jdbc; this.entities=entities;
     }
 
     public InvestmentAccountPage list(
@@ -59,7 +68,15 @@ public class InvestmentAccountService {
 
     @Transactional
     public InvestmentAccountResponse create(Authentication authentication, InvestmentAccountCreateRequest request) {
+        return create(authentication,request,com.familyfinance.accounting.AccountingRequests.key(null));
+    }
+    @Transactional
+    public InvestmentAccountResponse create(Authentication authentication, InvestmentAccountCreateRequest request,String key) {
         var access = mutationAuthorization.requireAdmin(authentication);
+        long h=access.context().householdId();
+        String digest=requests.digest("INVESTMENT_ACCOUNT_CREATE",access.context().userId(),request);
+        Long replay=requests.replay(h,key,digest);
+        if(replay!=null)return InvestmentAccountResponse.from(findCurrent(h,replay));
         Map<String, String> fields = new LinkedHashMap<>();
         String name = required(request == null ? null : request.name(), 100, "name", "投资账户名称", fields);
         String broker = required(
@@ -71,8 +88,11 @@ public class InvestmentAccountService {
         throwIfInvalid(fields);
         ensureUnique(access.context().householdId(), name, null);
         try {
-            return InvestmentAccountResponse.from(accounts.saveAndFlush(new InvestmentAccount(
-                    access.household(), name, broker, access.membership().getUser())));
+            InvestmentAccount account=new InvestmentAccount(access.household(), name, broker, access.membership().getUser());
+            if(request.fundingAccountId()!=null) { requireFunding(h,request.fundingAccountId()); account.fundingAccount(request.fundingAccountId()); }
+            accounts.saveAndFlush(account);
+            requests.record(h,key,digest,account.getId());
+            return InvestmentAccountResponse.from(account);
         } catch (DataIntegrityViolationException exception) {
             throw duplicate();
         }
@@ -81,8 +101,16 @@ public class InvestmentAccountService {
     @Transactional
     public InvestmentAccountResponse update(
             Authentication authentication, long id, InvestmentAccountPatchRequest request) {
+        return update(authentication,id,request,com.familyfinance.accounting.AccountingRequests.key(null));
+    }
+    @Transactional
+    public InvestmentAccountResponse update(Authentication authentication,long id,InvestmentAccountPatchRequest request,String key) {
         var access = mutationAuthorization.requireAdmin(authentication);
-        InvestmentAccount account = findOne(access.context().householdId(), id);
+        long h=access.context().householdId();
+        String digest=requests.digest("INVESTMENT_ACCOUNT_UPDATE:"+id,access.context().userId(),request);
+        Long replay=requests.replay(h,key,digest);
+        InvestmentAccount account = findCurrent(h, id);
+        if(replay!=null)return InvestmentAccountResponse.from(account);
         if (account.isArchived()) throw archived();
         Map<String, String> fields = new LinkedHashMap<>();
         if (request != null && request.currency() != null) fields.put("currency", "账户币种创建后不可修改");
@@ -98,7 +126,9 @@ public class InvestmentAccountService {
         ensureUnique(access.context().householdId(), name, id);
         try {
             account.update(name, broker);
+            if(request!=null&&request.fundingAccountId()!=null) {requireFunding(h,request.fundingAccountId());account.fundingAccount(request.fundingAccountId());}
             accounts.flush();
+            requests.record(h,key,digest,id);
             return InvestmentAccountResponse.from(account);
         } catch (DataIntegrityViolationException exception) {
             throw duplicate();
@@ -107,10 +137,39 @@ public class InvestmentAccountService {
 
     @Transactional
     public void archive(Authentication authentication, long id) {
+        archive(authentication,id,com.familyfinance.accounting.AccountingRequests.key(null));
+    }
+    @Transactional
+    public void archive(Authentication authentication,long id,String key) {
         var access = mutationAuthorization.requireAdmin(authentication);
-        InvestmentAccount account = findOne(access.context().householdId(), id);
+        long h=access.context().householdId();
+        String digest=requests.digest("INVESTMENT_ACCOUNT_ARCHIVE:"+id,access.context().userId(),null);
+        if(requests.replay(h,key,digest)!=null)return;
+        InvestmentAccount account = findCurrent(h, id);
+        var rows=jdbc.queryForList("select trade_type,quantity,accounting_confirmed from investment_trades where household_id=? and account_id=? order by traded_on,id for update",h,id);
+        java.math.BigDecimal quantity=java.math.BigDecimal.ZERO;
+        for(var row:rows) {
+            if(!Boolean.TRUE.equals(row.get("accounting_confirmed")))throw new ResourceConflictException("ACCOUNTING_NOT_INITIALIZED","旧投资交易尚未确认账务，不能归档");
+            String type=(String)row.get("trade_type");
+            if(type.equals("OPENING")||type.equals("BUY"))quantity=quantity.add((java.math.BigDecimal)row.get("quantity"));
+            if(type.equals("SELL"))quantity=quantity.subtract((java.math.BigDecimal)row.get("quantity"));
+        }
+        if(quantity.signum()!=0)throw new ResourceConflictException("INVESTMENT_HOLDING_NOT_ZERO","请先卖出持仓，再归档投资账户");
+        var costs=jdbc.queryForList("select balance_cents from ledger_accounts where household_id=? and account_code like ? for update",Long.class,h,"POSITION:"+id+":%");
+        if(costs.stream().anyMatch(value->value!=0))throw new ResourceConflictException("ACCOUNTING_BALANCE_MISMATCH","清仓数量与账务持仓成本不一致，请先核对来源");
         account.archive(clock.instant());
         accounts.flush();
+        requests.record(h,key,digest,id);
+    }
+
+    InvestmentAccount findCurrent(long h,long id) {
+        var account=accounts.findCurrent(id,h).orElseThrow(()->new ResourceNotFoundException("投资账户不存在"));
+        entities.detach(account);
+        return accounts.findCurrent(id,h).orElseThrow();
+    }
+    private void requireFunding(long h,long id) {
+        var account=cashAccounts.findLockedByIdAndHouseholdId(id,h).orElseThrow(()->new ResourceNotFoundException("资金账户不存在"));
+        cash.requireConfirmed(account);
     }
 
     InvestmentAccount findOne(long householdId, long id) {

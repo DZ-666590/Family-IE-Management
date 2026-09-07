@@ -31,6 +31,9 @@ public class AssetValuationService {
     private final FamilyMutationAuthorization mutationAuthorization;
     private final NotificationService notifications;
     private final Clock clock;
+    private final com.familyfinance.accounting.AccountingRequests requests;
+    private final AssetAccountingService accounting;
+    private final jakarta.persistence.EntityManager entities;
 
     public AssetValuationService(
             AssetRepository assets,
@@ -39,7 +42,8 @@ public class AssetValuationService {
             CurrentMembership currentMembership,
             FamilyMutationAuthorization mutationAuthorization,
             NotificationService notifications,
-            Clock clock) {
+            Clock clock,com.familyfinance.accounting.AccountingRequests requests,
+            AssetAccountingService accounting,jakarta.persistence.EntityManager entities) {
         this.assets = assets;
         this.valuations = valuations;
         this.assetService = assetService;
@@ -47,6 +51,7 @@ public class AssetValuationService {
         this.mutationAuthorization = mutationAuthorization;
         this.notifications = notifications;
         this.clock = clock;
+        this.requests=requests;this.accounting=accounting;this.entities=entities;
     }
 
     public AssetValuationPage list(Authentication authentication, long assetId, int page, int size) {
@@ -68,9 +73,20 @@ public class AssetValuationService {
     @Transactional
     public AssetValuationResponse create(
             Authentication authentication, long assetId, AssetValuationRequest request) {
+        return create(authentication,assetId,request,com.familyfinance.accounting.AccountingRequests.key(null));
+    }
+    @Transactional
+    public AssetValuationResponse create(Authentication authentication,long assetId,AssetValuationRequest request,String key) {
         FamilyMutationAuthorization.LockedFamilyAccess access = mutationAuthorization.requireAdmin(authentication);
         long householdId = access.context().householdId();
-        Asset asset = assetService.findOne(householdId, assetId);
+        String digest=requests.digest("ASSET_VALUATION:"+assetId,access.context().userId(),request);
+        Long replay=requests.replay(householdId,key,digest);
+        if(replay!=null) {
+            var original=valuations.findCurrent(replay,householdId).orElseThrow();
+            entities.detach(original);
+            return AssetValuationResponse.from(valuations.findCurrent(replay,householdId).orElseThrow());
+        }
+        Asset asset = assetService.findCurrent(householdId, assetId);
         if (asset.isArchived()) {
             throw new ResourceConflictException("ASSET_ARCHIVED", "资产已归档");
         }
@@ -82,20 +98,12 @@ public class AssetValuationService {
         Long value = AssetService.parseRequiredMoney(request == null ? null : request.value(), "value", fields);
         String note = normalizeNote(request == null ? null : request.note(), fields);
         if (!fields.isEmpty()) throw new AssetValidationException(fields);
-
-        AssetValuation valuation = valuations.findByAssetIdAndValuedOnAndSource(
-                        assetId, valuedOn, AssetValuationSource.MANUAL)
-                .map(existing -> {
-                    if (!valuedOn.equals(today)) {
-                        throw new ResourceConflictException(
-                                "VALUATION_IMMUTABLE", "历史估值不可改写");
-                    }
-                    existing.replaceManual(value, note, clock.instant());
-                    return existing;
-                })
-                .orElseGet(() -> new AssetValuation(
+        accounting.day(valuedOn,"valuedOn");
+        accounting.requireBalance(asset);
+        accounting.requireChronology(asset,valuedOn);
+        AssetValuation valuation = new AssetValuation(
                         access.household(), asset, valuedOn, value, AssetValuationSource.MANUAL,
-                        note, access.membership().getUser(), clock.instant()));
+                        note, access.membership().getUser(), clock.instant());
         try {
             valuation = valuations.saveAndFlush(valuation);
         } catch (DataIntegrityViolationException exception) {
@@ -103,17 +111,12 @@ public class AssetValuationService {
                     "VALUATION_CONFLICT", "同一日期和来源的估值已发生并发更新，请重试");
         }
 
-        AssetValuation latest = valuations.findFirstByAssetIdOrderByValuedOnDescFetchedAtDescIdDesc(assetId)
-                .orElseThrow();
-        if (latest.getId().equals(valuation.getId())) {
-            asset.updateCurrentValue(valuation.getValueCents());
-            try {
-                assets.flush();
-            } catch (DataIntegrityViolationException exception) {
-                throw new ResourceConflictException(
-                        "VALUATION_PROJECTION_CONFLICT", "资产当前价值更新失败，请重试");
-            }
-        }
+        accounting.revalue(asset,valuation.getId(),valuedOn,asset.getCurrentValueCents(),value,access.context().userId(),key);
+        asset.updateCurrentValue(value);
+        asset.valuedOn(valuedOn);
+        try {assets.flush();}
+        catch(DataIntegrityViolationException failure){throw new ResourceConflictException("VALUATION_PROJECTION_CONFLICT","资产当前价值更新失败，请重试");}
+        requests.record(householdId,key,digest,valuation.getId());
         notifications.generateForHousehold(access.household());
         return AssetValuationResponse.from(valuation);
     }

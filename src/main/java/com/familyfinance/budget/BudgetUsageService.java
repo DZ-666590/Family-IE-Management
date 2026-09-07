@@ -2,7 +2,7 @@ package com.familyfinance.budget;
 
 import com.familyfinance.family.CurrentMembership;
 import com.familyfinance.shared.ResourceConflictException;
-import com.familyfinance.transaction.FinancialTransactionRepository;
+import com.familyfinance.accounting.LedgerReportingService;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
@@ -15,19 +15,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@Transactional(readOnly = true)
+@Transactional(readOnly = true, isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
 public class BudgetUsageService {
 
     private static final BigInteger MAX_LONG = BigInteger.valueOf(Long.MAX_VALUE);
     private static final Sort STABLE_SORT = Sort.by(Sort.Order.desc("periodMonth"), Sort.Order.desc("id"));
 
     private final BudgetRepository budgets;
-    private final FinancialTransactionRepository transactions;
+    private final LedgerReportingService transactions;
     private final CurrentMembership currentMembership;
 
     public BudgetUsageService(
             BudgetRepository budgets,
-            FinancialTransactionRepository transactions,
+            LedgerReportingService transactions,
             CurrentMembership currentMembership) {
         this.budgets = budgets;
         this.transactions = transactions;
