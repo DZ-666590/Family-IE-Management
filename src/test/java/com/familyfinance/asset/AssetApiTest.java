@@ -12,6 +12,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.familyfinance.family.HouseholdRole;
 import com.familyfinance.household.FamilyMemberRepository;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -39,6 +42,7 @@ class AssetApiTest {
     @Autowired ObjectMapper objectMapper;
     @Autowired FamilyMemberRepository members;
     @Autowired JdbcTemplate jdbc;
+    @Autowired Clock clock;
 
     @Test
     void propertyAndVehicleEnforceTypedSubtypeRulesAndOnlyAdminsCanMutate() throws Exception {
@@ -138,7 +142,7 @@ class AssetApiTest {
                 validOther.replace("\"120.00\"", "\"-0.01\""),
                 validOther.replace("\"120.00\"", "\"10000000000.00\""),
                 validOther.replace("\"120.00\"", "\"1.001\""),
-                validOther.replace("\"2023-03-04\"", "\"2026-09-05\""),
+                validOther.replace("\"2023-03-04\"", "\"" + LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))).plusDays(1) + "\""),
                 validOther.replace("}", ",\"property\":{\"address\":\"x\",\"areaSqm\":\"1.00\",\"usageType\":\"SELF_USE\"}}"),
                 propertyBody("零面积", memberId, "0"),
                 propertyBody("面积小数越界", memberId, "1.001"),

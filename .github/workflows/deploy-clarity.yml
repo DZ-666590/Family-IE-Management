@@ -1,0 +1,128 @@
+name: Clarity CI and deploy
+
+on:
+  push:
+    branches: [codex/clarity-workspace]
+  pull_request:
+    branches: [codex/clarity-workspace]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Test deployment safety
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Check and build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm test -- --run
+          npm run build
+      - name: Stamp exact deployed version
+        env:
+          COMMIT: ${{ github.sha }}
+        run: jq -n --arg commit "$COMMIT" '{commit:$commit}' > target/classes/static/deployment.json
+      - name: Test backend and package application
+        run: ./mvnw -B -Dskip.npm=true -Dskip.installnodenpm=true verify
+      - name: Prepare release artifact
+        run: |
+          mkdir -p release
+          cp target/family-finance-0.0.1-SNAPSHOT.jar release/app.jar
+          cd release
+          sha256sum app.jar > app.jar.sha256
+          gzip -n app.jar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ github.sha }}
+          path: release/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Preserve Java test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: java-test-reports-${{ github.run_id }}
+          path: target/surefire-reports/
+          retention-days: 3
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/clarity-workspace'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: development
+    concurrency:
+      group: family-finance-development-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Skip superseded commit
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          latest=$(gh api "repos/$REPO/git/ref/heads/codex/clarity-workspace" --jq .object.sha)
+          if [ "$latest" = "$COMMIT" ]; then
+            echo 'deploy=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Skipping commit superseded by a newer push.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        if: steps.latest.outputs.deploy == 'true'
+        with:
+          name: release-${{ github.sha }}
+          path: release
+      - name: Deploy and verify public endpoint
+        if: steps.latest.outputs.deploy == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+          COMMIT: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_HOST:?Missing DEPLOY_HOST}" "${DEPLOY_PORT:?Missing DEPLOY_PORT}"
+          : "${DEPLOY_USER:?Missing DEPLOY_USER}" "${DEPLOY_SSH_KEY:?Missing DEPLOY_SSH_KEY}"
+          : "${DEPLOY_KNOWN_HOSTS:?Missing DEPLOY_KNOWN_HOSTS}" "${DEPLOY_URL:?Missing DEPLOY_URL}"
+          umask 077
+          keydir=$(mktemp -d "$RUNNER_TEMP/finance-ssh.XXXXXX")
+          trap 'rm -f "$keydir/key" "$keydir/known_hosts"; rmdir "$keydir"' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$keydir/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$keydir/known_hosts"
+          unset DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS
+          checksum=$(cut -d ' ' -f 1 release/app.jar.sha256)
+          ssh -T -i "$keydir/key" -p "$DEPLOY_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$keydir/known_hosts" -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "$DEPLOY_USER@$DEPLOY_HOST" "deploy $COMMIT $checksum $RUN_ID" < release/app.jar.gz
+          curl --fail --silent --show-error --max-time 20 --retry 3 \
+            "$DEPLOY_URL/deployment.json?run=$RUN_ID" | jq -e --arg commit "$COMMIT" '.commit == $commit'
+          curl --fail --silent --show-error --max-time 20 --retry 3 \
+            "$DEPLOY_URL/api/csrf" | jq -e '.data.token | type == "string" and length > 0'
+          echo "Deployed and externally verified commit: $COMMIT" >> "$GITHUB_STEP_SUMMARY"
