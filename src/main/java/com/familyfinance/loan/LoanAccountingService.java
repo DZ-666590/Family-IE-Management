@@ -29,6 +29,8 @@ public class LoanAccountingService {
    cash.requireConfirmed(loan.getDisbursementAccount(),day);
    debit=new LedgerEntryInput("CASH:"+loan.getDisbursementAccount().getId(),CASH,loan.getPrincipalCents(),0,null,null);
   }
+  if(loan.getFundingMode()==LoanFundingMode.FINANCED_PURCHASE)
+   debit=new LedgerEntryInput("ASSET:"+loan.getPurchasedAssetId(),ASSET,loan.getPrincipalCents(),0,null,null);
   var command=new LedgerPostingCommand(h,source,loan.getId(),key,day,actor,List.of(debit,new LedgerEntryInput("LOAN:"+loan.getId(),LOAN,0,loan.getPrincipalCents(),null,null)));
   if(replace)posting.replace(command);else posting.post(command);
   requireBalance(loan);
@@ -60,5 +62,5 @@ public class LoanAccountingService {
   posting.post(new LedgerPostingCommand(loan.getHousehold().getId(),tx.getSourceType().name(),tx.getSourceId(),key,tx.getOccurredOn(),tx.getCreatedByUser().getId(),entries));
   loan.paidOn(tx.getOccurredOn());
  }
- public static String source(Loan loan){return loan.getFundingMode()==LoanFundingMode.DISBURSEMENT?"LOAN_DISBURSEMENT":"LOAN_OPENING";}
+ public static String source(Loan loan){return loan.getFundingMode()==LoanFundingMode.FINANCED_PURCHASE?"LOAN_FINANCED_PURCHASE":loan.getFundingMode()==LoanFundingMode.DISBURSEMENT?"LOAN_DISBURSEMENT":"LOAN_OPENING";}
 }

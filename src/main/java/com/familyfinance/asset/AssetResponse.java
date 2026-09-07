@@ -18,7 +18,8 @@ public record AssetResponse(
         PropertyAssetResponse property,
         VehicleAssetResponse vehicle, AssetAccountingMode accountingMode, LocalDate accountingOn,
         String initialValue, Long fundingAccountId, LocalDate lastAccountingOn,
-        LocalDate disposedOn, String disposalProceeds, Long disposalCashAccountId, Long disposedBy,String disposalBookGain) {
+        LocalDate disposedOn, String disposalProceeds, Long disposalCashAccountId, Long disposedBy,String disposalBookGain,
+        String acquisitionSourceType,Long acquisitionSourceId,boolean detailsPending) {
 
     static AssetResponse from(Asset asset,Long disposalBookGainCents) {
         return new AssetResponse(
@@ -37,6 +38,7 @@ public record AssetResponse(
                 asset.getAccountingMode(),asset.getAccountingOn(),asset.getInitialValueCents()==null?null:Money.formatCents(asset.getInitialValueCents()),
                 asset.getFundingAccountId(),asset.getLastAccountingOn(),asset.getDisposedOn(),
                 asset.getDisposalProceedsCents()==null?null:Money.formatCents(asset.getDisposalProceedsCents()),asset.getDisposalCashAccountId(),asset.getDisposedBy(),
-                disposalBookGainCents==null?null:Money.formatCents(disposalBookGainCents));
+                disposalBookGainCents==null?null:Money.formatCents(disposalBookGainCents),
+                asset.getAcquisitionSourceType(),asset.getAcquisitionSourceId(),asset.isDetailsPending());
     }
 }

@@ -32,7 +32,7 @@ export function TransfersPanel({ request, role, accounts, onHistory }: { request
   </DataPanel>;
 }
 
-const sources: Record<string, string> = { TRANSACTION: '手工 / 周期收支', CASH_OPENING: '现金期初', CASH_TRANSFER: '账户互转', LOAN_OPENING: '贷款期初', LOAN_DISBURSEMENT: '实际放款', LOAN_PAYMENT: '计划还款', LOAN_PREPAYMENT: '提前还款', ASSET_ACQUISITION: '资产取得', ASSET_VALUATION: '资产估值', ASSET_DISPOSAL: '资产处置', INVESTMENT_TRADE: '投资交易' };
+const sources: Record<string, string> = { TRANSACTION: '手工 / 周期收支', CASH_OPENING: '现金期初', CASH_TRANSFER: '账户互转', LOAN_OPENING: '贷款期初', LOAN_DISBURSEMENT: '实际放款', LOAN_FINANCED_PURCHASE: '贷款购买物', LOAN_PAYMENT: '计划还款', LOAN_PREPAYMENT: '提前还款', ASSET_ACQUISITION: '资产取得', ASSET_VALUATION: '资产估值', ASSET_DISPOSAL: '资产处置', INVESTMENT_TRADE: '投资交易' };
 const accountKinds: Record<string, string> = { CASH: '现金账户', LOAN: '贷款本金', ASSET: '非现金资产', POSITION: '投资持仓成本', EQUITY: '期初权益', EXPENSE: '费用', INCOME: '收入' };
 export function AccountingHistory({ request, source }: { request: RequestFn; source?: { sourceType: string; sourceId: number } }) {
   const [page, setPage] = useState(0);

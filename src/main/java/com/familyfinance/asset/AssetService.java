@@ -128,6 +128,7 @@ public class AssetService {
                 type, request == null ? null : request.vehicle(), request == null ? null : request.property(), true, fields);
         AssetAccountingMode mode=request==null?null:request.accountingMode();
         if(mode==null)fields.put("accountingMode","请选择期初资产或真实购买");
+        if(mode==AssetAccountingMode.FINANCED_PURCHASE)fields.put("accountingMode","请从新建贷款选择本次贷款购买物");
         if(mode==AssetAccountingMode.PURCHASE&&(purchaseValue==null||request.fundingAccountId()==null))
             fields.put("fundingAccountId","真实购买必须填写购买价格和资金账户");
         if(mode==AssetAccountingMode.OPENING&&request.fundingAccountId()!=null)
@@ -192,8 +193,14 @@ public class AssetService {
         throwIfInvalid(fields);
 
         asset.updateProfile(name, owner);
-        if (property != null) asset.getProperty().update(property.address(), property.areaSqm(), property.usageType());
-        if (vehicle != null) asset.getVehicle().update(vehicle.brandModel(), vehicle.plateHint(), vehicle.purchaseYear());
+        if (property != null) {
+            if(asset.getProperty()==null)asset.attachProperty(new PropertyAsset(asset,householdId,property.address(),property.areaSqm(),property.usageType()));
+            else asset.getProperty().update(property.address(), property.areaSqm(), property.usageType());
+        }
+        if (vehicle != null) {
+            if(asset.getVehicle()==null)asset.attachVehicle(new VehicleAsset(asset,householdId,vehicle.brandModel(),vehicle.plateHint(),vehicle.purchaseYear()));
+            else asset.getVehicle().update(vehicle.brandModel(), vehicle.plateHint(), vehicle.purchaseYear());
+        }
         assets.flush();
         requests.record(householdId,key,digest,assetId);
         return response(asset);
@@ -248,7 +255,18 @@ public class AssetService {
     Asset findCurrent(long h,long id) {
         var asset=assets.findCurrent(id,h).orElseThrow(()->new ResourceNotFoundException("资产不存在"));
         entities.detach(asset);
-        return assets.findCurrent(id,h).orElseThrow();
+        asset=assets.findCurrent(id,h).orElseThrow();
+        // A root lock (including FOR UPDATE OF root on joins) does not make subtype
+        // reads current under MySQL RR. Lock each child before deciding insert vs update.
+        if(asset.getProperty()!=null)entities.detach(asset.getProperty());
+        if(asset.getVehicle()!=null)entities.detach(asset.getVehicle());
+        var property=entities.createQuery("select p from PropertyAsset p where p.asset.id=:id and p.householdId=:h",PropertyAsset.class)
+                .setParameter("id",id).setParameter("h",h).setFlushMode(jakarta.persistence.FlushModeType.COMMIT).setLockMode(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE).getResultList();
+        if(!property.isEmpty())asset.attachProperty(property.get(0));
+        var vehicle=entities.createQuery("select v from VehicleAsset v where v.asset.id=:id and v.householdId=:h",VehicleAsset.class)
+                .setParameter("id",id).setParameter("h",h).setFlushMode(jakarta.persistence.FlushModeType.COMMIT).setLockMode(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE).getResultList();
+        if(!vehicle.isEmpty())asset.attachVehicle(vehicle.get(0));
+        return asset;
     }
 
     Asset findOne(long householdId, long assetId) {

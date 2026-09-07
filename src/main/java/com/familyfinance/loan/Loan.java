@@ -20,6 +20,7 @@ public class Loan {
     @Column(nullable = false) private String name;
     @Enumerated(EnumType.STRING) @Column(name = "loan_type", nullable = false) private LoanType type;
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "linked_asset_id") private Asset linkedAsset;
+    @Column(name = "purchased_asset_id") private Long purchasedAssetId;
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "member_id") private FamilyMember member;
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "assigned_user_id") private AppUser assignedUser;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "payment_account_id") private FinancialAccount paymentAccount;
@@ -54,6 +55,8 @@ public class Loan {
     public Instant getArchivedAt(){return archivedAt;} public List<LoanInstallment> getInstallments(){return installments;} public boolean isArchived(){return status != LoanStatus.ACTIVE;}
     void replaceSchedule(List<InstallmentDraft> drafts) { installments.clear(); drafts.forEach(d -> installments.add(new LoanInstallment(this,d))); }
     public LoanFundingMode getFundingMode(){return fundingMode;}
+    public Long getPurchasedAssetId(){return purchasedAssetId;}
+    void attachPurchasedAsset(Asset asset){linkedAsset=asset;purchasedAssetId=asset.getId();}
     public LocalDate getAccountingOn(){return accountingOn;}
     public FinancialAccount getDisbursementAccount(){return disbursementAccount;}
     public LocalDate getLastPaymentOn(){return lastPaymentOn;}

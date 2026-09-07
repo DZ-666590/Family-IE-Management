@@ -1,2 +1,2 @@
 package com.familyfinance.asset;
-public enum AssetAccountingMode { OPENING, PURCHASE }
+public enum AssetAccountingMode { OPENING, PURCHASE, FINANCED_PURCHASE }

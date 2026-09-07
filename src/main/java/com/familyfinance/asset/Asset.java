@@ -73,6 +73,13 @@ public class Asset {
     @Column(name="disposal_proceeds_cents") private Long disposalProceedsCents;
     @Column(name="disposal_cash_account_id") private Long disposalCashAccountId;
     @Column(name="disposed_by") private Long disposedBy;
+    @Column(name="purchase_loan_id", updatable=false) private Long purchaseLoanId;
+
+    public Long getPurchaseLoanId(){return purchaseLoanId;}
+    public String getAcquisitionSourceType(){return purchaseLoanId==null?"ASSET_ACQUISITION":"LOAN_FINANCED_PURCHASE";}
+    public Long getAcquisitionSourceId(){return purchaseLoanId==null?id:purchaseLoanId;}
+    public boolean isDetailsPending(){return purchaseLoanId!=null && ((type==AssetType.PROPERTY && property==null)||(type==AssetType.VEHICLE && vehicle==null));}
+    void purchasedWithLoan(long loanId){purchaseLoanId=loanId;}
 
     public AssetAccountingMode getAccountingMode(){return accountingMode;}
     public LocalDate getAccountingOn(){return accountingOn;}
