@@ -94,7 +94,7 @@ it('shows server asset values and quote provenance without member mutations', as
 it('offers security registration when an investment search has no matches', async () => {
   const request = vi.fn(async (path: string) => {
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '0.00', marketValue: '0.00', realizedProfit: '0.00', unrealizedProfit: '0.00', totalProfit: '0.00', unpricedPositions: 0 } };
-    if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, cashAccountId: 2, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
+    if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, fundingAccountId: 2, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
     if (path.startsWith('/api/investment-trades')) return page([]);
     if (path.startsWith('/api/accounts')) return page([{ id: 2, name: '现金资金', openingConfirmed: true, openingOn: '2026-01-01', balance: '10000.00', availableBalance: '10000.00', archivedAt: null }]);
     if (path === '/api/market-quotes') return [];
@@ -139,7 +139,7 @@ it('records a buy without sending an explicit trade source that the public API r
   const today = businessDate();
   const request = vi.fn(async (path: string, options?: { method?: string }) => {
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '0.00', marketValue: '0.00', realizedProfit: '0.00', unrealizedProfit: '0.00', totalProfit: '0.00', unpricedPositions: 0 } };
-    if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, cashAccountId: 2, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
+    if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, fundingAccountId: 2, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
     if (path.startsWith('/api/investment-trades') && options?.method === 'POST') return {};
     if (path.startsWith('/api/investment-trades')) return page([]);
     if (path.startsWith('/api/accounts')) return page([{ id: 2, name: '现金资金', openingConfirmed: true, openingOn: '2026-01-01', balance: '10000.00', availableBalance: '10000.00', archivedAt: null }]);

@@ -13,7 +13,7 @@ it('keeps an earlier dependent trade read-only instead of offering a money save'
     if (path.startsWith('/api/investment-trades')) return page([earlier]) as T;
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '0', marketValue: '0', totalProfit: '0', unpricedPositions: 0 } } as T;
     if (path === '/api/market-quotes') return [] as T;
-    if (path.startsWith('/api/investment-accounts')) return page([{ id: 3, name: '券商', cashAccountId: 4, status: 'ACTIVE' }]) as T;
+    if (path.startsWith('/api/investment-accounts')) return page([{ id: 3, name: '券商', brokerName: '测试券商', currency: 'CNY', fundingAccountId: 4, status: 'ACTIVE', createdBy: 7, archivedAt: null }]) as T;
     if (path.startsWith('/api/securities/search')) return page([security]) as T;
     return page([]) as T;
   };
