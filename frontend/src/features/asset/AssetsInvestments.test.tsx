@@ -6,6 +6,7 @@ import { InvestmentsPage } from '../investment/InvestmentsPage';
 import { securityResolvePayload } from '../investment/InvestmentsPage';
 import { assetUpdatePayload } from './AssetsPage';
 import type { RequestFn } from '../common';
+import { businessDate } from '../../shared/runtime';
 import { ApiError } from '../../api/client';
 
 const wrap = (node: React.ReactNode) => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>;
@@ -40,7 +41,7 @@ it('protects programmatic security selection and only dismisses the top nested c
 
 it('makes a saved valuation clean and discards unfinished valuation fields when closing', async () => {
   let saves = 0;
-  const asset = { id: 4, name: '车辆', type: 'OTHER', ownerMemberId: null, acquiredOn: null, purchaseValue: null, currentValue: '500', status: 'ACTIVE', createdBy: 7, archivedAt: null, property: null, vehicle: null };
+  const asset = { accountingMode: 'OPENING', accountingOn: '2026-01-01', id: 4, name: '车辆', type: 'OTHER', ownerMemberId: null, acquiredOn: null, purchaseValue: null, currentValue: '500', status: 'ACTIVE', createdBy: 7, archivedAt: null, property: null, vehicle: null };
   const request: RequestFn = async <T,>(path: string, options?: { method?: string }) => {
     if (options?.method === 'POST') { if (++saves > 1) throw new ApiError('估值保存失败', { status: 400 }); return { id: 9 } as T; }
     if (path.includes('/valuations')) return page([]) as T;
@@ -93,8 +94,9 @@ it('shows server asset values and quote provenance without member mutations', as
 it('offers security registration when an investment search has no matches', async () => {
   const request = vi.fn(async (path: string) => {
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '0.00', marketValue: '0.00', realizedProfit: '0.00', unrealizedProfit: '0.00', totalProfit: '0.00', unpricedPositions: 0 } };
-    if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
+    if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, cashAccountId: 2, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
     if (path.startsWith('/api/investment-trades')) return page([]);
+    if (path.startsWith('/api/accounts')) return page([{ id: 2, name: '现金资金', openingConfirmed: true, openingOn: '2026-01-01', balance: '10000.00', availableBalance: '10000.00', archivedAt: null }]);
     if (path === '/api/market-quotes') return [];
     if (path.startsWith('/api/securities/search')) return page([]);
     throw new Error(`unexpected ${path}`);
@@ -134,12 +136,13 @@ it('omits immutable fields when editing an asset', () => {
 });
 
 it('records a buy without sending an explicit trade source that the public API rejects', async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = businessDate();
   const request = vi.fn(async (path: string, options?: { method?: string }) => {
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '0.00', marketValue: '0.00', realizedProfit: '0.00', unrealizedProfit: '0.00', totalProfit: '0.00', unpricedPositions: 0 } };
-    if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
+    if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, cashAccountId: 2, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
     if (path.startsWith('/api/investment-trades') && options?.method === 'POST') return {};
     if (path.startsWith('/api/investment-trades')) return page([]);
+    if (path.startsWith('/api/accounts')) return page([{ id: 2, name: '现金资金', openingConfirmed: true, openingOn: '2026-01-01', balance: '10000.00', availableBalance: '10000.00', archivedAt: null }]);
     if (path === '/api/market-quotes') return [];
     if (path.startsWith('/api/securities/search')) return page([{ id: 5, tsCode: '000001.SZ', name: '平安银行' }]);
     throw new Error(`unexpected ${path}`);

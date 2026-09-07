@@ -35,6 +35,16 @@ public class CashTransferService {
         return jdbc.query("select * from cash_transfers where household_id=? order by occurred_on desc,id desc limit ? offset ?",CashTransferService::row,
             membership.require(authentication).householdId(),Math.max(1,Math.min(50,size)),(long)Math.max(0,page)*Math.max(1,Math.min(50,size)));
     }
+    @Transactional(readOnly=true,isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
+    public TransferPage page(Authentication authentication,int page,int size) {
+        long household=membership.require(authentication).householdId();
+        int current=Math.max(0,page),limit=Math.max(1,Math.min(50,size));
+        long total=jdbc.queryForObject("select count(*) from cash_transfers where household_id=?",Long.class,household);
+        var items=jdbc.query("select * from cash_transfers where household_id=? order by occurred_on desc,id desc limit ? offset ?",CashTransferService::row,household,limit,(long)current*limit);
+        long pages=(total+limit-1)/limit;
+        return new TransferPage(items,current,limit,total,pages,(long)(current+1)*limit<total);
+    }
+    public record TransferPage(List<CashTransferResponse> items,int page,int size,long totalElements,long totalPages,boolean hasNext) { }
     @Transactional
     public CashTransferResponse create(Authentication authentication,CashTransferRequest request) {
         var access=authorization.requireAdmin(authentication);

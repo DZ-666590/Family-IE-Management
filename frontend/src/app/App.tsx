@@ -1,3 +1,4 @@
+import { ApiError } from '../api/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, Navigate, Route, RouterProvider, Routes } from 'react-router-dom';
 import { useState } from 'react';
@@ -10,7 +11,7 @@ import { PluginProvider } from '../extensions/registry';
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 15_000 },
+    queries: { retry: (count, error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500) && count < 1, refetchOnWindowFocus: false, staleTime: 15_000 },
     mutations: { retry: false }
   }
 });

@@ -42,6 +42,7 @@ export function QueryState({ loading, error, empty, emptyTitle, emptyDetail, chi
   if (loading) return <div className="query-state" role="status"><LoaderCircle className="loading-spinner" size={24} aria-hidden="true"/>正在读取家庭数据</div>;
   if (error) {
     const apiError = error instanceof ApiError ? error : null;
+    if (apiError?.code === 'ACCOUNTING_NOT_INITIALIZED') return <div className="query-state error-state" role="alert"><CircleAlert size={26} aria-hidden="true"/><strong>请先核对账务起点</strong><span>每个现金账户都需确认期初余额，包含未使用的默认账户和零余额。历史资产、贷款或投资记录需要另行核对，不能推算补记。</span><a href="/workspace/transactions?section=accounts">去确认账户期初余额</a></div>;
     return <div className="query-state error-state" role="alert"><CircleAlert size={26} aria-hidden="true"/><strong>这部分数据暂时无法读取</strong><span>{error instanceof Error ? error.message : '请稍后刷新页面'}</span>{apiError?.requestId && <small>请求 ID：{apiError.requestId}</small>}</div>;
   }
   if (empty) return <div className="query-state empty-state"><EmptyIllustration/><div><strong>{emptyTitle ?? '暂无数据'}</strong><span>{emptyDetail ?? '当前没有可展示的记录。'}</span></div></div>;

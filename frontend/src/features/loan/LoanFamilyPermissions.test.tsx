@@ -16,16 +16,16 @@ it('returns server validation to the earlier wizard step and preserves the whole
   const user = userEvent.setup(); render(wrap(<LoansPage request={request} role="OWNER" />));
   await user.click(screen.getByRole('button', { name: '新建贷款' }));
   await user.type(screen.getByLabelText('贷款名称'), '保留合同');
-  await user.type(screen.getByLabelText('本金'), '1000');
-  fireEvent.submit(screen.getByLabelText('本金').closest('form')!);
+  await user.type(screen.getByLabelText('账务起始日剩余本金'), '1000');
+  fireEvent.submit(screen.getByLabelText('账务起始日剩余本金').closest('form')!);
   await user.type(screen.getByLabelText('年利率（%）'), '3.6');
   fireEvent.submit(screen.getByLabelText('年利率（%）').closest('form')!);
   fireEvent.submit(screen.getByLabelText('关联资产').closest('form')!);
   await screen.findByText('本金不符合要求');
-  expect(screen.getByLabelText('本金')).toHaveValue('1000');
-  expect(screen.getByLabelText('本金')).toHaveFocus();
+  expect(screen.getByLabelText('账务起始日剩余本金')).toHaveValue('1000');
+  expect(screen.getByLabelText('账务起始日剩余本金')).toHaveFocus();
   expect(screen.getByLabelText('贷款名称')).toHaveValue('保留合同');
-  fireEvent.submit(screen.getByLabelText('本金').closest('form')!);
+  fireEvent.submit(screen.getByLabelText('账务起始日剩余本金').closest('form')!);
   expect(screen.getByLabelText('年利率（%）')).toHaveValue('3.6');
 });
 
@@ -117,8 +117,9 @@ it('renders the stored fractional annual rate as a user-facing percentage', () =
 });
 
 it('pages through a long loan schedule to the final installment', async () => {
-  const loan = { id: 4, name: '三十年房贷', type: 'MORTGAGE', linkedAssetId: null, memberId: null, assignedUserId: 7, paymentAccountId: 1, paymentCategoryId: 2, principal: '1000000.00', annualRate: '0.049000', termMonths: 360, repaymentMethod: 'EQUAL_PAYMENT', startOn: '2026-09-01', currentPrincipal: '1000000.00', status: 'ACTIVE' };
+  const loan = { accountingInitialized: true, fundingMode: 'OPENING', accountingOn: '2026-01-01', lastPaymentOn: null, id: 4, name: '三十年房贷', type: 'MORTGAGE', linkedAssetId: null, memberId: null, assignedUserId: 7, paymentAccountId: 1, paymentCategoryId: 2, principal: '1000000.00', annualRate: '0.049000', termMonths: 360, repaymentMethod: 'EQUAL_PAYMENT', startOn: '2026-09-01', currentPrincipal: '1000000.00', status: 'ACTIVE' };
   const request = vi.fn(async (path: string) => {
+    if (path === '/api/loans/4') return loan;
     if (path.startsWith('/api/loans?')) return { items: [loan], page: 0, size: 50, totalElements: 1, totalPages: 1, hasNext: false };
     if (path.includes('/schedule')) {
       const page = Number(new URLSearchParams(path.split('?')[1]).get('page'));

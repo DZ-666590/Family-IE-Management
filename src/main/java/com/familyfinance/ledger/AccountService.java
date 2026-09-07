@@ -155,6 +155,8 @@ public class AccountService {
         if (account.isArchived()) {
             return;
         }
+        // An unknown opening cannot be hidden: reports require explicit initialization.
+        cash.requireConfirmed(account);
         // Authorization holds the household write lock before this fresh balance read.
         if(cash.currentBalance(householdId,accountId)!=0)
             throw new ResourceConflictException("ACCOUNT_BALANCE_NOT_ZERO", "账户余额不为零，无法归档");

@@ -75,7 +75,8 @@ public class PortfolioService {
     private static PortfolioPositionResponse response(CalculatedPosition value, Long totalMarketValue) {
         InvestmentTrade trade = value.trade();
         InvestmentPosition position = value.position();
-        MarketPriceResponse price = value.price();
+        boolean closed = position.quantity().signum()==0;
+        MarketPriceResponse price = closed ? null : value.price();
         Long totalProfit = position.unrealizedProfitCents() == null ? null
                 : Math.addExact(position.realizedProfitCents(), position.unrealizedProfitCents());
         String allocation = position.marketValueCents() == null || totalMarketValue == null || totalMarketValue == 0L ? "0.0"
@@ -87,7 +88,7 @@ public class PortfolioService {
                 Money.formatCents(position.costCents()), price == null ? null : price.price(), cents(position.marketValueCents()),
                 Money.formatCents(position.realizedProfitCents()), cents(position.unrealizedProfitCents()), cents(totalProfit), allocation,
                 price == null ? null : price.source(), price == null ? null : price.tradeDate(), price == null ? null : price.fetchedAt(),
-                price == null || price.stale(), price == null ? "NO_QUOTE" : price.error(),
+                !closed && (price == null || price.stale()), closed ? null : price == null ? "NO_QUOTE" : price.error(),
                 Money.formatCents(position.marketValueCents()==null?position.costCents():position.marketValueCents()),
                 position.quantity().signum()==0?"CLOSED":position.marketValueCents()==null?"COST_ESTIMATE":"QUOTED");
     }

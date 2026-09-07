@@ -86,6 +86,29 @@ class PortfolioServiceTest {
         assertThat(empty.totals().marketValue()).isEqualTo("0.00");
     }
 
+    @Test
+    void closedPositionRetainsRealizedProfitWithoutStaleOrMissingQuoteWarnings() {
+        var trades=mock(InvestmentTradeRepository.class);
+        var prices=mock(QuoteRefreshService.class);
+        var account=account(3L,"证券账户");
+        var security=security(7L,"000001.SZ","平安银行");
+        var history=List.of(trade(1L,account,security,InvestmentTradeType.BUY,"1.0000",1000L,0L,"2026-09-01"),
+            trade(2L,account,security,InvestmentTradeType.SELL,"1.0000",1200L,0L,"2026-09-02"));
+        when(trades.historyAsOf(1L,DAY)).thenReturn(history);
+        when(prices.effectivePriceAsOf(1L,security,DAY)).thenReturn(new MarketPriceResponse(7L,"000001.SZ","平安银行",null,null,null,null,true,"NO_QUOTE"));
+        var ledger=mock(com.familyfinance.accounting.LedgerReportingService.class);
+        when(ledger.balancesAsOf(1L,DAY)).thenReturn(java.util.Map.of());
+        var result=new PortfolioService(trades,prices,ledger,CLOCK).portfolio(1L);
+        var row=result.positions().get(0);
+        assertThat(row.valuationStatus()).isEqualTo("CLOSED");
+        assertThat(row.realizedProfit()).isEqualTo("2.00");
+        assertThat(row.marketValue()).isEqualTo("0.00");
+        assertThat(row.stale()).isFalse();
+        assertThat(row.error()).isNull();
+        assertThat(row.source()).isNull();
+        assertThat(result.totals().unpricedPositions()).isZero();
+    }
+
     private static com.familyfinance.accounting.LedgerReportingService reporting(List<InvestmentTrade> history) {
         var reporting=mock(com.familyfinance.accounting.LedgerReportingService.class);
         long cost=history.size()==1?1000L:96090L;

@@ -50,6 +50,18 @@ class CashAccountingApiTest {
         writeTransaction(defaultAccount,"INCOME","10.00","unconfirmed").andExpect(status().isConflict())
             .andExpect(jsonPath("$.error.code").value("ACCOUNTING_NOT_INITIALIZED"));
     }
+    @Test void unconfirmedDefaultCannotBeArchivedIntoAnUnrecoverableReportGate() throws Exception {
+        mvc.perform(delete("/api/accounts/"+defaultAccount).session(session).with(csrf()))
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNTING_NOT_INITIALIZED"));
+        mvc.perform(get("/api/accounts").session(session)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items[0].id").value(defaultAccount)).andExpect(jsonPath("$.data.items[0].openingConfirmed").value(false));
+        mvc.perform(patch("/api/accounts/"+defaultAccount).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"openingBalance\":\"0.00\",\"openingOn\":\"2026-01-01\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.openingConfirmed").value(true));
+        mvc.perform(delete("/api/accounts/"+defaultAccount).session(session).with(csrf())).andExpect(status().isNoContent());
+        mvc.perform(get("/api/accounts").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.data.items.length()").value(0));
+        mvc.perform(get("/api/net-worth").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.data.netWorth").value("0.00"));
+    }
     @Test void explicitOpeningIsJournalBackedAndZeroExpenseRollsBack() throws Exception {
         long account=create("zero","0.00");
         writeTransaction(account,"EXPENSE","1.00","expense").andExpect(status().isConflict())
@@ -76,6 +88,20 @@ class CashAccountingApiTest {
         writeTransaction(a,"EXPENSE","10.00","after").andExpect(status().isCreated());
         mvc.perform(get("/api/accounts/"+a).session(session)).andExpect(jsonPath("$.data.balance").value("0.00"));
         mvc.perform(get("/api/accounts/"+b).session(session)).andExpect(jsonPath("$.data.balance").value("90.00"));
+    }
+    @Test void transferHistoryHasCompleteHouseholdScopedPaginationHeaders() throws Exception {
+        long a=create("pagination-from","20.00"), b=create("pagination-to","0.00");
+        for(int i=0;i<2;i++) mvc.perform(post("/api/transfers").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"fromAccountId\":"+a+",\"toAccountId\":"+b+",\"amount\":\"1.00\",\"occurredOn\":\"2026-01-02\",\"idempotencyKey\":\"page-"+i+"\"}"))
+            .andExpect(status().isCreated());
+        mvc.perform(get("/api/transfers?page=0&size=1").session(session)).andExpect(status().isOk())
+            .andExpect(header().string("X-Page","0")).andExpect(header().string("X-Page-Size","1"))
+            .andExpect(header().string("X-Total-Elements","2")).andExpect(header().string("X-Total-Pages","2"))
+            .andExpect(header().string("X-Has-Next","true")).andExpect(jsonPath("$.data.length()").value(1));
+        mvc.perform(get("/api/transfers?page=1&size=1").session(session)).andExpect(status().isOk())
+            .andExpect(header().string("X-Page","1")).andExpect(header().string("X-Has-Next","false"));
+        mvc.perform(get("/api/transfers?page=-1&size=500").session(session)).andExpect(status().isOk())
+            .andExpect(header().string("X-Page","0")).andExpect(header().string("X-Page-Size","50"));
     }
     @Test void openingCorrectionsAuditZeroCyclesAndProtectSpentMoney() throws Exception {
         long a=create("audit","0.00");

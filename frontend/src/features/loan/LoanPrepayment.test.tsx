@@ -6,7 +6,7 @@ import { ApiError } from '../../api/client';
 import type { Loan } from '../../api/contracts';
 import type { RequestFn } from '../common';
 
-const loan: Loan = { id: 4, name: '提前还款测试', type: 'OTHER', linkedAssetId: null, memberId: null, assignedUserId: 7, paymentAccountId: 1, paymentCategoryId: 2, principal: '20000.00', annualRate: '0.03', termMonths: 360, repaymentMethod: 'EQUAL_PRINCIPAL', startOn: '2026-09-05', currentPrincipal: '20000.00', status: 'ACTIVE' };
+const loan: Loan = { fundingMode: 'OPENING', accountingOn: '2026-01-01', accountingInitialized: true, lastPaymentOn: null, id: 4, name: '提前还款测试', type: 'OTHER', linkedAssetId: null, memberId: null, assignedUserId: 7, paymentAccountId: 1, paymentCategoryId: 2, principal: '20000.00', annualRate: '0.03', termMonths: 360, repaymentMethod: 'EQUAL_PRINCIPAL', startOn: '2026-09-05', currentPrincipal: '20000.00', status: 'ACTIVE' };
 const page = <T,>(items: T[]) => ({ items, page: 0, size: 50, totalElements: items.length, totalPages: items.length ? 1 : 0, hasNext: false });
 function mount(request: RequestFn) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><LoansPage request={request} role="OWNER" userId={7} /></QueryClientProvider>);
@@ -24,6 +24,7 @@ it('opens prepayment without secure-context randomUUID and reuses the key on ret
       if (writes.length === 1) throw new ApiError('临时失败，请重试', { status: 503 });
       return { id: 1, transactionId: 1, amount: '100.00', remainingPrincipal: '19900.00', status: 'ACTIVE' } as T;
     }
+    if (path === '/api/loans/4') return loan as T;
     return (path.startsWith('/api/loans?') ? page([loan]) : path === '/api/members' ? [] : page([])) as T;
   };
   try {
@@ -44,7 +45,7 @@ it('opens prepayment without secure-context randomUUID and reuses the key on ret
 });
 
 it('does not offer installment confirmation for a future due date', async () => {
-  const request: RequestFn = async <T,>(path: string) => (path.startsWith('/api/loans?') ? page([loan]) : path.includes('/schedule') ? page([
+  const request: RequestFn = async <T,>(path: string) => (path === '/api/loans/4' ? loan : path.startsWith('/api/loans?') ? page([loan]) : path.includes('/schedule') ? page([
     { id: 1, installmentNo: 1, dueOn: '2000-01-01', principal: '50.00', interest: '5.00', status: 'PENDING', confirmedTransactionId: null },
     { id: 2, installmentNo: 2, dueOn: '3999-01-01', principal: '50.00', interest: '5.00', status: 'PENDING', confirmedTransactionId: null }
   ]) : path === '/api/members' ? [] : page([])) as T;

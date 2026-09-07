@@ -22,8 +22,8 @@ export function PortfolioSummary({ portfolio, onViewQuotes }: { portfolio?: Port
   return <>
     <div className="summary-strip investment-summary">
       <div>
-        <div className="investment-summary__label">组合市值<MetricHelp label="市值口径">按当前可用价格计算；缺价持仓不计入市值。</MetricHelp></div>
-        <strong>{money(totals?.marketValue)}</strong>
+        <div className="investment-summary__label">组合市值<MetricHelp label="市值口径">按有效行情计算。缺价持仓保留成本估算，组合市值与浮动收益暂未知。</MetricHelp></div>
+        <strong>{money(totals?.marketValue)}</strong>{unpriced > 0 && <small>含成本估算的组合价值 {money(totals?.estimatedValue)}</small>}
       </div>
       <div>
         <div className="investment-summary__label">累计收益<MetricHelp label="收益口径">累计收益包括已实现与浮动收益。</MetricHelp></div>
@@ -32,7 +32,7 @@ export function PortfolioSummary({ portfolio, onViewQuotes }: { portfolio?: Port
     </div>
     {unpriced > 0 && <div className="portfolio-warning" role="status">
       <CircleAlert size={17} aria-hidden="true"/>
-      <span>{unpriced} 项持仓缺少价格，暂未计入市值。</span>
+      <span>{unpriced} 项持仓缺少价格，市值与浮动收益尚不完整。</span>
       <button type="button" onClick={onViewQuotes}>查看行情</button>
     </div>}
   </>;

@@ -194,3 +194,24 @@
   .notification-summary .semi-button { margin: 0 16px 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .loading-spinner { animation: none; } }
+
+/* Accounting previews keep the existing Clarity palette and read like a receipt. */
+.payment-preview { border: 1px solid #e5e9ee; border-radius: 10px; background: #f7f8fa; padding: 16px; color: #20272e; }
+.payment-preview > div { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 9px; }
+.payment-preview > div > span { color: #67727e; }
+.payment-preview strong, .payment-preview__remaining { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.payment-preview strong { text-align: right; font-weight: 550; }
+.payment-preview__remaining { border-top: 1px solid #e5e9ee; padding-top: 12px; margin: 12px 0; font-size: 18px; color: #4b6bee; }
+.payment-preview > small { display: block; color: #67727e; font-size: 12px; line-height: 1.6; }
+.payment-preview [role="status"] { font-size: 13px; line-height: 1.6; margin: 12px 0; }
+.feature-form > fieldset { display: grid; gap: 16px; min-width: 0; border: 0; padding: 0; margin: 0; }
+.audit-list { display: grid; gap: 12px; }
+.audit-list > details { border: 1px solid #e5e9ee; border-radius: 8px; padding: 14px; overflow-x: auto; }
+.audit-list summary { cursor: pointer; line-height: 1.6; }
+.audit-list summary span { margin-left: 10px; color: #67727e; }
+.audit-list table { width: 100%; min-width: 300px; font-variant-numeric: tabular-nums; }
+.audit-list td, .audit-list th { padding: 10px 6px; text-align: left; border-bottom: 1px solid #e5e9ee; }
+.audit-list td small { display: block; color: #67727e; }
+.segmented-tabs { flex-wrap: wrap; }
+.data-card .card-actions { flex-wrap: wrap; }
+@media (max-width: 640px) { .payment-preview { padding: 14px; } .audit-list summary span { display: block; margin-left: 0; } }

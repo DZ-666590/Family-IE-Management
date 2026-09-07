@@ -62,7 +62,7 @@ it('creates a transaction with selected server account category and member', asy
   const request = vi.fn(async (path: string, options?: { method?: string; body?: unknown }) => {
     if (path.startsWith('/api/transactions') && options?.method === 'POST') return { id: 9 };
     if (path.startsWith('/api/transactions')) return pageResult([]);
-    if (path.startsWith('/api/accounts')) return pageResult([{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }]);
+    if (path.startsWith('/api/accounts')) return pageResult([{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '1000.00', openingConfirmed: true, openingOn: '2026-01-01', balance: '1000.00', availableBalance: '1000.00', archivedAt: null }]);
     if (path.startsWith('/api/categories')) return pageResult([{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }]);
     if (path === '/api/members') return [{ id: 3, name: '凯文', roleLabel: '本人', createdAt: '' }];
     throw new Error(`unexpected ${path}`);
@@ -100,7 +100,7 @@ it('shows creator, paginates transactions, and links a complete csv export', asy
       const page = new URLSearchParams(path.split('?')[1]).get('page');
       return page === '1' ? { items: [transactionItem(51)], page: 1, size: 50, totalElements: 51, totalPages: 2, hasNext: false } : pageResult(Array.from({ length: 50 }, (_, index) => transactionItem(index + 1)), 0, 51);
     }
-    if (path.startsWith('/api/accounts')) return pageResult([{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }]);
+    if (path.startsWith('/api/accounts')) return pageResult([{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '1000.00', openingConfirmed: true, openingOn: '2026-01-01', balance: '1000.00', availableBalance: '1000.00', archivedAt: null }]);
     if (path.startsWith('/api/categories')) return pageResult([{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }]);
     if (path === '/api/members') return [{ id: 3, name: '凯文', roleLabel: '本人', createdAt: '' }];
     throw new Error(`unexpected ${path}`);
@@ -120,7 +120,7 @@ it('keeps a backend permission error visible when permissions change after rende
       throw new ApiError('无权操作他人创建的收支记录', { status: 403, code: 'FORBIDDEN' });
     }
     if (path.startsWith('/api/transactions')) return pageResult([transactionItem(1)]);
-    if (path.startsWith('/api/accounts')) return pageResult([{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }]);
+    if (path.startsWith('/api/accounts')) return pageResult([{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '1000.00', openingConfirmed: true, openingOn: '2026-01-01', balance: '1000.00', availableBalance: '1000.00', archivedAt: null }]);
     if (path.startsWith('/api/categories')) return pageResult([{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }]);
     if (path === '/api/members') return [{ id: 3, name: '凯文', roleLabel: '本人', createdAt: '' }];
     throw new Error(`unexpected ${path}`);

@@ -2,14 +2,15 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { ApiRequestOptions } from '../api/client';
 
 const summaries = ['dashboard', 'net-worth', 'analysis', 'debt-analysis', 'plugin'];
-const ledger = ['transactions', 'accounts', 'budget-usage', 'notifications', ...summaries];
-const investments = ['portfolio', 'investment-accounts', 'investment-trades', 'market-quotes', 'securities', ...summaries];
+const ledger = ['transactions', 'accounts', 'accounting-history', 'transfers', 'budget-usage', 'notifications', ...summaries];
+const investments = [...ledger, 'portfolio', 'investment-accounts', 'investment-trades', 'market-quotes', 'securities', ...summaries];
 const dependencies: Record<string, string[]> = {
   transactions: ledger,
+  transfers: ledger,
   accounts: ['recurring-rules', ...ledger],
   categories: ['categories', 'budget-revisions', 'recurring-rules', ...ledger],
   budgets: ['budgets', 'budget-revisions', ...ledger],
-  assets: ['assets', 'asset-valuations', 'loans', ...summaries, 'notifications'],
+  assets: ['assets', 'asset-valuations', 'loans', ...ledger],
   'investment-accounts': investments,
   'investment-trades': investments,
   'market-quotes': investments,

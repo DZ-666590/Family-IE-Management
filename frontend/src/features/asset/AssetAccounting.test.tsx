@@ -1,0 +1,27 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { AssetsPage } from './AssetsPage';
+import type { RequestFn } from '../common';
+const page = (items: unknown[]) => ({ items, page: 0, size: 50, totalElements: items.length, totalPages: items.length ? 1 : 0, hasNext: false });
+it('separates existing opening assets from cash purchases and exposes immutable disposal', async () => {
+  const request = vi.fn(async (path: string, opts?: any) => {
+    if (opts?.method) return {};
+    if (path === '/api/members') return [];
+    if (path.startsWith('/api/accounts')) return page([{ id: 1, name: '工资卡', openingConfirmed: true, availableBalance: '100.00', balance: '100.00', openingOn: '2026-01-01', archivedAt: null }]);
+    if (path.startsWith('/api/assets')) return page([{ id: 4, name: '收藏', type: 'OTHER', currentValue: '100.00', accountingMode: 'OPENING', accountingOn: '2026-01-01', status: 'ACTIVE' }]);
+    if (path === '/api/net-worth') return { asset: '200.00' };
+    return page([]);
+  });
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><AssetsPage request={request as RequestFn} role="OWNER" /></QueryClientProvider>);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: '新建资产' }));
+  expect(screen.getByLabelText('入账方式')).toHaveValue('OPENING');
+  await user.selectOptions(screen.getByLabelText('入账方式'), 'PURCHASE');
+  expect(screen.getByLabelText('资金账户')).toBeRequired();
+  await user.keyboard('{Escape}');
+  await user.click(screen.getByRole('button', { name: '放弃修改' }));
+  await user.click((await screen.findAllByRole('button', { name: '记录处置' }))[0]);
+  expect(screen.getByLabelText('处置所得')).toBeInTheDocument();
+  expect(screen.getByText(/处置后不可更正或恢复/)).toBeInTheDocument();
+});
