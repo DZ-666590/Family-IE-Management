@@ -7,15 +7,19 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Map;
 import java.util.Set;
+import java.util.LinkedHashSet;
 import org.springframework.stereotype.Component;
 
 @Component
 class LedgerValidation {
     private final LedgerStore store;
     private final Clock clock;
+    private final LedgerSecurityCatalog securityCatalog;
     private static final Set<String> SYSTEM_ACCOUNTS=Set.of("EQUITY:OPENING","INCOME:INVESTMENT_GAIN",
             "EXPENSE:INVESTMENT_LOSS","INCOME:VALUATION_GAIN","EXPENSE:VALUATION_LOSS","EXPENSE:INVESTMENT_FEE");
-    LedgerValidation(LedgerStore store,Clock clock) { this.store=store; this.clock=clock; }
+    LedgerValidation(LedgerStore store,Clock clock,LedgerSecurityCatalog securityCatalog) {
+        this.store=store; this.clock=clock; this.securityCatalog=securityCatalog;
+    }
 
     static void require(boolean condition,String field,String message) {
         if (!condition) throw new RequestValidationException(Map.of(field,message));
@@ -46,6 +50,15 @@ class LedgerValidation {
 
     void register(LedgerPostingCommand c) {
         owned("app_users",c.actorId(),c.householdId());
+        Set<Long> requestedSecurities=new LinkedHashSet<>();
+        for(var entry:c.entries()) {
+            if(entry.accountCode().startsWith("POSITION:")) {
+                String[] parts=entry.accountCode().split(":",-1);
+                match(entry,LedgerAccountKind.ASSET,parts,3);
+                requestedSecurities.add(parseId(parts[2]));
+            }
+        }
+        Set<Long> currentSecurities=securityCatalog.lockCurrent(requestedSecurities);
         for (var e:c.entries()) {
             String code=e.accountCode();
             require(code!=null && code.length()<=120,"accountCode","科目编码无效");
@@ -61,7 +74,7 @@ class LedgerValidation {
                     case "ASSET" -> { match(e,LedgerAccountKind.ASSET,parts,2); owned("assets",id,c.householdId()); }
                     case "POSITION" -> {
                         match(e,LedgerAccountKind.ASSET,parts,3); owned("investment_accounts",id,c.householdId());
-                        require(!store.jdbc.queryForList("select id from securities where id=? for update",Long.class,parseId(parts[2])).isEmpty(),"accountCode","证券不存在");
+                        require(currentSecurities.contains(parseId(parts[2])),"accountCode","证券不存在");
                     }
                     case "INCOME","EXPENSE" -> {
                         match(e,LedgerAccountKind.valueOf(parts[0]),parts,2); owned("categories",id,c.householdId());
