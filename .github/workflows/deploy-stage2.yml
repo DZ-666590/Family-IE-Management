@@ -1,10 +1,10 @@
-name: Clarity CI and deploy
+name: Stage 2 CI and deploy
 
 on:
   push:
-    branches: [codex/clarity-workspace]
+    branches: [codex/family-finance-stage-2]
   pull_request:
-    branches: [codex/clarity-workspace]
+    branches: [codex/family-finance-stage-2]
   workflow_dispatch:
 
 permissions:
@@ -66,7 +66,7 @@ jobs:
 
   deploy:
     needs: build
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/clarity-workspace'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/family-finance-stage-2'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: development
@@ -81,7 +81,7 @@ jobs:
           REPO: ${{ github.repository }}
           COMMIT: ${{ github.sha }}
         run: |
-          latest=$(gh api "repos/$REPO/git/ref/heads/codex/clarity-workspace" --jq .object.sha)
+          latest=$(gh api "repos/$REPO/git/ref/heads/codex/family-finance-stage-2" --jq .object.sha)
           if [ "$latest" = "$COMMIT" ]; then
             echo 'deploy=true' >> "$GITHUB_OUTPUT"
           else

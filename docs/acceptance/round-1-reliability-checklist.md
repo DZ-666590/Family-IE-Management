@@ -48,4 +48,4 @@
 - [x] 同版本隔离环境桌面 / 手机关键流程验收。
 - [x] 停止临时测试环境，保留线上数据不变。
 
-发布验收在推送后进行：确认该提交的构建与部署作业均成功，再从公网读取版本标记与提交全文一致，并只读核验登录页及摄影资源。不能以本地提交、构建成功或仅服务器内部可访问代替上线完成。运行结果可在[当前分支的部署工作流](https://github.com/KevinYe0725/Family-IE-Management/actions/workflows/deploy-clarity.yml?query=branch%3Acodex%2Fclarity-workspace)查看，最终交付消息记录具体运行与线上核对结果。
+发布验收在推送后进行：确认该提交的构建与部署作业均成功，再从公网读取版本标记与提交全文一致，并只读核验登录页及摄影资源。不能以本地提交、构建成功或仅服务器内部可访问代替上线完成。改动现已归入 Stage 2，后续运行结果可在[Stage 2 部署工作流](https://github.com/KevinYe0725/Family-IE-Management/actions/workflows/deploy-stage2.yml?query=branch%3Acodex%2Ffamily-finance-stage-2)查看，最终交付消息记录具体运行与线上核对结果。

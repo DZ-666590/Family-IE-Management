@@ -2,7 +2,7 @@
 
 ## 日常使用
 
-向 `codex/clarity-workspace` 执行 `git push` 后，GitHub Actions 中的 **Clarity CI and deploy** 自动运行：
+向 `codex/family-finance-stage-2` 执行 `git push` 后，GitHub Actions 中的 **Stage 2 CI and deploy** 自动运行：
 
 1. 检查部署安全逻辑、前端类型和测试，构建前端。
 2. 执行 Java 测试，打包包含前端的 Spring Boot JAR，写入提交版本标记。
@@ -13,13 +13,13 @@
 
 本地 `git commit` 不会触发，必须推送至 GitHub。其他分支不部署；向本分支提交的 PR 只检查，不获取部署 Secrets。密集推送时只保证最新提交部署，过时任务可能被跳过；正在部署的任务不会被新推送强制取消。
 
-这是单实例重启部署，会有短暂不可用，并非零停机。当前提交中的 Clarity 前端也随本次首次自动部署发布。
+这是单实例重启部署，会有短暂不可用，并非零停机。前端改版及可靠性修复已归入 Stage 2，不再单独维护 Clarity 开发分支。
 
 ## 首次配置（维护者）
 
-仓库工作流：`.github/workflows/deploy-clarity.yml`。
+仓库工作流：`.github/workflows/deploy-stage2.yml`。
 
-GitHub **Settings → Environments → development** 只允许 `codex/clarity-workspace` 部署，并设置以下环境 Secrets：
+GitHub **Settings → Environments → development** 只允许 `codex/family-finance-stage-2` 部署，并设置以下环境 Secrets：
 
 | 名称 | 内容 |
 | --- | --- |
