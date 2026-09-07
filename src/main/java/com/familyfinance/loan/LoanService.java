@@ -14,6 +14,7 @@ import org.springframework.data.domain.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 @Service @Transactional(readOnly = true)
 public class LoanService {
@@ -27,7 +28,9 @@ public class LoanService {
         this.loans=loans;this.assets=assets;this.members=members;this.users=users;this.accounts=accounts;this.categories=categories;this.current=current;this.mutations=mutations;this.clock=clock;this.accounting=accounting;this.requests=requests;this.prepayments=prepayments;this.installments=installments;
         this.purchasedAssets=purchasedAssets;this.totals=totals;
     }
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public LoanPage list(Authentication a, LoanStatus status,int page,int size){long h=current.require(a).householdId(); int p=Math.max(0,page), s=Math.min(MAX_PAGE_SIZE,Math.max(1,size)); Page<Loan> r=loans.findByHouseholdIdAndStatus(h,status==null?LoanStatus.ACTIVE:status,PageRequest.of(p,s,Sort.by(Sort.Direction.DESC,"id"))); return new LoanPage(r.stream().map(l->response(l,false)).toList(),p,s,r.getTotalElements(),r.getTotalPages(),r.hasNext());}
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public LoanResponse get(Authentication a,long id){return response(find(current.require(a).householdId(),id),false);}
     public LoanSchedulePage schedule(Authentication a,long id,int page,int size){Loan l=find(current.require(a).householdId(),id);int p=Math.max(0,page),s=Math.min(MAX_PAGE_SIZE,Math.max(1,size));long total=l.getInstallments().size();int totalPages=(int)Math.ceil((double)total/s);List<LoanInstallmentResponse> items=l.getInstallments().stream().skip((long)p*s).limit(s).map(LoanInstallmentResponse::from).toList();return new LoanSchedulePage(items,p,s,total,totalPages,p+1<totalPages);}
     @Transactional public LoanResponse create(Authentication a,LoanCreateRequest r){return create(a,r,AccountingRequests.key(null));}
@@ -109,6 +112,7 @@ public class LoanService {
     private static String required(String v,String field){return required(v,field,new LinkedHashMap<>());} private static String required(String v,String field,Map<String,String> f){String n=v==null?"":v.trim();if(n.isEmpty()||n.length()>100)f.put(field,"名称不能为空且不超过 100 个字符");return n;}
     private static long parseMoney(String raw,String field,Map<String,String> f){try{return Money.parseCents(raw);}catch(IllegalArgumentException e){f.put(field,e.getMessage());return 0;}}
     private static boolean hasContractField(LoanPatchRequest r){return r.principal()!=null||r.annualRate()!=null||r.termMonths()!=null||r.repaymentMethod()!=null||r.startOn()!=null||r.customSchedule()!=null||r.accountingOn()!=null||r.disbursementAccountId()!=null;}
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public List<LoanPrepaymentResponse> prepaymentHistory(Authentication a,long id){long h=current.require(a).householdId();Loan loan=find(h,id);var summary=totals.read(loan,false);return prepayments.findAllByLoanIdAndHouseholdIdOrderById(id,h).stream().map(p->LoanPrepaymentResponse.from(p,loan,summary)).toList();}
     private LoanResponse response(Loan loan,boolean current){return LoanResponse.from(loan,totals.read(loan,current));}
     private Loan locked(long h,long id){return loans.findLockedByIdAndHouseholdId(id,h).orElseThrow(()->new ResourceNotFoundException("贷款不存在"));}

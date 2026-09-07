@@ -11,6 +11,34 @@ const loan = { id: 4, name: '结清测试', type: 'OTHER', fundingMode: 'FINANCE
 const page = <T,>(items: T[]) => ({ items, page: 0, size: 50, totalElements: items.length, totalPages: items.length ? 1 : 0, hasNext: false });
 const accounts = [{ id: 1, name: '日常账户', openingConfirmed: true, availableBalance: '0.00' }, { id: 2, name: '还款账户', openingConfirmed: true, availableBalance: '2200.00' }];
 
+it('replays the exact committed request after a lost response and a closed-loan quote refresh', async () => {
+ const writes: Record<string, unknown>[] = []; let committed = false; let quoteReads = 0;
+ const request: RequestFn = async <T,>(path: string, options?: Parameters<RequestFn>[1]) => {
+  if (options?.method === 'POST') {
+   writes.push(structuredClone(options.body as Record<string, unknown>));
+   if (!committed) { committed = true; throw new TypeError('网络响应丢失'); }
+   expect(options.body).toEqual(writes[0]);
+   return { id: 9, transactionId: 20, operationKind: 'PAYOFF', status: 'CLOSED', cashAmount: '2100.00' } as T;
+  }
+  quoteReads++;
+  if (committed) throw new ApiError('贷款已归档或结清', { status: 409, code: 'LOAN_CLOSED' });
+  return { principalAmount: '2000.00', dueInterestAmount: '100.00', interestAmount: '100.00', futureScheduledInterest: '50.00', cashAmount: '2100.00', paymentAccountId: 1, availableBalance: '2200.00', planToken: 'committed-token' } as T;
+ };
+ const user = userEvent.setup(); const paid = vi.fn().mockResolvedValue(undefined);
+ render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><LoanPayoffPanel loan={loan as Loan} accounts={accounts as Account[]} request={request} onClose={() => {}} onPaid={paid} /></QueryClientProvider>);
+ await waitFor(() => expect(screen.getByRole('button', { name: '确认一次结清' })).toBeEnabled());
+ await user.click(screen.getByRole('button', { name: '确认一次结清' }));
+ await screen.findByText('网络响应丢失');
+ await user.click(screen.getByRole('button', { name: '重新核对结清金额' }));
+ await waitFor(() => expect(quoteReads).toBe(2));
+ await screen.findByText('贷款已归档或结清');
+ const replay = screen.getByRole('button', { name: '核对本次结清结果' });
+ expect(replay).toBeEnabled();expect(screen.getByLabelText('本次付款账户')).toBeDisabled();
+ await user.click(replay);
+ await waitFor(() => expect(paid).toHaveBeenCalledOnce());
+ expect(writes).toHaveLength(2);expect(writes[1]).toEqual(writes[0]);expect(writes[1].planToken).toBe('committed-token');
+});
+
 it('shows server whole-loan totals and confirms a quoted selected-account payoff with stable retry', async () => {
  const writes: Record<string, unknown>[] = []; const quotes: string[] = [];
  const request: RequestFn = async <T,>(path: string, options?: Parameters<RequestFn>[1]) => {
@@ -30,7 +58,7 @@ it('shows server whole-loan totals and confirms a quoted selected-account payoff
  await waitFor(() => expect(within(drawer).getByRole('button', { name: '确认一次结清' })).toBeEnabled());
  expect(within(drawer).getByText('未到期计划利息（本次不收取）')).toBeInTheDocument();
  await user.click(within(drawer).getByRole('button', { name: '确认一次结清' })); await screen.findByText('临时失败，请重试');
- await user.click(within(drawer).getByRole('button', { name: '确认一次结清' }));
+ await user.click(within(drawer).getByRole('button', { name: '核对本次结清结果' }));
  await waitFor(() => expect(writes).toHaveLength(2));expect(writes[0]).toEqual(writes[1]);expect(writes[0]).toMatchObject({ paymentAccountId: 2, interestAmount: null, planToken: 'token-2' });expect(writes[0].idempotencyKey).toBeTruthy();expect(quotes.some(q => q.includes('paymentAccountId=2'))).toBe(true);
 });
 

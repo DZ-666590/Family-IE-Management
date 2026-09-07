@@ -19,7 +19,7 @@ import tools.jackson.databind.*;
 
 @SpringBootTest @ActiveProfiles("test") @AutoConfigureMockMvc
 class LoanPayoffApiTest {
- @Autowired MockMvc mvc; @Autowired ObjectMapper json; @Autowired JdbcTemplate jdbc; @Autowired LedgerReadService ledger;
+ @Autowired MockMvc mvc; @Autowired ObjectMapper json; @org.springframework.test.context.bean.override.mockito.MockitoSpyBean JdbcTemplate jdbc; @Autowired LedgerReadService ledger;
  @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
  MockHttpSession session; long household,member,user,category,account;
  @BeforeEach void setup()throws Exception{
@@ -124,6 +124,30 @@ class LoanPayoffApiTest {
   fund("2100.00");long loan=create();String body=payoffBody(data(quote(loan).andReturn()),"archived");long journals=count("ledger_journals");
   withEarlierSnapshot(()->jdbc.update("update financial_accounts set archived_at=CURRENT_TIMESTAMP where id=?",account),()->payoff(loan,body).andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNT_ARCHIVED")));
   assertThat(count("financial_transactions")).isZero();assertThat(count("loan_prepayments")).isZero();assertThat(count("ledger_journals")).isEqualTo(journals);
+ }
+ @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"detail","list","history"})
+ void readonlyTotalsRemainOneSnapshotWhenPayoffCommitsBetweenTotalsQueries(String read)throws Exception{
+  fund("5000.00");long loan=createBody(body().replace("\"annualRate\":0.1","\"annualRate\":0"));
+  mvc.perform(post("/api/loans/"+loan+"/prepay").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":\"100.00\",\"paidOn\":\"2026-01-01\",\"idempotencyKey\":\"before-read\"}")).andExpect(status().isOk());
+  String payment=payoffBody(data(quote(loan).andReturn()),"during-read");
+  var pool=java.util.concurrent.Executors.newSingleThreadExecutor();var intercepted=new java.util.concurrent.atomic.AtomicBoolean();long readerThread=Thread.currentThread().getId();
+  org.mockito.Mockito.doAnswer(call->{
+   Object result=call.callRealMethod();String sql=call.getArgument(0);
+   if(Thread.currentThread().getId()==readerThread&&sql.startsWith("select i.status,i.principal_cents")&&!sql.endsWith("for update")&&intercepted.compareAndSet(false,true))
+    pool.submit(()->{payoff(loan,payment).andExpect(status().isOk());return null;}).get(10,java.util.concurrent.TimeUnit.SECONDS);
+   return result;
+  }).when(jdbc).query(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.any(org.springframework.jdbc.core.RowMapper.class),org.mockito.ArgumentMatchers.any(Object[].class));
+  try{
+   String path=read.equals("list")?"/api/loans":read.equals("history")?"/api/loans/"+loan+"/prepayments":"/api/loans/"+loan;
+   JsonNode response=data(mvc.perform(get(path).session(session)).andExpect(status().isOk()).andReturn());
+   assertThat(intercepted).isTrue();
+   JsonNode summary=read.equals("list")?response.path("items").get(0):read.equals("history")?response.get(0):response;
+   assertThat(summary.path("scheduledRepaymentTotal").asText()).isEqualTo("2000.00");
+   assertThat(summary.path("remainingRepaymentTotal").asText()).isEqualTo("1900.00");assertThat(summary.path("paidRepaymentTotal").asText()).isEqualTo("100.00");
+   if(read.equals("history"))assertThat(response.size()).isEqualTo(1);
+   else assertThat(summary.path("currentPrincipal").asText()).isEqualTo("1900.00");
+  }finally{pool.shutdownNow();assertThat(pool.awaitTermination(10,java.util.concurrent.TimeUnit.SECONDS)).isTrue();}
+  mvc.perform(get("/api/loans/"+loan).session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.data.paidRepaymentTotal").value("2000.00")).andExpect(jsonPath("$.data.remainingRepaymentTotal").value("0.00"));
  }
  private void withEarlierSnapshot(Checked outside,Checked inside)throws Exception{
   var pool=java.util.concurrent.Executors.newSingleThreadExecutor();var tx=new org.springframework.transaction.support.TransactionTemplate(transactionManager);
