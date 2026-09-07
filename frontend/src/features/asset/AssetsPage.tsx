@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { Asset, AssetType, AssetValuation, HouseholdRole, Loan, Member, NetWorth } from '../../api/contracts';
+import { businessDate } from '../../shared/runtime';
 import { ConfirmDialog, DataPanel, Drawer, FormError, PageScaffold, QueryState, StatusTag, dateText, isManager, money, type RequestFn } from '../common';
 
 export type AssetDraft = { id?: number; name: string; type: AssetType; ownerMemberId: string; acquiredOn: string; purchaseValue: string; currentValue: string; address: string; areaSqm: string; usageType: string; brandModel: string; plateHint: string; purchaseYear: string };
@@ -21,7 +22,7 @@ export function AssetsPage({ request, role }: { request: RequestFn; role: Househ
   const [type, setType] = useState('');
   const [draft, setDraft] = useState<AssetDraft | null>(null);
   const [valuationAsset, setValuationAsset] = useState<Asset | null>(null);
-  const [valuation, setValuation] = useState({ valuedOn: new Date().toISOString().slice(0, 10), value: '', note: '' });
+  const [valuation, setValuation] = useState({ valuedOn: businessDate(), value: '', note: '' });
   const [archiveId, setArchiveId] = useState<number | null>(null);
   const assets = useQuery({ queryKey: ['assets', type], queryFn: () => request<{ items: Asset[] }>(`/api/assets?status=ACTIVE&page=0&size=50${type ? `&type=${type}` : ''}`) });
   const members = useQuery({ queryKey: ['members'], queryFn: () => request<Member[]>('/api/members') });
@@ -29,7 +30,7 @@ export function AssetsPage({ request, role }: { request: RequestFn; role: Househ
   const loans = useQuery({ queryKey: ['loans'], queryFn: () => request<{ items: Loan[] }>('/api/loans?status=ACTIVE&page=0&size=50') });
   const valuations = useQuery({ queryKey: ['asset-valuations', valuationAsset?.id], queryFn: () => request<{ items: AssetValuation[] }>(`/api/assets/${valuationAsset!.id}/valuations?page=0&size=20`), enabled: valuationAsset !== null });
   const save = useMutation({ mutationFn: (value: AssetDraft) => request<Asset>(value.id ? `/api/assets/${value.id}` : '/api/assets', { method: value.id ? 'PATCH' : 'POST', body: value.id ? assetUpdatePayload(value) : { name: value.name, type: value.type, ownerMemberId: value.ownerMemberId ? Number(value.ownerMemberId) : null, acquiredOn: value.acquiredOn || null, purchaseValue: value.purchaseValue || null, currentValue: value.currentValue, property: value.type === 'PROPERTY' ? { address: value.address, areaSqm: value.areaSqm, usageType: value.usageType } : null, vehicle: value.type === 'VEHICLE' ? { brandModel: value.brandModel, plateHint: value.plateHint, purchaseYear: Number(value.purchaseYear) } : null } }), onSuccess: async () => { setDraft(null); await Promise.all([client.invalidateQueries({ queryKey: ['assets'] }), client.invalidateQueries({ queryKey: ['net-worth'] })]); } });
-  const addValuation = useMutation({ mutationFn: () => request<AssetValuation>(`/api/assets/${valuationAsset!.id}/valuations`, { method: 'POST', body: valuation }), onSuccess: async () => { setValuation({ valuedOn: new Date().toISOString().slice(0, 10), value: '', note: '' }); await Promise.all([client.invalidateQueries({ queryKey: ['asset-valuations'] }), client.invalidateQueries({ queryKey: ['assets'] }), client.invalidateQueries({ queryKey: ['net-worth'] }), client.invalidateQueries({ queryKey: ['notifications'] })]); } });
+  const addValuation = useMutation({ mutationFn: () => request<AssetValuation>(`/api/assets/${valuationAsset!.id}/valuations`, { method: 'POST', body: valuation }), onSuccess: async () => { setValuation({ valuedOn: businessDate(), value: '', note: '' }); await Promise.all([client.invalidateQueries({ queryKey: ['asset-valuations'] }), client.invalidateQueries({ queryKey: ['assets'] }), client.invalidateQueries({ queryKey: ['net-worth'] }), client.invalidateQueries({ queryKey: ['notifications'] })]); } });
   const archive = useMutation({ mutationFn: (id: number) => request<void>(`/api/assets/${id}`, { method: 'DELETE' }), onSuccess: async () => { setArchiveId(null); await Promise.all([client.invalidateQueries({ queryKey: ['assets'] }), client.invalidateQueries({ queryKey: ['net-worth'] })]); } });
   const manager = isManager(role);
   const edit = (item: Asset): AssetDraft => ({ id: item.id, name: item.name, type: item.type, ownerMemberId: String(item.ownerMemberId ?? ''), acquiredOn: item.acquiredOn ?? '', purchaseValue: item.purchaseValue ?? '', currentValue: item.currentValue, address: item.property?.address ?? '', areaSqm: String(item.property?.areaSqm ?? ''), usageType: item.property?.usageType ?? '自住', brandModel: item.vehicle?.brandModel ?? '', plateHint: item.vehicle?.plateHint ?? '', purchaseYear: String(item.vehicle?.purchaseYear ?? '') });

@@ -1,8 +1,11 @@
-import { deferred, localYearMonth, RefreshGate } from './runtime';
+import { businessDate, deferred, localYearMonth, RefreshGate } from './runtime';
 
-it('uses local calendar fields for the selected month', () => {
-  const date = { getFullYear: () => 2028, getMonth: () => 0 } as Date;
-  expect(localYearMonth(date)).toBe('2028-01');
+it('uses the Asia Shanghai business date', () => {
+  expect(businessDate(new Date('2026-09-08T07:30:00+08:00'))).toBe('2026-09-08');
+});
+
+it('uses the same Asia Shanghai day for the selected month', () => {
+  expect(localYearMonth(new Date('2027-01-01T00:01:00+08:00'))).toBe('2027-01');
 });
 
 it('does not let an obsolete refresh overwrite the newest result', async () => {

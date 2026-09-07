@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
-import { LoansPage, formatAnnualRatePercent, loanCreatePayload, type LoanDraft } from './LoansPage';
+import { LoansPage, annualRatePercentError, formatAnnualRatePercent, loanCreatePayload, type LoanDraft } from './LoansPage';
 import { FamilyPage } from '../family/FamilyPage';
 import type { RequestFn } from '../common';
 
@@ -50,6 +50,21 @@ it('serializes loan form percentages and optional targets for the backend contra
     termMonths: 360,
     customSchedule: null
   });
+  expect(loanCreatePayload({ ...draft, annualRate: '3.6' }).annualRate).toBe(0.036);
+  expect(loanCreatePayload({ ...draft, annualRate: '3.1' }).annualRate).toBe(0.031);
+});
+
+it('validates annual rates as percent input before building a request payload', () => {
+  const draft: LoanDraft = {
+    name: '测试房贷', type: 'MORTGAGE', linkedAssetId: '', memberId: '', assignedUserId: '1',
+    paymentAccountId: '2', paymentCategoryId: '3', principal: '100000.00', annualRate: '3.12345',
+    termMonths: '360', repaymentMethod: 'EQUAL_PAYMENT', startOn: '2026-09-04', customSchedule: []
+  };
+
+  expect(annualRatePercentError('3.1234')).toBeNull();
+  expect(annualRatePercentError('3.12345')).toContain('百分比');
+  expect(annualRatePercentError('100.0001')).toContain('0 到 100');
+  expect(() => loanCreatePayload(draft)).toThrow(/百分比/);
 });
 
 it('renders the stored fractional annual rate as a user-facing percentage', () => {

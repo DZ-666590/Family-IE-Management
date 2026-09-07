@@ -1,7 +1,17 @@
+const businessDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+});
+
+export function businessDate(date: Date = new Date()): string {
+  const parts = new Map(businessDateFormatter.formatToParts(date).map(part => [part.type, part.value]));
+  return `${parts.get('year')}-${parts.get('month')}-${parts.get('day')}`;
+}
+
 export function localYearMonth(date: Date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
+  return businessDate(date).slice(0, 7);
 }
 
 export class RefreshGate {

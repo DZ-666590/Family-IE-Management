@@ -6,6 +6,20 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.familyfinance.budget.Budget;
+import com.familyfinance.budget.BudgetRepository;
+import com.familyfinance.budget.BudgetScopeType;
+import com.familyfinance.category.Category;
+import com.familyfinance.category.CategoryRepository;
+import com.familyfinance.category.TransactionKind;
+import com.familyfinance.household.AppUserRepository;
+import com.familyfinance.household.FamilyMemberRepository;
+import com.familyfinance.ledger.FinancialAccountRepository;
+import com.familyfinance.transaction.FinancialTransactionRepository;
+import com.familyfinance.transaction.TransactionTestFixtures;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,6 +36,48 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class ConsolidatedReportingApiTest {
     @Autowired MockMvc mvc;
+    @Autowired AppUserRepository users;
+    @Autowired FamilyMemberRepository members;
+    @Autowired CategoryRepository categories;
+    @Autowired BudgetRepository budgets;
+    @Autowired FinancialAccountRepository accounts;
+    @Autowired FinancialTransactionRepository transactions;
+
+    @Test
+    void netWorthBudgetUsesStoredCentsAndMatchesDefaultCategoryDetailRollup() throws Exception {
+        MockHttpSession session = login();
+        var household = users.findByUsername("demo").orElseThrow().getHousehold();
+        var member = members.findByHouseholdOrderById(household).get(0);
+        Instant now = Instant.parse("2026-09-03T00:00:00Z");
+        Category parent = categories.saveAndFlush(new Category(
+                household, TransactionKind.EXPENSE, "汇总父分类", "#123456", false, now));
+        Category child = categories.saveAndFlush(new Category(
+                household, TransactionKind.EXPENSE, "汇总子分类", "#123456", false, parent, now));
+        Budget budget = budgets.saveAndFlush(new Budget(
+                household, YearMonth.of(2026, 9), BudgetScopeType.CATEGORY, parent, null, 500_000L));
+        transactions.saveAndFlush(TransactionTestFixtures.newTransaction(
+                accounts, users, household, member, parent, TransactionKind.EXPENSE, 159_135L,
+                LocalDate.of(2026, 9, 2), null, null, "整数分预算", now, now));
+        transactions.saveAndFlush(TransactionTestFixtures.newTransaction(
+                accounts, users, household, member, child, TransactionKind.EXPENSE, 1L,
+                LocalDate.of(2026, 9, 3), null, null, "一分子分类", now, now));
+
+        mvc.perform(get("/api/net-worth").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.budget.planned").value("5000.00"))
+                .andExpect(jsonPath("$.data.budget.spent").value("1591.35"));
+        mvc.perform(get("/api/budgets/usage").session(session)
+                        .param("periodMonth", "2026-09"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].budget.id").value(budget.getId()))
+                .andExpect(jsonPath("$.data[0].spent").value("1591.35"))
+                .andExpect(jsonPath("$.data[0].rollupCategories").value(false));
+        mvc.perform(get("/api/budgets/usage").session(session)
+                        .param("periodMonth", "2026-09")
+                        .param("rollupCategories", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].spent").value("1591.36"));
+    }
 
     @Test
     void netWorthAndDebtEndpointsExposeBoundedServerCalculatedViews() throws Exception {

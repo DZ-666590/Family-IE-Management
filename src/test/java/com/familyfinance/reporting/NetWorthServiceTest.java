@@ -7,7 +7,10 @@ import static org.mockito.Mockito.when;
 import com.familyfinance.asset.Asset;
 import com.familyfinance.asset.AssetRepository;
 import com.familyfinance.asset.AssetStatus;
+import com.familyfinance.budget.Budget;
 import com.familyfinance.budget.BudgetRepository;
+import com.familyfinance.budget.BudgetScopeType;
+import com.familyfinance.category.Category;
 import com.familyfinance.investment.InvestmentTradeRepository;
 import com.familyfinance.ledger.AccountBalance;
 import com.familyfinance.ledger.FinancialAccountRepository;
@@ -23,6 +26,20 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class NetWorthServiceTest {
+
+    @Test
+    void budgetAggregateIsAlreadyStoredInCents() {
+        NetWorthResult result = calculateWithBudgetAggregate("159135");
+
+        assertThat(result.budget().spentCents()).isEqualTo(159_135L);
+    }
+
+    @Test
+    void budgetAggregatePreservesOneCent() {
+        NetWorthResult result = calculateWithBudgetAggregate("1");
+
+        assertThat(result.budget().spentCents()).isEqualTo(1L);
+    }
 
     @Test
     void handCalculatedAssetsAndLiabilitiesAreCountedExactlyOnce() {
@@ -52,5 +69,35 @@ class NetWorthServiceTest {
         assertThat(result.liabilityCents()).isEqualTo(400_000L);
         assertThat(result.netWorthCents()).isEqualTo(800_000L);
         assertThat(result.allocation().stream().mapToInt(AllocationSlice::shareTenths).sum()).isEqualTo(1000);
+    }
+
+    private static NetWorthResult calculateWithBudgetAggregate(String aggregateCents) {
+        FinancialAccountRepository accounts = mock(FinancialAccountRepository.class);
+        AssetRepository assets = mock(AssetRepository.class);
+        LoanRepository loans = mock(LoanRepository.class);
+        PortfolioService portfolio = mock(PortfolioService.class);
+        BudgetRepository budgets = mock(BudgetRepository.class);
+        FinancialTransactionRepository transactions = mock(FinancialTransactionRepository.class);
+        Budget budget = mock(Budget.class);
+        Category category = mock(Category.class);
+        LocalDate asOf = LocalDate.of(2026, 9, 3);
+
+        when(accounts.findActiveBalancesByHouseholdIdAndOccurredOnBefore(1L, asOf)).thenReturn(List.of());
+        when(assets.findAllByHouseholdIdAndStatus(1L, AssetStatus.ACTIVE)).thenReturn(List.of());
+        when(loans.findAllByHouseholdIdAndStatus(1L, LoanStatus.ACTIVE)).thenReturn(List.of());
+        when(portfolio.portfolio(1L)).thenReturn(new PortfolioResponse(List.of(),
+                new PortfolioTotalsResponse("0.00", "0.00", "0.00", "0.00", "0.00", 0)));
+        when(budgets.findAllByHouseholdIdAndPeriodMonthAndActiveTrue(1L, "2026-09"))
+                .thenReturn(List.of(budget));
+        when(budget.getAmountCents()).thenReturn(500_000L);
+        when(budget.getScopeType()).thenReturn(BudgetScopeType.CATEGORY);
+        when(budget.getCategory()).thenReturn(category);
+        when(category.getId()).thenReturn(11L);
+        when(transactions.sumBudgetExpenseCents(
+                1L, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+                "CATEGORY", 11L, null, false)).thenReturn(aggregateCents);
+
+        return new NetWorthService(accounts, assets, loans, portfolio, budgets, transactions,
+                Clock.fixed(Instant.parse("2026-09-03T12:00:00Z"), ZoneOffset.UTC)).calculate(1L, asOf);
     }
 }

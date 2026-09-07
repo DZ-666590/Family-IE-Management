@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FlowChart } from '../../features/visuals';
 import { useQuery } from '@tanstack/react-query';
 import { DataPanel, PageScaffold, QueryState, money, type RequestFn } from '../../features/common';
+import { businessDate } from '../../shared/runtime';
 
 interface AnnualReport {
   year: number; averageMonthCount: number;
@@ -10,7 +11,7 @@ interface AnnualReport {
 }
 
 export default function AnnualStatsPage({ request }: { request: RequestFn }) {
-  const [year, setYear] = useState(new Date().getFullYear());
+  const [year, setYear] = useState(Number(businessDate().slice(0, 4)));
   const report = useQuery({ queryKey: ['plugin', 'annual-stats', year], queryFn: () => request<AnnualReport>(`/api/plugins/annual-stats?year=${year}`) });
   const summary = report.data?.summary;
   return <PageScaffold title="年度统计">

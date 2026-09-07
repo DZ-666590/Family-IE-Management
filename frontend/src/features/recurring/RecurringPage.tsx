@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Button from '@douyinfe/semi-ui/lib/es/button';
+import { businessDate } from '../../shared/runtime';
 import type { Account, Category, HouseholdRole, Member, Membership, RecurringOccurrence, RecurringRule, TransactionKind } from '../../api/contracts';
 import { DataPanel, Drawer, FormError, PageScaffold, QueryState, StatusTag, isManager, money, type RequestFn } from '../common';
 
@@ -21,7 +22,7 @@ export function RecurringPage({ request, role, userId }: { request: RequestFn; r
   const save = useMutation({ mutationFn: (value: RuleDraft) => request<RecurringRule>(value.id ? `/api/recurring-rules/${value.id}` : '/api/recurring-rules', { method: value.id ? 'PATCH' : 'POST', body: { ...value, accountId: Number(value.accountId), memberId: Number(value.memberId), categoryId: Number(value.categoryId), assignedUserId: Number(value.assignedUserId), dayOfMonth: value.scheduleType === 'MONTHLY' ? value.dayOfMonth : null, dayOfWeek: value.scheduleType === 'WEEKLY' ? value.dayOfWeek : null } }), onSuccess: async () => { setDraft(null); await client.invalidateQueries({ queryKey: ['recurring-rules'] }); } });
   const archive = useMutation({ mutationFn: (id: number) => request<void>(`/api/recurring-rules/${id}`, { method: 'DELETE' }), onSuccess: () => client.invalidateQueries({ queryKey: ['recurring-rules'] }) });
   const confirm = useMutation({ mutationFn: (id: number) => request<RecurringOccurrence>(`/api/recurring-occurrences/${id}/confirm`, { method: 'POST' }), onSuccess: async () => { await Promise.all([client.invalidateQueries({ queryKey: ['recurring-occurrences'] }), client.invalidateQueries({ queryKey: ['transactions'] }), client.invalidateQueries({ queryKey: ['notifications'] }), client.invalidateQueries({ queryKey: ['dashboard'] })]); } });
-  const newRule = (): RuleDraft => ({ kind: 'expense', amount: '', scheduleType: 'MONTHLY', intervalValue: 1, dayOfMonth: 1, dayOfWeek: null, startOn: new Date().toISOString().slice(0, 10), endOn: null, accountId: '', memberId: '', categoryId: '', assignedUserId: '', paused: false });
+  const newRule = (): RuleDraft => ({ kind: 'expense', amount: '', scheduleType: 'MONTHLY', intervalValue: 1, dayOfMonth: 1, dayOfWeek: null, startOn: businessDate(), endOn: null, accountId: '', memberId: '', categoryId: '', assignedUserId: '', paused: false });
   const editRule = (item: RecurringRule): RuleDraft => ({ id: item.id, kind: item.kind, amount: item.amount, scheduleType: item.scheduleType, intervalValue: item.intervalValue, dayOfMonth: item.dayOfMonth, dayOfWeek: item.dayOfWeek, startOn: item.startOn, endOn: item.endOn, accountId: String(item.accountId), memberId: String(item.memberId), categoryId: String(item.categoryId), assignedUserId: String(item.assignedUserId), paused: item.paused });
   return <PageScaffold title="周期账单" description="到期先进入待确认，确认后才生成真实收支。" primaryAction={manager ? { label: '新建周期规则', onClick: () => setDraft(newRule()) } : undefined}>
     <nav className="segmented-tabs" aria-label="周期账单视图"><button className={section==='pending'?'active':''} onClick={()=>setSection('pending')}>待确认账单</button><button className={section==='rules'?'active':''} onClick={()=>setSection('rules')}>规则管理</button></nav>

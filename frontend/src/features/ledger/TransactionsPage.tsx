@@ -3,11 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banknote, Landmark, WalletCards, Download } from 'lucide-react';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { Account, AccountType, Category, HouseholdRole, Member, Transaction, TransactionKind } from '../../api/contracts';
-import { localYearMonth } from '../../shared/runtime';
+import { businessDate, localYearMonth } from '../../shared/runtime';
 import { ConfirmDialog, DataPanel, Drawer, FormError, PageScaffold, QueryState, StatusTag, isManager, money, type RequestFn } from '../common';
 
 interface TransactionDraft { id?: number; kind: TransactionKind; amount: string; occurredOn: string; accountId: string; memberId: string; categoryId: string; merchant: string; location: string; note: string }
-const emptyDraft = (): TransactionDraft => ({ kind: 'expense', amount: '', occurredOn: new Date().toISOString().slice(0, 10), accountId: '', memberId: '', categoryId: '', merchant: '', location: '', note: '' });
+const emptyDraft = (): TransactionDraft => ({ kind: 'expense', amount: '', occurredOn: businessDate(), accountId: '', memberId: '', categoryId: '', merchant: '', location: '', note: '' });
 
 export function TransactionsPage({ request, role }: { request: RequestFn; role: HouseholdRole; userId: number }) {
   const queryClient = useQueryClient();

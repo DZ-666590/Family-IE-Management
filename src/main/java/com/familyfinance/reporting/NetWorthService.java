@@ -80,7 +80,7 @@ public class NetWorthService {
         int near = 0;
         int over = 0;
         for (Budget budget : active) {
-            long used = parseCents(transactions.sumBudgetExpenseCents(householdId, month.atDay(1),
+            long used = parseAggregateCents(transactions.sumBudgetExpenseCents(householdId, month.atDay(1),
                     month.plusMonths(1).atDay(1), budget.getScopeType().name(),
                     budget.getCategory() == null ? null : budget.getCategory().getId(),
                     budget.getMember() == null ? null : budget.getMember().getId(), false));
@@ -146,6 +146,11 @@ public class NetWorthService {
     private static long parseCents(String money) {
         if (money == null) return 0L;
         return new BigDecimal(money).movePointRight(2).longValueExact();
+    }
+
+    private static long parseAggregateCents(String cents) {
+        if (cents == null) return 0L;
+        return bounded(new BigInteger(cents));
     }
 
     private static long sum(List<Long> values) {
