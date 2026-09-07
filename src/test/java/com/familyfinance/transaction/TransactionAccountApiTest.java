@@ -97,6 +97,8 @@ class TransactionAccountApiTest {
         assertThat(foreignBody).isEqualTo(unknownBody).doesNotContain("流水外部家庭");
 
         long archivedAccountId = createAccount(owner, "已归档交易账户");
+        mvc.perform(patch("/api/accounts/{id}",archivedAccountId).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"openingBalance\":\"0.00\"}")).andExpect(status().isOk());
         mvc.perform(delete("/api/accounts/{id}", archivedAccountId).session(owner).with(csrf()))
                 .andExpect(status().isNoContent());
         mvc.perform(post("/api/transactions").session(owner).with(csrf())
@@ -267,7 +269,7 @@ class TransactionAccountApiTest {
         MvcResult result = mvc.perform(post("/api/accounts").session(owner).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"%s","type":"BANK","currency":"CNY","openingBalance":"0.00"}
+                                {"name":"%s","type":"BANK","currency":"CNY","openingBalance":"100.00","openingOn":"2026-01-01"}
                                 """.formatted(name)))
                 .andExpect(status().isCreated())
                 .andReturn();
@@ -337,7 +339,7 @@ class TransactionAccountApiTest {
         String account = accountId == null ? "" : "\"accountId\":" + accountId + ",";
         String creator = attemptedCreatorId == null ? "" : "\"createdByUserId\":" + attemptedCreatorId + ",";
         return """
-                {%s%s"kind":"expense","amount":"12.30","occurredOn":"2026-09-18",
+                {%s%s"kind":"expense","amount":"12.30","occurredOn":"2026-09-01",
                  "memberId":%d,"categoryId":%d,"note":"%s"}
                 """.formatted(account, creator, memberId, categoryId, note);
     }

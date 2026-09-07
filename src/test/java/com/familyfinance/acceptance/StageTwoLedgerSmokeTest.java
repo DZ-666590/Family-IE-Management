@@ -409,7 +409,7 @@ class StageTwoLedgerSmokeTest {
                 versions.add(rows.getString(1));
             }
         }
-        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14");
+        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15");
     }
 
     private static void assertReciprocalRecurringLink(Path database, State state) throws Exception {
@@ -438,7 +438,7 @@ class StageTwoLedgerSmokeTest {
 
     private static String accountBody() {
         return """
-                {"name":"验收银行卡","type":"BANK","currency":"CNY","openingBalance":"1000.00"}
+                {"name":"验收银行卡","type":"BANK","currency":"CNY","openingBalance":"1000.00","openingOn":"2026-01-01"}
                 """;
     }
 

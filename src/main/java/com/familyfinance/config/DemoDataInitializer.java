@@ -1,6 +1,9 @@
 package com.familyfinance.config;
 
 import com.familyfinance.category.Category;
+import com.familyfinance.accounting.CashAccountingService;
+import java.time.Clock;
+import java.time.ZoneId;
 import com.familyfinance.category.CategoryRepository;
 import com.familyfinance.category.TransactionKind;
 import com.familyfinance.family.HouseholdMembership;
@@ -41,6 +44,8 @@ public class DemoDataInitializer implements ApplicationRunner {
     private final HouseholdMembershipRepository memberships;
     private final DefaultFinancialAccountFactory defaultAccounts;
     private final PasswordEncoder passwordEncoder;
+    private final CashAccountingService cash;
+    private final Clock clock;
 
     public DemoDataInitializer(
             AppUserRepository users,
@@ -50,7 +55,7 @@ public class DemoDataInitializer implements ApplicationRunner {
             FinancialTransactionRepository transactions,
             HouseholdMembershipRepository memberships,
             DefaultFinancialAccountFactory defaultAccounts,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,CashAccountingService cash,Clock clock) {
         this.users = users;
         this.households = households;
         this.members = members;
@@ -59,6 +64,7 @@ public class DemoDataInitializer implements ApplicationRunner {
         this.memberships = memberships;
         this.defaultAccounts = defaultAccounts;
         this.passwordEncoder = passwordEncoder;
+        this.cash=cash; this.clock=clock;
     }
 
     @Override
@@ -83,6 +89,7 @@ public class DemoDataInitializer implements ApplicationRunner {
                 MembershipStatus.ACTIVE,
                 SEED_TIME));
         FinancialAccount defaultAccount = defaultAccounts.createFor(household);
+        cash.opening(defaultAccount,0,validSeedDate("2026-01-01"),demo.getId(),"demo-opening:"+defaultAccount.getId());
 
         List<FamilyMember> seededMembers = members.saveAll(List.of(
                 new FamilyMember(household, demo, "Kevin", "爸爸", SEED_TIME),
@@ -116,7 +123,7 @@ public class DemoDataInitializer implements ApplicationRunner {
         FamilyMember grandpa = seededMembers.get(3);
         FamilyMember grandma = seededMembers.get(4);
 
-        transactions.saveAll(List.of(
+        var seededTransactions=transactions.saveAllAndFlush(List.of(
                 tx(household, defaultAccount, demo, kevin, salary, TransactionKind.INCOME, 2800000L, "2026-06-05", "公司", "杭州", "六月工资"),
                 tx(household, defaultAccount, demo, lily, food, TransactionKind.EXPENSE, 12850L, "2026-06-08", "盒马", "杭州", "一周食材"),
                 tx(household, defaultAccount, demo, annie, education, TransactionKind.EXPENSE, 360000L, "2026-06-15", "培训中心", "杭州", "暑期课程"),
@@ -129,9 +136,10 @@ public class DemoDataInitializer implements ApplicationRunner {
                 tx(household, defaultAccount, demo, kevin, salary, TransactionKind.INCOME, 2800000L, "2026-09-05", "公司", "杭州", "九月工资"),
                 tx(household, defaultAccount, demo, lily, food, TransactionKind.EXPENSE, 15680L, "2026-09-06", "菜场", "杭州", "家庭餐饮"),
                 tx(household, defaultAccount, demo, annie, shopping, TransactionKind.EXPENSE, 32800L, "2026-09-12", "银泰", "杭州", "开学用品")));
+        seededTransactions.forEach(tx->cash.postTransaction(tx,"demo-transaction:"+tx.getId()));
     }
 
-    private static FinancialTransaction tx(
+    private FinancialTransaction tx(
             Household household,
             FinancialAccount account,
             AppUser creator,
@@ -151,11 +159,15 @@ public class DemoDataInitializer implements ApplicationRunner {
                 category,
                 kind,
                 amountCents,
-                LocalDate.parse(occurredOn),
+                validSeedDate(occurredOn),
                 merchant,
                 location,
                 note,
                 SEED_TIME,
                 SEED_TIME);
+    }
+    private LocalDate validSeedDate(String raw) {
+        LocalDate day=LocalDate.parse(raw),today=LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai")));
+        return day.isAfter(today)?today:day;
     }
 }

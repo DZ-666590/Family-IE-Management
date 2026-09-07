@@ -40,6 +40,9 @@ class DemoDataInitializerTest {
 
     @Autowired
     DemoDataInitializer initializer;
+    @Autowired com.familyfinance.accounting.LedgerReadService ledger;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired java.time.Clock clock;
 
     @Test
     void seedIsIdempotentLinksOnlyTheFirstMemberAndStoresOnlyEncodedPassword() {
@@ -52,6 +55,11 @@ class DemoDataInitializerTest {
         assertThat(accounts.count()).isEqualTo(1);
         assertThat(transactions.count()).isEqualTo(12);
         AppUser demo = users.findByUsername("demo").orElseThrow();
+        long h=demo.getHousehold().getId();
+        assertThat(accounts.findAll().get(0).isOpeningConfirmed()).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from cash_opening_events where household_id=?",Long.class,h)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from ledger_journals where household_id=?",Long.class,h)).isEqualTo(12);
+        assertThat(ledger.reconstructedBalances(h)).isEqualTo(ledger.balances(h));
         assertThat(demo.getEmail()).isEqualTo("demo@local.family");
         assertThat(demo.getPasswordHash()).startsWith("$2");
         assertThat(demo.getPasswordHash()).doesNotContain("demo1234");
@@ -64,6 +72,7 @@ class DemoDataInitializerTest {
                 });
         assertThat(transactions.findAll())
                 .allSatisfy(transaction -> {
+                    assertThat(transaction.getOccurredOn()).isBeforeOrEqualTo(java.time.LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai"))));
                     assertThat(transaction.getAccount().getId()).isEqualTo(accounts.findAll().get(0).getId());
                     assertThat(transaction.getCreatedByUser().getId()).isEqualTo(demo.getId());
                     assertThat(transaction.getSourceType().name()).isEqualTo("MANUAL");

@@ -30,16 +30,18 @@ public class CategoryService {
     private final FinancialTransactionRepository transactions;
     private final FamilyMutationAuthorization mutationAuthorization;
     private final Clock clock;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     public CategoryService(
             CategoryRepository categories,
             FinancialTransactionRepository transactions,
             FamilyMutationAuthorization mutationAuthorization,
-            Clock clock) {
+            Clock clock,org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.categories = categories;
         this.transactions = transactions;
         this.mutationAuthorization = mutationAuthorization;
         this.clock = clock;
+        this.jdbc=jdbc;
     }
 
     public CategoryPage list(long householdId, String rawProjection, int page, int size) {
@@ -96,6 +98,9 @@ public class CategoryService {
                 && category.getKind() != request.kind()) {
             throw resourceInUse("该分类已被收支记录使用，无法修改收支类型");
         }
+        if(category.getKind()!=request.kind() && !jdbc.queryForList(
+                "select id from ledger_entries where household_id=? and category_id=? for update",Long.class,householdId,categoryId).isEmpty())
+            throw resourceInUse("该分类已被账务历史使用，无法修改收支类型");
         if (categories.countBudgetReferences(householdId, categoryId) > 0
                 && category.getKind() != request.kind()) {
             throw resourceInUse("该分类已被预算或预算修订历史使用，无法修改收支类型");

@@ -165,7 +165,7 @@ class AccountAuthorizationConcurrencyApiTest {
 
     private static String accountBody(String name) {
         return """
-                {"name":"%s","type":"BANK","currency":"CNY","openingBalance":"0.00"}
+                {"name":"%s","type":"BANK","currency":"CNY","openingBalance":"0.00","openingOn":"2026-01-01"}
                 """.formatted(name);
     }
 

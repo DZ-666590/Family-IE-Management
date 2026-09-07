@@ -1,6 +1,9 @@
 package com.familyfinance.transaction;
 
 import com.familyfinance.shared.ApiEnvelope;
+import com.familyfinance.accounting.AccountingCommandExecutor;
+import com.familyfinance.accounting.AccountingRequests;
+import org.springframework.web.bind.annotation.RequestHeader;
 import com.familyfinance.shared.CurrentHousehold;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -24,10 +27,12 @@ public class TransactionController {
 
     private final TransactionService transactionService;
     private final CurrentHousehold currentHousehold;
+    private final AccountingCommandExecutor executor;
 
-    public TransactionController(TransactionService transactionService, CurrentHousehold currentHousehold) {
+    public TransactionController(TransactionService transactionService, CurrentHousehold currentHousehold,AccountingCommandExecutor executor) {
         this.transactionService = transactionService;
         this.currentHousehold = currentHousehold;
+        this.executor=executor;
     }
 
     @GetMapping
@@ -63,21 +68,27 @@ public class TransactionController {
     @ResponseStatus(HttpStatus.CREATED)
     ApiEnvelope<TransactionResponse> create(
             Authentication authentication,
-            @Valid @RequestBody TransactionRequest request) {
-        return ApiEnvelope.data(transactionService.create(authentication, request));
+            @Valid @RequestBody TransactionRequest request,
+            @RequestHeader(value="Idempotency-Key",required=false) String suppliedKey) {
+        String key=AccountingRequests.key(suppliedKey);
+        return ApiEnvelope.data(executor.execute(()->transactionService.create(authentication, request,key)));
     }
 
     @PatchMapping("/{id}")
     ApiEnvelope<TransactionResponse> update(
             Authentication authentication,
             @PathVariable long id,
-            @Valid @RequestBody TransactionPatchRequest request) {
-        return ApiEnvelope.data(transactionService.update(authentication, id, request));
+            @Valid @RequestBody TransactionPatchRequest request,
+            @RequestHeader(value="Idempotency-Key",required=false) String suppliedKey) {
+        String key=AccountingRequests.key(suppliedKey);
+        return ApiEnvelope.data(executor.execute(()->transactionService.update(authentication, id, request,key)));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void delete(Authentication authentication, @PathVariable long id) {
-        transactionService.delete(authentication, id);
+    void delete(Authentication authentication, @PathVariable long id,
+            @RequestHeader(value="Idempotency-Key",required=false) String suppliedKey) {
+        String key=AccountingRequests.key(suppliedKey);
+        executor.execute(()->{transactionService.delete(authentication, id,key);return null;});
     }
 }

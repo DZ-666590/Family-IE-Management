@@ -1,6 +1,9 @@
 package com.familyfinance.transaction;
 
 import com.familyfinance.category.Category;
+import com.familyfinance.accounting.AccountingRequests;
+import com.familyfinance.accounting.CashAccountingService;
+import com.familyfinance.accounting.LedgerPostingService;
 import com.familyfinance.category.CategoryRepository;
 import com.familyfinance.category.TransactionKind;
 import com.familyfinance.household.FamilyMember;
@@ -44,6 +47,9 @@ public class TransactionService {
     private final FamilyMutationAuthorization mutationAuthorization;
     private final FamilyPermissionService permissions;
     private final TransactionFilterParser filterParser;
+    private final CashAccountingService cash;
+    private final LedgerPostingService ledger;
+    private final AccountingRequests requests;
 
     public TransactionService(
             FamilyMemberRepository memberRepository,
@@ -52,7 +58,7 @@ public class TransactionService {
             FinancialAccountRepository accountRepository,
             FamilyMutationAuthorization mutationAuthorization,
             FamilyPermissionService permissions,
-            TransactionFilterParser filterParser) {
+            TransactionFilterParser filterParser, CashAccountingService cash, LedgerPostingService ledger, AccountingRequests requests) {
         this.memberRepository = memberRepository;
         this.categoryRepository = categoryRepository;
         this.transactionRepository = transactionRepository;
@@ -60,6 +66,7 @@ public class TransactionService {
         this.mutationAuthorization = mutationAuthorization;
         this.permissions = permissions;
         this.filterParser = filterParser;
+        this.cash=cash; this.ledger=ledger; this.requests=requests;
     }
 
     public TransactionPage list(long householdId, TransactionFilter filter, int page, int size) {
@@ -89,8 +96,20 @@ public class TransactionService {
 
     @Transactional
     public TransactionResponse create(Authentication authentication, TransactionRequest request) {
+        return create(authentication,request,AccountingRequests.key(null));
+    }
+    @Transactional
+    public TransactionResponse create(Authentication authentication, TransactionRequest request,String key) {
         FamilyMutationAuthorization.LockedFamilyAccess access = mutationAuthorization.requireCurrent(authentication);
         long householdId = access.context().householdId();
+        key=AccountingRequests.key(key);
+        String digest=requests.digest("TRANSACTION_CREATE",access.context().userId(),request);
+        Long previous=requests.replay(householdId,key,digest);
+        if(previous!=null) {
+            var old=transactionRepository.findLockedByIdAndHouseholdId(previous,householdId)
+                .orElseThrow(()->new ResourceConflictException("ACCOUNTING_SOURCE_REVERSED","原收支已撤销"));
+            return TransactionResponse.from(old);
+        }
         Map<String, String> fields = new LinkedHashMap<>();
         Household household = access.household();
         TransactionKind kind = require(request.kind(), "kind", "收支类型不能为空", fields);
@@ -101,6 +120,7 @@ public class TransactionService {
         Category category = resolveCategory(householdId, request.categoryId(), kind, fields);
         AppUser creator = access.membership().getUser();
         throwIfInvalid(fields);
+        cash.requireConfirmed(account);
 
         Instant now = Instant.now();
         try {
@@ -118,6 +138,8 @@ public class TransactionService {
                     normalizeText(request.note()),
                     now,
                     now));
+            cash.postTransaction(transaction,key);
+            requests.record(householdId,key,digest,transaction.getId());
             return TransactionResponse.from(transaction);
         } catch (DataIntegrityViolationException exception) {
             throw persistenceConflict();
@@ -129,10 +151,20 @@ public class TransactionService {
             Authentication authentication,
             long transactionId,
             TransactionPatchRequest request) {
+        return update(authentication,transactionId,request,AccountingRequests.key(null));
+    }
+    @Transactional
+    public TransactionResponse update(Authentication authentication,long transactionId,TransactionPatchRequest request,String key) {
         FamilyMutationAuthorization.LockedFamilyAccess access = mutationAuthorization.requireCurrent(authentication);
         long householdId = access.context().householdId();
-        FinancialTransaction transaction = findOne(householdId, transactionId);
+        FinancialTransaction transaction = findForMutation(householdId, transactionId);
         permissions.requireCanMutateTransaction(access.context(), transaction.getCreatedByUser().getId());
+        key=AccountingRequests.key(key);
+        String digest=requests.digest("TRANSACTION_UPDATE:"+transactionId,access.context().userId(),request);
+        if(requests.replay(householdId,key,digest)!=null) return TransactionResponse.from(transaction);
+        boolean financial=request.kind()!=null||request.amount()!=null||request.occurredOn()!=null||request.accountId()!=null||request.memberId()!=null||request.categoryId()!=null;
+        if(financial&&transaction.getSourceType()!=TransactionSourceType.MANUAL)
+            throw new ResourceConflictException("GENERATED_TRANSACTION_IMMUTABLE","自动生成收支的资金字段须通过原业务修改");
         Map<String, String> fields = new LinkedHashMap<>();
         TransactionKind kind = request.kind() == null ? transaction.getKind() : request.kind();
         Long amountCents = request.amount() == null ? transaction.getAmountCents() : parseAmount(request.amount(), fields);
@@ -166,6 +198,8 @@ public class TransactionService {
                     request.note() == null ? transaction.getNote() : normalizeText(request.note()),
                     Instant.now());
             transactionRepository.flush();
+            if(financial) cash.replaceTransaction(transaction,key,access.context().userId());
+            requests.record(householdId,key,digest,transactionId);
             return TransactionResponse.from(transaction);
         } catch (DataIntegrityViolationException exception) {
             throw persistenceConflict();
@@ -174,16 +208,25 @@ public class TransactionService {
 
     @Transactional
     public void delete(Authentication authentication, long transactionId) {
+        delete(authentication,transactionId,AccountingRequests.key(null));
+    }
+    @Transactional
+    public void delete(Authentication authentication,long transactionId,String key) {
         FamilyMutationAuthorization.LockedFamilyAccess access = mutationAuthorization.requireCurrent(authentication);
         long householdId = access.context().householdId();
-        FinancialTransaction transaction = findOne(householdId, transactionId);
+        key=AccountingRequests.key(key);
+        String digest=requests.digest("TRANSACTION_DELETE:"+transactionId,access.context().userId(),transactionId);
+        if(requests.replay(householdId,key,digest)!=null) return;
+        FinancialTransaction transaction = findForMutation(householdId, transactionId);
         permissions.requireCanMutateTransaction(access.context(), transaction.getCreatedByUser().getId());
         if (transaction.getSourceType() != TransactionSourceType.MANUAL) {
             throw new ResourceConflictException(
                     "RESOURCE_IN_USE",
                     "该收支记录由周期账单或贷款确认生成，属于关联历史，无法删除");
         }
+        ledger.reverse(householdId,"TRANSACTION",transactionId,key,access.context().userId());
         transactionRepository.delete(transaction);
+        requests.record(householdId,key,digest,transactionId);
     }
 
     private FinancialTransaction findOne(long householdId, long transactionId) {
@@ -191,6 +234,10 @@ public class TransactionService {
                         builder.equal(root.get("household").get("id"), householdId),
                         builder.equal(root.get("id"), transactionId)))
                 .orElseThrow(() -> new ResourceNotFoundException("收支记录不存在"));
+    }
+    private FinancialTransaction findForMutation(long householdId,long transactionId) {
+        return transactionRepository.findLockedByIdAndHouseholdId(transactionId,householdId)
+            .orElseThrow(()->new ResourceNotFoundException("收支记录不存在"));
     }
 
     private FamilyMember resolveMember(long householdId, Long memberId, Map<String, String> fields) {
@@ -234,7 +281,7 @@ public class TransactionService {
             fields.put("accountId", "账户不能为空");
             return null;
         }
-        return accountRepository.findByIdAndHouseholdIdAndArchivedAtIsNull(accountId, householdId)
+        return accountRepository.findLockedByIdAndHouseholdId(accountId, householdId).filter(a->!a.isArchived())
                 .orElseGet(() -> {
                     fields.put("accountId", "账户不存在");
                     return null;

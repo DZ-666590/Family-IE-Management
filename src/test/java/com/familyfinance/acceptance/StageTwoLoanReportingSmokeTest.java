@@ -59,7 +59,7 @@ class StageTwoLoanReportingSmokeTest {
                     """), 201)).path("id").asLong();
 
             JsonNode account = owner.data(owner.expect(owner.write("POST", "/api/accounts", """
-                    {"name":"还款验收账户","type":"BANK","currency":"CNY","openingBalance":"10000.00"}
+                    {"name":"还款验收账户","type":"BANK","currency":"CNY","openingBalance":"10000.00","openingOn":"2026-01-01"}
                     """), 201));
             long accountId = account.path("id").asLong();
             JsonNode property = owner.data(owner.expect(owner.write("POST", "/api/assets", """

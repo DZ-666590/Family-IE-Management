@@ -14,6 +14,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Objects;
 
 @Entity
@@ -47,6 +48,13 @@ public class FinancialAccount {
 
     @Column(name = "opening_balance_cents", nullable = false)
     private Long openingBalanceCents;
+
+    @Column(name = "opening_confirmed", nullable = false)
+    private boolean openingConfirmed;
+    @Column(name = "opening_on")
+    private LocalDate openingOn;
+    @Column(name = "opening_source_id")
+    private Long openingSourceId;
 
     @Column(name = "archived_at")
     private Instant archivedAt;
@@ -89,6 +97,16 @@ public class FinancialAccount {
 
     public Long getOpeningBalanceCents() {
         return openingBalanceCents;
+    }
+
+    public boolean isOpeningConfirmed() { return openingConfirmed; }
+    public LocalDate getOpeningOn() { return openingOn; }
+    public Long getOpeningSourceId() { return openingSourceId; }
+    public void confirmOpening(long amount, LocalDate day, Long sourceId) {
+        this.openingBalanceCents=amount;
+        this.openingConfirmed=true;
+        this.openingOn=Objects.requireNonNull(day);
+        this.openingSourceId=sourceId;
     }
 
     public Instant getArchivedAt() {

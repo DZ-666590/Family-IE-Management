@@ -62,6 +62,7 @@ class TransactionApiTest {
 
     @Autowired
     EntityManager entityManager;
+    @Autowired com.familyfinance.accounting.CashAccountingService cash;
 
     @Test
     void createExpenseStoresIntegerCentsAndReturnsFormattedAmount() throws Exception {
@@ -78,7 +79,7 @@ class TransactionApiTest {
                                 {
                                   "kind": "expense",
                                   "amount": "12.30",
-                                  "occurredOn": "2026-09-18",
+                                  "occurredOn": "2026-09-01",
                                   "accountId": %d,
                                   "memberId": %d,
                                   "categoryId": %d,
@@ -120,7 +121,7 @@ class TransactionApiTest {
                                 {
                                   "kind": "expense",
                                   "amount": "12.30",
-                                  "occurredOn": "2026-09-18",
+                                  "occurredOn": "2026-09-01",
                                   "memberId": %d,
                                   "categoryId": %d,
                                   "merchant": "便利店"
@@ -342,12 +343,15 @@ class TransactionApiTest {
                 expenseCategory(household, "餐饮"),
                 TransactionKind.EXPENSE,
                 8800L,
-                LocalDate.parse("2026-09-21"),
+                LocalDate.parse("2026-09-01"),
                 "超市",
                 "杭州",
                 "待删除",
                 TEST_TIME,
                 TEST_TIME));
+
+        transactionRepository.flush();
+        cash.postTransaction(transaction,"test-delete:"+transaction.getId());
 
         mvc.perform(delete("/api/transactions/{id}", transaction.getId())
                         .session(session)
@@ -407,7 +411,7 @@ class TransactionApiTest {
                 {
                   "kind": "expense",
                   "amount": "12.30",
-                  "occurredOn": "2026-09-18",
+                  "occurredOn": "2026-09-01",
                   "accountId": %d,
                   "memberId": %d,
                   "categoryId": %d,

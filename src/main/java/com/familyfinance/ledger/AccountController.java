@@ -1,6 +1,9 @@
 package com.familyfinance.ledger;
 
 import com.familyfinance.shared.ApiEnvelope;
+import com.familyfinance.accounting.AccountingCommandExecutor;
+import com.familyfinance.accounting.AccountingRequests;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -20,9 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AccountController {
 
     private final AccountService accounts;
+    private final AccountingCommandExecutor executor;
 
-    public AccountController(AccountService accounts) {
+    public AccountController(AccountService accounts,AccountingCommandExecutor executor) {
         this.accounts = accounts;
+        this.executor=executor;
     }
 
     @GetMapping
@@ -47,21 +52,25 @@ public class AccountController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    ApiEnvelope<AccountResponse> create(Authentication authentication, @RequestBody AccountCreateRequest request) {
-        return ApiEnvelope.data(accounts.create(authentication, request));
+    ApiEnvelope<AccountResponse> create(Authentication authentication, @RequestBody AccountCreateRequest request,
+            @RequestHeader(value="Idempotency-Key",required=false) String suppliedKey) {
+        String key=AccountingRequests.key(suppliedKey);
+        return ApiEnvelope.data(executor.execute(()->accounts.create(authentication, request,key)));
     }
 
     @PatchMapping("/{id}")
     ApiEnvelope<AccountResponse> update(
             Authentication authentication,
             @PathVariable long id,
-            @RequestBody AccountPatchRequest request) {
-        return ApiEnvelope.data(accounts.update(authentication, id, request));
+            @RequestBody AccountPatchRequest request,
+            @RequestHeader(value="Idempotency-Key",required=false) String suppliedKey) {
+        String key=AccountingRequests.key(suppliedKey);
+        return ApiEnvelope.data(executor.execute(()->accounts.update(authentication, id, request,key)));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void archive(Authentication authentication, @PathVariable long id) {
-        accounts.archive(authentication, id);
+        executor.execute(()->{ accounts.archive(authentication, id); return null; });
     }
 }

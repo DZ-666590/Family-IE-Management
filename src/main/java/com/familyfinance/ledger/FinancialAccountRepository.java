@@ -16,6 +16,10 @@ public interface FinancialAccountRepository extends JpaRepository<FinancialAccou
 
     Optional<FinancialAccount> findByIdAndHouseholdId(Long id, Long householdId);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from FinancialAccount a where a.id=:id and a.household.id=:householdId")
+    Optional<FinancialAccount> findLockedByIdAndHouseholdId(@Param("id") Long id,@Param("householdId") Long householdId);
+
     Optional<FinancialAccount> findByIdAndHouseholdIdAndArchivedAtIsNull(Long id, Long householdId);
 
     Page<FinancialAccount> findByHouseholdIdAndArchivedAtIsNull(Long householdId, Pageable pageable);

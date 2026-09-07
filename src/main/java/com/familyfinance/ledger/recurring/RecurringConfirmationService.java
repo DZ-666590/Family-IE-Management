@@ -1,6 +1,9 @@
 package com.familyfinance.ledger.recurring;
 
 import com.familyfinance.category.Category;
+import com.familyfinance.accounting.CashAccountingService;
+import com.familyfinance.accounting.LedgerReadService;
+import com.familyfinance.accounting.AccountingRequests;
 import com.familyfinance.category.CategoryRepository;
 import com.familyfinance.family.FamilyMutationAuthorization;
 import com.familyfinance.family.FamilyPermissionService;
@@ -30,6 +33,10 @@ public class RecurringConfirmationService {
     private final FamilyMutationAuthorization mutationAuthorization;
     private final FamilyPermissionService permissions;
     private final Clock clock;
+    private final CashAccountingService cash;
+    private final LedgerReadService ledger;
+    private final jakarta.persistence.EntityManager entityManager;
+    private final AccountingRequests requests;
 
     public RecurringConfirmationService(
             RecurringOccurrenceRepository occurrences,
@@ -39,7 +46,7 @@ public class RecurringConfirmationService {
             CategoryRepository categories,
             FamilyMutationAuthorization mutationAuthorization,
             FamilyPermissionService permissions,
-            Clock clock) {
+            Clock clock,CashAccountingService cash,LedgerReadService ledger,jakarta.persistence.EntityManager entityManager,AccountingRequests requests) {
         this.occurrences = occurrences;
         this.transactions = transactions;
         this.accounts = accounts;
@@ -48,10 +55,17 @@ public class RecurringConfirmationService {
         this.mutationAuthorization = mutationAuthorization;
         this.permissions = permissions;
         this.clock = clock;
+        this.cash=cash; this.ledger=ledger;
+        this.entityManager=entityManager;
+        this.requests=requests;
     }
 
     @Transactional
     public RecurringOccurrenceResponse confirm(Authentication authentication, long occurrenceId) {
+        return confirm(authentication,occurrenceId,java.time.LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai"))));
+    }
+    @Transactional
+    public RecurringOccurrenceResponse confirm(Authentication authentication,long occurrenceId,java.time.LocalDate occurredOn) {
         FamilyMutationAuthorization.LockedFamilyAccess access = mutationAuthorization.requireCurrent(authentication);
         long householdId = access.context().householdId();
         RecurringOccurrence occurrence = occurrences.findLockedByIdAndHouseholdId(occurrenceId, householdId)
@@ -70,11 +84,16 @@ public class RecurringConfirmationService {
         if (occurrence.getAssignedUser().getStatus() != AppUserStatus.ACTIVE) {
             throw staleReference();
         }
+        String key="recurring:"+occurrenceId;
+        String digest=requests.digest("RECURRING_CONFIRM",access.context().userId(),occurrenceId);
+        Long replay=requests.replay(householdId,key,digest);
 
         RecurringRule rule = occurrence.getRule();
+        entityManager.refresh(rule,jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
         FinancialAccount account = accounts
-                .findByIdAndHouseholdIdAndArchivedAtIsNull(rule.getAccount().getId(), householdId)
+                .findLockedByIdAndHouseholdId(rule.getAccount().getId(), householdId).filter(a->!a.isArchived())
                 .orElseThrow(RecurringConfirmationService::staleReference);
+        entityManager.refresh(account,jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
         FamilyMember member = members.findByIdAndHouseholdId(rule.getMember().getId(), householdId)
                 .orElseThrow(RecurringConfirmationService::staleReference);
         Category category = categories.findByIdAndHouseholdId(rule.getCategory().getId(), householdId)
@@ -85,17 +104,23 @@ public class RecurringConfirmationService {
                 .findBySourceTypeAndSourceId(TransactionSourceType.RECURRING, occurrenceId)
                 .orElse(null);
         if (existing != null) {
+            if(ledger.currentSource(householdId,"TRANSACTION",existing.getId()).isEmpty())
+                throw new ResourceConflictException("ACCOUNTING_NOT_INITIALIZED","历史周期收支未初始化账务");
             occurrence.confirm(existing);
             occurrences.flush();
+            if(replay==null) requests.record(householdId,key,digest,existing.getId());
             return RecurringOccurrenceResponse.from(occurrence);
         }
 
         try {
+            cash.requireConfirmed(account);
             FinancialTransaction transaction = transactions.saveAndFlush(FinancialTransaction.recurring(
                     access.household(), account, access.membership().getUser(), member, category,
-                    rule.getKind(), rule.getAmountCents(), occurrence.getDueOn(), occurrenceId, clock.instant()));
+                    rule.getKind(), rule.getAmountCents(), occurredOn, occurrenceId, clock.instant()));
+            cash.postTransaction(transaction,key);
             occurrence.confirm(transaction);
             occurrences.flush();
+            requests.record(householdId,key,digest,transaction.getId());
             return RecurringOccurrenceResponse.from(occurrence);
         } catch (DataIntegrityViolationException exception) {
             throw new ResourceConflictException(

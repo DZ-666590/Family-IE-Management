@@ -156,15 +156,12 @@ class AccountApiTest {
     }
 
     @Test
-    void openingBalanceAcceptsExactSignedCents() throws Exception {
+    void openingBalanceRejectsNegativeCash() throws Exception {
         MockHttpSession owner = login("demo", "demo1234");
 
-        long accountId = createAccount(owner, "透支账户", "BANK", "CNY", "-0.50");
-
-        mvc.perform(get("/api/accounts/{id}", accountId).session(owner))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.openingBalance").value("-0.50"));
-        assertThat(accounts.findById(accountId).orElseThrow().getOpeningBalanceCents()).isEqualTo(-50L);
+        mvc.perform(post("/api/accounts").session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content(accountBody("透支账户","BANK","CNY","-0.50")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.fields.openingBalance").exists());
     }
 
     @Test
@@ -251,7 +248,7 @@ class AccountApiTest {
     @Test
     void archivePreservesHistoricalTransactionsAndRepeatedDeleteIsIdempotent() throws Exception {
         MockHttpSession owner = login("demo", "demo1234");
-        long accountId = createAccount(owner, "历史账户", "CASH", "CNY", "50.00");
+        long accountId = createAccount(owner, "历史账户", "CASH", "CNY", "12.34");
         FinancialAccount account = accounts.findById(accountId).orElseThrow();
         var household = account.getHousehold();
         var ownerMembership = memberships.findByHouseholdIdOrderById(household.getId()).stream()
@@ -269,12 +266,13 @@ class AccountApiTest {
                 category,
                 TransactionKind.EXPENSE,
                 1234L,
-                LocalDate.parse("2026-09-20"),
+                LocalDate.parse("2026-01-02"),
                 "历史商家",
                 null,
                 null,
                 Instant.parse("2026-09-20T00:00:00Z"),
                 Instant.parse("2026-09-20T00:00:00Z")));
+        cash.postTransaction(transaction,"test-history:"+transaction.getId());
 
         mvc.perform(delete("/api/accounts/{id}", accountId).session(owner).with(csrf()))
                 .andExpect(status().isNoContent());
@@ -347,7 +345,9 @@ class AccountApiTest {
 
     private static String accountBody(String name, String type, String currency, String openingBalance) {
         return """
-                {"name":"%s","type":"%s","currency":"%s","openingBalance":"%s"}
+                {"name":"%s","type":"%s","currency":"%s","openingBalance":"%s","openingOn":"2026-01-01"}
                 """.formatted(name, type, currency, openingBalance);
     }
+
+    @Autowired com.familyfinance.accounting.CashAccountingService cash;
 }

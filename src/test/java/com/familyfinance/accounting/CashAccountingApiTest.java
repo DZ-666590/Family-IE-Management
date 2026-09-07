@@ -1,0 +1,187 @@
+package com.familyfinance.accounting;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import java.util.UUID;
+
+@SpringBootTest
+@ActiveProfiles("test")
+@AutoConfigureMockMvc
+class CashAccountingApiTest {
+    @Autowired MockMvc mvc;
+    @Autowired ObjectMapper mapper;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired com.familyfinance.ledger.recurring.RecurringService recurring;
+    @Autowired java.time.Clock clock;
+    MockHttpSession session;
+    long household, member, expense, income, defaultAccount;
+
+    @BeforeEach void fixture() throws Exception {
+        String email=UUID.randomUUID()+"@cash.test";
+        mvc.perform(post("/api/auth/register").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"email\":\""+email+"\",\"displayName\":\"Cash\",\"password\":\"cash-test-password\",\"mode\":\"CREATE\",\"householdName\":\"Cash test\"}"))
+            .andExpect(status().isCreated());
+        session=(MockHttpSession)mvc.perform(post("/api/auth/login").with(csrf()).param("username",email).param("password","cash-test-password"))
+            .andExpect(status().isOk()).andReturn().getRequest().getSession(false);
+        household=jdbc.queryForObject("select household_id from app_users where email=?",Long.class,email);
+        member=jdbc.queryForObject("select id from family_members where household_id=?",Long.class,household);
+        expense=jdbc.queryForObject("select min(id) from categories where household_id=? and kind='EXPENSE'",Long.class,household);
+        income=jdbc.queryForObject("select min(id) from categories where household_id=? and kind='INCOME'",Long.class,household);
+        defaultAccount=jdbc.queryForObject("select id from financial_accounts where household_id=?",Long.class,household);
+    }
+
+    @Test void automaticDefaultRequiresExplicitOpeningEvenForIncome() throws Exception {
+        mvc.perform(get("/api/accounts/"+defaultAccount).session(session)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.openingConfirmed").value(false)).andExpect(jsonPath("$.data.balance").doesNotExist());
+        writeTransaction(defaultAccount,"INCOME","10.00","unconfirmed").andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("ACCOUNTING_NOT_INITIALIZED"));
+    }
+    @Test void explicitOpeningIsJournalBackedAndZeroExpenseRollsBack() throws Exception {
+        long account=create("zero","0.00");
+        writeTransaction(account,"EXPENSE","1.00","expense").andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("INSUFFICIENT_FUNDS"));
+        assertThat(jdbc.queryForObject("select count(*) from financial_transactions where household_id=?",Long.class,household)).isZero();
+        long funded=create("funded","10.00");
+        mvc.perform(get("/api/accounts/"+funded).session(session)).andExpect(jsonPath("$.data.balance").value("10.00"));
+    }
+    @Test void exactPaymentAndIncomeDeletionRespectCashAndIdempotency() throws Exception {
+        long a=create("wallet","0.00");
+        var first=writeTransaction(a,"INCOME","10.00","income").andExpect(status().isCreated()).andReturn();
+        long id=mapper.readTree(first.getResponse().getContentAsString()).path("data").path("id").asLong();
+        writeTransaction(a,"INCOME","10.00","income").andExpect(status().isCreated()).andExpect(jsonPath("$.data.id").value(id));
+        writeTransaction(a,"INCOME","11.00","income").andExpect(status().isConflict());
+        writeTransaction(a,"EXPENSE","10.00","spend").andExpect(status().isCreated());
+        mvc.perform(delete("/api/transactions/"+id).session(session).with(csrf())).andExpect(status().isConflict());
+        mvc.perform(get("/api/accounts/"+a).session(session)).andExpect(jsonPath("$.data.balance").value("0.00"));
+    }
+    @Test void transferFundsOnlySelectedAccountsAndReplaysExactlyOnce() throws Exception {
+        long a=create("a","0.00"), b=create("b","100.00");
+        writeTransaction(a,"EXPENSE","10.00","before").andExpect(status().isConflict());
+        String body="{\"fromAccountId\":"+b+",\"toAccountId\":"+a+",\"amount\":\"10.00\",\"occurredOn\":\"2026-01-02\",\"idempotencyKey\":\"transfer\"}";
+        for(int i=0;i<2;i++) mvc.perform(post("/api/transfers").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isCreated());
+        writeTransaction(a,"EXPENSE","10.00","after").andExpect(status().isCreated());
+        mvc.perform(get("/api/accounts/"+a).session(session)).andExpect(jsonPath("$.data.balance").value("0.00"));
+        mvc.perform(get("/api/accounts/"+b).session(session)).andExpect(jsonPath("$.data.balance").value("90.00"));
+    }
+    @Test void openingCorrectionsAuditZeroCyclesAndProtectSpentMoney() throws Exception {
+        long a=create("audit","0.00");
+        for(String amount:new String[]{"10.00","0.00","20.00"}) {
+            mvc.perform(patch("/api/accounts/"+a).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"openingBalance\":\""+amount+"\"}")).andExpect(status().isOk());
+        }
+        assertThat(jdbc.queryForObject("select count(*) from cash_opening_events where account_id=?",Long.class,a)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("select count(*) from ledger_journals where household_id=?",Long.class,household)).isEqualTo(3);
+        writeTransaction(a,"EXPENSE","20.00","all").andExpect(status().isCreated());
+        mvc.perform(patch("/api/accounts/"+a).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"openingBalance\":\"0.00\"}")).andExpect(status().isConflict());
+        mvc.perform(get("/api/accounts/"+a).session(session)).andExpect(jsonPath("$.data.openingBalance").value("20.00"));
+    }
+    @Test void futureDatesAndNonzeroArchiveAreRejected() throws Exception {
+        long a=create("funded","10.00");
+        mvc.perform(delete("/api/accounts/"+a).session(session).with(csrf())).andExpect(status().isConflict());
+        mvc.perform(patch("/api/accounts/"+a).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"openingOn\":\"9999-01-01\"}")).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/transactions").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"INCOME\",\"amount\":\"100\",\"occurredOn\":\"9999-01-01\",\"accountId\":"+a+",\"memberId\":"+member+",\"categoryId\":"+income+"}"))
+            .andExpect(status().isBadRequest());
+    }
+    @Test void generatedFieldsAreProtectedWhileMetadataCanBeEdited() throws Exception {
+        long a=create("cash","10.00");
+        long id=mapper.readTree(writeTransaction(a,"EXPENSE","1.00","generated").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString()).path("data").path("id").asLong();
+        jdbc.update("update financial_transactions set source_type='RECURRING',source_id=? where id=?",Long.MAX_VALUE-id,id);
+        mvc.perform(patch("/api/transactions/"+id).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":\"2.00\"}"))
+            .andExpect(status().isConflict());
+        mvc.perform(patch("/api/transactions/"+id).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"metadata\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.note").value("metadata"));
+        mvc.perform(get("/api/accounts/"+a).session(session)).andExpect(jsonPath("$.data.balance").value("9.00"));
+    }
+    @Test void reversedManualSourceCannotBeRecreatedAndItsCategoryKindCannotChange() throws Exception {
+        long a=create("cash","10.00");
+        long id=mapper.readTree(writeTransaction(a,"EXPENSE","1.00","expense").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString()).path("data").path("id").asLong();
+        mvc.perform(delete("/api/transactions/"+id).session(session).with(csrf())).andExpect(status().isNoContent());
+        writeTransaction(a,"EXPENSE","1.00","expense").andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNTING_SOURCE_REVERSED"));
+        mvc.perform(patch("/api/categories/"+expense).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"INCOME\",\"name\":\"changed\",\"color\":\"#000000\"}")).andExpect(status().isConflict());
+    }
+    @Test void overdueRecurringUsesActualConfirmationDateAndInsufficientFundsStaysPending() throws Exception {
+        long a=create("recurring","0.00");
+        long actor=jdbc.queryForObject("select id from app_users where household_id=?",Long.class,household);
+        var created=mvc.perform(post("/api/recurring-rules").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"EXPENSE\",\"amount\":\"10.00\",\"scheduleType\":\"MONTHLY\",\"intervalValue\":1,\"dayOfMonth\":2,\"startOn\":\"2026-01-02\",\"endOn\":\"2026-01-02\",\"accountId\":"+a+",\"memberId\":"+member+",\"categoryId\":"+expense+",\"assignedUserId\":"+actor+",\"paused\":false}"))
+            .andExpect(status().isCreated()).andReturn();
+        long rule=mapper.readTree(created.getResponse().getContentAsString()).path("data").path("id").asLong();
+        recurring.generateDueOccurrences();
+        long occurrence=jdbc.queryForObject("select id from recurring_occurrences where rule_id=?",Long.class,rule);
+        mvc.perform(post("/api/recurring-occurrences/"+occurrence+"/confirm").session(session).with(csrf())).andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("select status from recurring_occurrences where id=?",String.class,occurrence)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("select count(*) from financial_transactions where household_id=?",Long.class,household)).isZero();
+        mvc.perform(patch("/api/accounts/"+a).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"openingBalance\":\"10.00\",\"openingOn\":\"2026-01-03\"}")).andExpect(status().isOk());
+        mvc.perform(post("/api/recurring-occurrences/"+occurrence+"/confirm").session(session).with(csrf())).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("select occurred_on from financial_transactions where household_id=?",java.sql.Date.class,household).toLocalDate())
+            .isEqualTo(java.time.LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai"))));
+        assertThat(jdbc.queryForObject("select due_on from recurring_occurrences where id=?",java.sql.Date.class,occurrence).toLocalDate()).isEqualTo(java.time.LocalDate.of(2026,1,2));
+        mvc.perform(post("/api/accounts").session(session).with(csrf()).header("Idempotency-Key","recurring:"+occurrence).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"collision\",\"type\":\"CASH\",\"currency\":\"CNY\",\"openingBalance\":\"0.00\",\"openingOn\":\"2026-01-01\"}"))
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_REUSED"));
+    }
+    @Test void recurringCannotReuseAKeyFromMetadataWithoutJournal() throws Exception {
+        long a=create("key","10.00");
+        long actor=jdbc.queryForObject("select id from app_users where household_id=?",Long.class,household);
+        var created=mvc.perform(post("/api/recurring-rules").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\"EXPENSE\",\"amount\":\"10.00\",\"scheduleType\":\"MONTHLY\",\"intervalValue\":1,\"dayOfMonth\":2,\"startOn\":\"2026-01-02\",\"endOn\":\"2026-01-02\",\"accountId\":"+a+",\"memberId\":"+member+",\"categoryId\":"+expense+",\"assignedUserId\":"+actor+",\"paused\":false}"))
+            .andExpect(status().isCreated()).andReturn();
+        long rule=mapper.readTree(created.getResponse().getContentAsString()).path("data").path("id").asLong();
+        recurring.generateDueOccurrences();
+        long occurrence=jdbc.queryForObject("select id from recurring_occurrences where rule_id=?",Long.class,rule);
+        mvc.perform(patch("/api/accounts/"+a).session(session).with(csrf()).header("Idempotency-Key","recurring:"+occurrence).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"renamed\"}")).andExpect(status().isOk());
+        mvc.perform(post("/api/recurring-occurrences/"+occurrence+"/confirm").session(session).with(csrf()))
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_REUSED"));
+        assertThat(jdbc.queryForObject("select status from recurring_occurrences where id=?",String.class,occurrence)).isEqualTo("PENDING");
+    }
+    @Test void manualCorrectionReplacesJournalAndPreservesOriginalAudit() throws Exception {
+        long a=create("correct","10.00");
+        long id=mapper.readTree(writeTransaction(a,"EXPENSE","1.00","create").andExpect(status().isCreated()).andReturn().getResponse().getContentAsString()).path("data").path("id").asLong();
+        for(int i=0;i<2;i++) mvc.perform(patch("/api/transactions/"+id).session(session).with(csrf()).header("Idempotency-Key","correct").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"amount\":\"3.00\",\"note\":\"correction\"}")).andExpect(status().isOk());
+        mvc.perform(get("/api/accounts/"+a).session(session)).andExpect(jsonPath("$.data.balance").value("7.00"));
+        assertThat(jdbc.queryForObject("select count(*) from ledger_journals where household_id=? and source_type='TRANSACTION' and source_id=?",Long.class,household,id)).isEqualTo(3);
+    }
+    @Test void transferRejectsSameAccountCrossFamilyAndMemberWritesButAllowsMemberRead() throws Exception {
+        long a=create("a","10.00");
+        String body="{\"fromAccountId\":"+a+",\"toAccountId\":"+a+",\"amount\":\"1.00\",\"occurredOn\":\"2026-01-02\",\"idempotencyKey\":\"same\"}";
+        mvc.perform(post("/api/transfers").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
+        MockHttpSession firstSession=session;long firstHousehold=household;
+        fixture();long foreign=create("foreign","0.00");session=firstSession;
+        String cross="{\"fromAccountId\":"+a+",\"toAccountId\":"+foreign+",\"amount\":\"1.00\",\"occurredOn\":\"2026-01-02\",\"idempotencyKey\":\"cross\"}";
+        mvc.perform(post("/api/transfers").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(cross)).andExpect(status().isNotFound());
+        jdbc.update("update household_memberships set role='MEMBER' where household_id=?",firstHousehold);
+        mvc.perform(get("/api/transfers").session(session)).andExpect(status().isOk());
+        mvc.perform(post("/api/transfers").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
+    }
+    long create(String name,String amount) throws Exception {
+        var r=mvc.perform(post("/api/accounts").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\""+name+"\",\"type\":\"CASH\",\"currency\":\"CNY\",\"openingBalance\":\""+amount+"\",\"openingOn\":\"2026-01-01\"}"))
+            .andExpect(status().isCreated()).andReturn();
+        return mapper.readTree(r.getResponse().getContentAsString()).path("data").path("id").asLong();
+    }
+    org.springframework.test.web.servlet.ResultActions writeTransaction(long account,String kind,String amount,String key) throws Exception {
+        return mvc.perform(post("/api/transactions").session(session).with(csrf()).header("Idempotency-Key",key).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"kind\":\""+kind+"\",\"amount\":\""+amount+"\",\"occurredOn\":\"2026-01-02\",\"accountId\":"+account+",\"memberId\":"+member+",\"categoryId\":"+(kind.equals("INCOME")?income:expense)+"}"));
+    }
+}

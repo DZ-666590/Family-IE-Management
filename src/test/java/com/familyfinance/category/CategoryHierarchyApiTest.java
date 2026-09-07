@@ -389,7 +389,7 @@ class CategoryHierarchyApiTest {
 
     private String transactionBody(long accountId, long memberId, long categoryId, String amount) {
         return """
-                {"kind":"expense","amount":"%s","occurredOn":"2026-10-03","accountId":%d,
+                {"kind":"expense","amount":"%s","occurredOn":"2026-09-01","accountId":%d,
                  "memberId":%d,"categoryId":%d,"note":"hierarchy-transaction"}
                 """.formatted(amount, accountId, memberId, categoryId);
     }

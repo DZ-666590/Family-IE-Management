@@ -74,7 +74,7 @@ class SprintOneSmokeTest {
                 {
                   "kind": "expense",
                   "amount": "88.60",
-                  "occurredOn": "2026-09-10",
+                  "occurredOn": "2026-09-01",
                   "accountId": %d,
                   "memberId": %d,
                   "categoryId": %d,

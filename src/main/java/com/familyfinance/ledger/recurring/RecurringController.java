@@ -1,6 +1,7 @@
 package com.familyfinance.ledger.recurring;
 
 import com.familyfinance.shared.ApiEnvelope;
+import com.familyfinance.accounting.AccountingCommandExecutor;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -20,10 +21,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class RecurringController {
     private final RecurringService service;
     private final RecurringConfirmationService confirmationService;
+    private final AccountingCommandExecutor executor;
+    private final java.time.Clock clock;
 
-    public RecurringController(RecurringService service, RecurringConfirmationService confirmationService) {
+    public RecurringController(RecurringService service, RecurringConfirmationService confirmationService,AccountingCommandExecutor executor,java.time.Clock clock) {
         this.service = service;
         this.confirmationService = confirmationService;
+        this.executor=executor;
+        this.clock=clock;
     }
 
     @GetMapping("/api/recurring-rules")
@@ -76,7 +81,8 @@ public class RecurringController {
     @PostMapping("/api/recurring-occurrences/{id}/confirm")
     ApiEnvelope<RecurringOccurrenceResponse> confirm(
             Authentication authentication, @PathVariable long id) {
-        return ApiEnvelope.data(confirmationService.confirm(authentication, id));
+        LocalDate occurredOn=LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai")));
+        return ApiEnvelope.data(executor.execute(()->confirmationService.confirm(authentication, id,occurredOn)));
     }
 
     private static <T> ResponseEntity<ApiEnvelope<List<T>>> page(
