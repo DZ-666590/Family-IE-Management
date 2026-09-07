@@ -30,6 +30,10 @@ public class Loan {
     @Enumerated(EnumType.STRING) @Column(name = "repayment_method", nullable = false) private RepaymentMethod repaymentMethod;
     @Column(name = "start_on", nullable = false) private LocalDate startOn;
     @Column(name = "current_principal_cents", nullable = false) private long currentPrincipalCents;
+    @Enumerated(EnumType.STRING) @Column(name = "funding_mode") private LoanFundingMode fundingMode;
+    @Column(name = "accounting_on") private LocalDate accountingOn;
+    @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "disbursement_account_id") private FinancialAccount disbursementAccount;
+    @Column(name = "last_payment_on") private LocalDate lastPaymentOn;
     @Enumerated(EnumType.STRING) @Column(nullable = false) private LoanStatus status = LoanStatus.ACTIVE;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "created_by") private AppUser createdBy;
     @Column(name = "archived_at") private Instant archivedAt;
@@ -49,10 +53,23 @@ public class Loan {
     public LocalDate getStartOn(){return startOn;} public long getCurrentPrincipalCents(){return currentPrincipalCents;} public LoanStatus getStatus(){return status;} public AppUser getCreatedBy(){return createdBy;}
     public Instant getArchivedAt(){return archivedAt;} public List<LoanInstallment> getInstallments(){return installments;} public boolean isArchived(){return status != LoanStatus.ACTIVE;}
     void replaceSchedule(List<InstallmentDraft> drafts) { installments.clear(); drafts.forEach(d -> installments.add(new LoanInstallment(this,d))); }
+    public LoanFundingMode getFundingMode(){return fundingMode;}
+    public LocalDate getAccountingOn(){return accountingOn;}
+    public FinancialAccount getDisbursementAccount(){return disbursementAccount;}
+    public LocalDate getLastPaymentOn(){return lastPaymentOn;}
+    void accounting(LoanFundingMode mode, LocalDate day, FinancialAccount account){fundingMode=mode;accountingOn=day;disbursementAccount=account;}
+    void paidOn(LocalDate day){lastPaymentOn=day;}
+    void updateDefaults(String name, FamilyMember member, AppUser user, Asset asset, FinancialAccount account, Category category) {
+        this.name=name;this.member=member;this.assignedUser=user;this.linkedAsset=asset;this.paymentAccount=account;this.paymentCategory=category;
+    }
     void update(String name, FamilyMember member, AppUser assignedUser, Asset linkedAsset, FinancialAccount account, Category category,
                 long principal, BigDecimal rate, int term, RepaymentMethod method, LocalDate start, List<InstallmentDraft> schedule) {
+        updateContract(name,member,assignedUser,linkedAsset,account,category,principal,rate,term,method,start);replaceSchedule(schedule);
+    }
+    void updateContract(String name, FamilyMember member, AppUser assignedUser, Asset linkedAsset, FinancialAccount account, Category category,
+                long principal, BigDecimal rate, int term, RepaymentMethod method, LocalDate start) {
         this.name=name; this.member=member; this.assignedUser=assignedUser; this.linkedAsset=linkedAsset; this.paymentAccount=account; this.paymentCategory=category;
-        this.principalCents=principal; this.currentPrincipalCents=principal; this.annualRate=rate; this.termMonths=term; this.repaymentMethod=method; this.startOn=start; replaceSchedule(schedule);
+        this.principalCents=principal; this.currentPrincipalCents=principal; this.annualRate=rate; this.termMonths=term; this.repaymentMethod=method; this.startOn=start;
     }
     void archive(Instant at) { if (status == LoanStatus.ACTIVE) { status=LoanStatus.ARCHIVED; archivedAt=at; } }
     void applyPrincipalPayment(long amount, Instant at) {

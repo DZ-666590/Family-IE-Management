@@ -80,6 +80,16 @@ public class FinancialTransaction {
 
     @Column(name = "source_id", updatable = false)
     private Long sourceId;
+    @Column(name="loan_principal_cents") private Long loanPrincipalCents;
+    @Column(name="loan_interest_cents") private Long loanInterestCents;
+
+    public Long getLoanPrincipalCents(){return loanPrincipalCents;}
+    public Long getLoanInterestCents(){return loanInterestCents;}
+    public void loanSplit(long principal,long interest){
+        if((sourceType!=TransactionSourceType.LOAN_PAYMENT&&sourceType!=TransactionSourceType.LOAN_PREPAYMENT)||principal<=0||interest<0||Math.addExact(principal,interest)!=amountCents)
+            throw new IllegalArgumentException("invalid loan payment allocation");
+        loanPrincipalCents=principal;loanInterestCents=interest;
+    }
 
     protected FinancialTransaction() {
     }

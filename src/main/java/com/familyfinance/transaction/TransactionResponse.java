@@ -25,7 +25,10 @@ public record TransactionResponse(
         String location,
         String note,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        Long sourceId,
+        String principalAmount,
+        String interestAmount) {
 
     static TransactionResponse from(FinancialTransaction transaction) {
         return new TransactionResponse(
@@ -50,6 +53,9 @@ public record TransactionResponse(
                 transaction.getLocation(),
                 transaction.getNote(),
                 transaction.getCreatedAt(),
-                transaction.getUpdatedAt());
+                transaction.getUpdatedAt(),
+                transaction.getSourceId(),
+                transaction.getLoanPrincipalCents()==null?null:Money.formatCents(transaction.getLoanPrincipalCents()),
+                transaction.getLoanInterestCents()==null?null:Money.formatCents(transaction.getLoanInterestCents()));
     }
 }

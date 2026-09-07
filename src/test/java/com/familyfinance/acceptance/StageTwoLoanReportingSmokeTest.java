@@ -71,7 +71,8 @@ class StageTwoLoanReportingSmokeTest {
             JsonNode loan = owner.data(owner.expect(owner.write("POST", "/api/loans", """
                     {"name":"验收房贷","type":"MORTGAGE","linkedAssetId":%d,"memberId":%d,"assignedUserId":%d,
                      "paymentAccountId":%d,"paymentCategoryId":%d,"principal":"4000.00","annualRate":0.000000,
-                     "termMonths":1,"repaymentMethod":"EQUAL_PRINCIPAL","startOn":"2026-08-01"}
+                     "termMonths":1,"repaymentMethod":"EQUAL_PRINCIPAL","startOn":"2026-08-01",
+                     "fundingMode":"OPENING","accountingOn":"2026-01-01"}
                     """.formatted(assetId, memberId, userId, accountId, expenseCategoryId)), 201));
             long loanId = loan.path("id").asLong();
             JsonNode schedule = owner.data(owner.get("/api/loans/" + loanId + "/schedule"));

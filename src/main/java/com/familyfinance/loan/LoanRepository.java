@@ -5,5 +5,5 @@ import org.springframework.data.domain.Page; import org.springframework.data.dom
 public interface LoanRepository extends JpaRepository<Loan,Long> { Optional<Loan> findByIdAndHouseholdId(Long id,Long householdId); Page<Loan> findByHouseholdIdAndStatus(Long householdId,LoanStatus status,Pageable pageable);
  List<Loan> findAllByHouseholdIdAndStatus(Long householdId, LoanStatus status);
  boolean existsByHouseholdIdAndLinkedAsset_Id(Long householdId, Long linkedAssetId);
- @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE) @EntityGraph(attributePaths={"installments","installments.confirmedTransaction","paymentAccount","paymentCategory","member","assignedUser"}) Optional<Loan> findLockedByIdAndHouseholdId(Long id,Long householdId);
+ @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE) @EntityGraph(attributePaths={"paymentAccount","paymentCategory","member","assignedUser","disbursementAccount"}) Optional<Loan> findLockedByIdAndHouseholdId(Long id,Long householdId);
 }
