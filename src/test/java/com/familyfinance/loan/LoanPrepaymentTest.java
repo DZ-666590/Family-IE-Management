@@ -33,6 +33,11 @@ class LoanPrepaymentTest {
   long scheduleRows=jdbc.queryForObject("select count(*) from loan_installments where loan_id=?",Long.class,loan);
   mvc.perform(get("/api/loans/{id}/schedule",loan).session(owner))
     .andExpect(status().isOk()).andExpect(header().string("X-Total-Elements",Long.toString(scheduleRows)));
+  // Repeated partial prepayments must not count cancelled historical schedules
+  // as new remaining periods (two pending periods remain after the first payment).
+  prepay(owner,loan,"100.00","partial-2");
+  assertThat(jdbc.queryForObject("select count(*) from loan_installments where loan_id=? and status='PENDING'",Long.class,loan)).isEqualTo(2L);
+  assertThat(jdbc.queryForObject("select current_principal_cents from loans where id=?",Long.class,loan)).isEqualTo(before-20_000L);
   long remaining=jdbc.queryForObject("select current_principal_cents from loans where id=?",Long.class,loan);
   prepay(owner,loan,String.format(java.util.Locale.ROOT,"%.2f",remaining/100.0),"full-1");
   assertThat(jdbc.queryForObject("select current_principal_cents from loans where id=?",Long.class,loan)).isZero();

@@ -14,6 +14,12 @@ export function localYearMonth(date: Date = new Date()): string {
   return businessDate(date).slice(0, 7);
 }
 
+// Opaque request key, not a credential. getRandomValues also works on HTTP,
+// unlike randomUUID, which browsers restrict to secure contexts.
+export function newIdempotencyKey(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export class RefreshGate {
   private generation = 0;
 
