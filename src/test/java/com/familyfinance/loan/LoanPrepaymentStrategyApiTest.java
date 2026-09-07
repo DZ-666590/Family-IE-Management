@@ -93,6 +93,24 @@ class LoanPrepaymentStrategyApiTest {
   String body=body(q,"permission");jdbc.update("update household_memberships set role='MEMBER' where household_id=? and user_id=?",household,user);
   quote(loan,"300.00","REDUCE_TERM",account).andExpect(status().isForbidden());prepay(loan,body).andExpect(status().isForbidden());assertThat(count("financial_transactions")).isZero();
  }
+ @Test void infeasibleStandardFixedTermRejectsPreviewAndPostWithoutChangingAnyFinancialState()throws Exception{
+  long loan=create("0.12");
+  mvc.perform(patch("/api/loans/"+loan).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"termMonths\":360}")).andExpect(status().isOk());
+  var before=new LinkedHashMap<String,List<Map<String,Object>>>();
+  for(String table:List.of("loans","loan_installments","loan_prepayments","financial_transactions","ledger_journals","ledger_entries","ledger_sources","ledger_accounts","accounting_commands"))
+   before.put(table,jdbc.queryForList("select * from "+table+" where household_id=? order by 1,2,3",household));
+  quote(loan,"1196.40","REDUCE_PAYMENT",account).andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("LOAN_FIXED_TERM_INFEASIBLE"));
+  // The legacy POST defaults to REDUCE_PAYMENT without a quote token; explicit strategies still require one.
+  prepay(loan,"{\"amount\":\"1196.40\",\"paidOn\":\"2026-01-01\",\"idempotencyKey\":\"infeasible-fixed\"}")
+   .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("LOAN_FIXED_TERM_INFEASIBLE"));
+  for(var entry:before.entrySet())assertThat(jdbc.queryForList("select * from "+entry.getKey()+" where household_id=? order by 1,2,3",household)).as(entry.getKey()).isEqualTo(entry.getValue());
+  assertThat(ledger.balance(household,"CASH:"+account)).isEqualTo(500000);
+  assertThat(ledger.balance(household,"LOAN:"+loan)).isEqualTo(120000);
+  var shortened=data(quote(loan,"1196.40","REDUCE_TERM",account).andExpect(status().isOk())
+   .andExpect(jsonPath("$.data.after.periodCount").value(1)).andExpect(jsonPath("$.data.after.principalAmount").value("3.60"))
+   .andExpect(jsonPath("$.data.after.totalInterest").value("0.04")).andReturn());
+  prepay(loan,body(shortened,"valid-shortened")).andExpect(status().isOk()).andExpect(jsonPath("$.data.remainingPrincipal").value("3.60"));
+ }
  private void withEarlierSnapshot(Checked outside,Checked inside)throws Exception{var pool=java.util.concurrent.Executors.newSingleThreadExecutor();var tx=new org.springframework.transaction.support.TransactionTemplate(transactionManager);if(Boolean.TRUE.equals(jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Boolean>)c->"MySQL".equals(c.getMetaData().getDatabaseProductName()))))tx.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);try{tx.executeWithoutResult(s->{jdbc.queryForObject("select count(*) from loan_installments where household_id=?",Long.class,household);try{pool.submit(()->{outside.run();return null;}).get(10,java.util.concurrent.TimeUnit.SECONDS);inside.run();if(s.isRollbackOnly())s.setRollbackOnly();}catch(Exception e){throw new RuntimeException(e);}});}finally{pool.shutdownNow();assertThat(pool.awaitTermination(10,java.util.concurrent.TimeUnit.SECONDS)).isTrue();}}
  @FunctionalInterface private interface Checked{void run()throws Exception;}
  private ResultActions quote(long loan,String amount,String strategy,long selected)throws Exception{return mvc.perform(get("/api/loans/"+loan+"/prepayment-preview").session(session).param("amount",amount).param("paidOn","2026-01-01").param("strategy",strategy).param("paymentAccountId",String.valueOf(selected)));}

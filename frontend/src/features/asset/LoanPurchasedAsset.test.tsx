@@ -33,7 +33,7 @@ it('creates a manual vehicle with null optional year and plate in the actual POS
   } })));
   await waitFor(() => expect(screen.queryByRole('button', { name: '保存资产' })).not.toBeInTheDocument());
 });
-it('completes a purchased vehicle with only known metadata and opens the original loan journal', async () => {
+it('shows no active loan for a purchased vehicle, preserves its source journal and completes known metadata', async () => {
   const asset = { id: 8, name: '车辆1', type: 'VEHICLE', accountingMode: 'FINANCED_PURCHASE', accountingOn: '2026-01-01', acquiredOn: '2026-01-01', initialValue: '1000.00', purchaseValue: '1000.00', currentValue: '1000.00', status: 'ACTIVE', property: null, vehicle: null, ownerMemberId: null, createdBy: 7, archivedAt: null, acquisitionSourceType: 'LOAN_FINANCED_PURCHASE', acquisitionSourceId: 4, detailsPending: true };
   const request = vi.fn(async (path: string, opts?: any) => {
     if (opts?.method) return { ...asset, detailsPending: false };
@@ -46,6 +46,8 @@ it('completes a purchased vehicle with only known metadata and opens the origina
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><AssetsPage request={request as RequestFn} role="OWNER" /></QueryClientProvider>);
   const user = userEvent.setup();
   expect((await screen.findAllByText('贷款购买物 · 资料待补齐')).length).toBeGreaterThan(0);
+  expect(screen.getByRole('cell', { name: '无活跃贷款' })).toBeInTheDocument();
+  expect(screen.queryByText('未关联')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: '起始账务' }));
   await waitFor(() => expect(request.mock.calls.some(([path]) => path.includes('sourceType=LOAN_FINANCED_PURCHASE') && path.includes('sourceId=4'))).toBe(true));
   await user.keyboard('{Escape}');

@@ -21,6 +21,7 @@ public final class LoanPrepaymentPlanner {
   boolean fixed=strategy==PrepaymentStrategy.REDUCE_PAYMENT;
   if(fixed&&remaining<before.size())throw new ResourceConflictException("LOAN_FIXED_TERM_INFEASIBLE","剩余本金不足每期至少一分钱，请选择缩短期限或一次结清");
   List<InstallmentDraft> standard=fixed&&method!=RepaymentMethod.CUSTOM?new AmortizationCalculator().calculate(remaining,annualRate,before.size(),paidOn,method):List.of();
+  if(standard.stream().anyMatch(row->row.principalCents()<=0))throw new ResourceConflictException("LOAN_FIXED_TERM_INFEASIBLE","剩余本金无法按原还款方式保留全部期次，请选择缩短期限或一次结清");
   List<InstallmentDraft> result=new ArrayList<>();
   for(int i=0;i<before.size()&&remaining>0;i++){
    var old=before.get(i);
@@ -28,11 +29,11 @@ public final class LoanPrepaymentPlanner {
    long interest=method==RepaymentMethod.CUSTOM?BigDecimal.valueOf(remaining).multiply(BigDecimal.valueOf(old.interestCents())).divide(BigDecimal.valueOf(oldRemaining),0,RoundingMode.HALF_UP).longValueExact():AmortizationCalculator.periodInterest(remaining,annualRate);
    long principal;
    if(!fixed){principal=Math.min(remaining,Math.subtractExact(Math.addExact(old.principalCents(),old.interestCents()),interest));}
+   else if(method!=RepaymentMethod.CUSTOM){principal=standard.get(i).principalCents();}
    else if(i==before.size()-1){principal=remaining;}
    else{
-    long desired=method==RepaymentMethod.CUSTOM?BigDecimal.valueOf(initial).multiply(BigDecimal.valueOf(old.principalCents())).divide(BigDecimal.valueOf(original),0,RoundingMode.DOWN).longValueExact():standard.get(i).principalCents();
-    long lower=1,upper=remaining-(before.size()-i-1);
-    if(method==RepaymentMethod.CUSTOM){lower=Math.max(lower,remaining-(oldRemaining-old.principalCents()));upper=Math.min(upper,old.principalCents());}
+    long desired=BigDecimal.valueOf(initial).multiply(BigDecimal.valueOf(old.principalCents())).divide(BigDecimal.valueOf(original),0,RoundingMode.DOWN).longValueExact();
+    long lower=Math.max(1,remaining-(oldRemaining-old.principalCents())),upper=Math.min(remaining-(before.size()-i-1),old.principalCents());
     principal=Math.max(lower,Math.min(desired,upper));
    }
    if(principal<=0||principal>remaining)throw new ResourceConflictException("LOAN_PLAN_INVALID","原逐期付款上限不足以偿还本金，请核对计划");

@@ -61,6 +61,15 @@ class LoanPrepaymentPlannerTest {
   var term=plan(before,119999,"0",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_TERM);assertThat(term).hasSize(1);assertThat(term.get(0).principalCents()).isEqualTo(1);
   var small=plan(before,1,"0",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_TERM);assertThat(small).hasSize(12);assertThat(small.get(11).principalCents()).isEqualTo(9999);
  }
+ @Test void nearFullAnnuityCannotSilentlyBecomeOneCentPrincipalFor360Periods(){
+  var before=new AmortizationCalculator().calculate(120000,new BigDecimal("0.12"),360,LocalDate.of(2025,12,31),RepaymentMethod.EQUAL_PAYMENT);
+  assertThat(before).hasSize(360).allSatisfy(row->assertThat(row.principalCents()).isPositive());
+  assertThat(before.stream().mapToLong(InstallmentDraft::principalCents).sum()).isEqualTo(120000);
+  assertThatThrownBy(()->plan(before,119640,"0.12",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_PAYMENT))
+   .isInstanceOf(com.familyfinance.shared.ResourceConflictException.class).hasMessageContaining("缩短期限").hasMessageContaining("一次结清");
+  var term=plan(before,119640,"0.12",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_TERM);
+  assertThat(term).containsExactly(new InstallmentDraft(1,LocalDate.of(2026,1,31),360,4,0));
+ }
  @Test void dueTodayFullAndMismatchedEmptySchedulesCannotBeSilentlyReplanned(){
   var before=standard(120000,"0",RepaymentMethod.EQUAL_PAYMENT);
   assertThatThrownBy(()->planner.plan(before,100,new BigDecimal("0"),RepaymentMethod.EQUAL_PAYMENT,LocalDate.of(2026,1,31),PrepaymentStrategy.REDUCE_TERM)).hasMessageContaining("到期");

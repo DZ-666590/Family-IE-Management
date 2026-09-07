@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.familyfinance.accounting.LedgerReadService;
 import com.familyfinance.accounting.LedgerReportingService;
+import com.familyfinance.accounting.AccountingRequests;
+import com.familyfinance.shared.ResourceConflictException;
 import java.time.LocalDate;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +22,9 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.doAnswer;
 import org.springframework.test.web.servlet.*;
 import tools.jackson.databind.*;
 
@@ -28,6 +33,7 @@ class LoanPurchasedAssetApiTest {
     @Autowired MockMvc mvc; @Autowired ObjectMapper json; @Autowired JdbcTemplate jdbc;
     @Autowired LedgerReadService ledger; @Autowired LedgerReportingService reporting;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
+    @MockitoSpyBean AccountingRequests requests;
     MockHttpSession session; long household, account, category;
 
     @BeforeEach void setup() throws Exception {
@@ -89,14 +95,42 @@ class LoanPurchasedAssetApiTest {
         assertThat(count("ledger_journals")).isEqualTo(journals);assertThat(ledger.balance(household,"ASSET:"+asset)).isEqualTo(100000);
     }
 
-    @Test void validationAndFailedPostingLeaveNoOrphans() throws Exception {
+    @Test void validationAndReplayKeyConflictRejectBeforePairedInserts() throws Exception {
         long journals=count("ledger_journals");
         for(String b:new String[]{body("CAR").replace("true","false"),body("CAR").replace("FINANCED_PURCHASE","OPENING"),body("CAR").replace("\"createPurchasedAsset\":true","\"createPurchasedAsset\":true,\"linkedAssetId\":999999"),body("CAR").replace("\"createPurchasedAsset\":true","\"createPurchasedAsset\":true,\"disbursementAccountId\":"+account),body("CAR").replace("2026-01-01","9999-01-01")})
             create(b,UUID.randomUUID().toString()).andExpect(status().isBadRequest());
-        // A source key conflict happens after the paired domain inserts, exercising transaction rollback.
+        // AccountingRequests.replay rejects this pre-existing journal key before either paired insert.
         jdbc.update("insert into ledger_journals(household_id,source_type,source_id,revision,request_key,request_digest,operation,effective_on,actor_id,recorded_at) values (?,'TEST',1,1,'posting-conflict','different-digest','POST','2026-01-01',(select min(id) from app_users where household_id=?),CURRENT_TIMESTAMP)",household,household);
         create(body("CAR"),"posting-conflict").andExpect(status().isConflict());
         assertThat(count("loans")).isZero();assertThat(count("assets")).isZero();assertThat(count("asset_valuations")).isZero();assertThat(count("ledger_journals")).isEqualTo(journals+1);
+    }
+
+    @Test void failureAfterRealOriginationAndReceiptRollsBackTheInsertedPairAndEveryPosting() throws Exception {
+        var before=new java.util.LinkedHashMap<String,java.util.List<java.util.Map<String,Object>>>();
+        for(String table:java.util.List.of("loans","assets","loan_installments","asset_valuations","ledger_journals","ledger_entries","ledger_accounts","ledger_sources","accounting_commands","financial_transactions"))
+            before.put(table,jdbc.queryForList("select * from "+table+" where household_id=? order by 1,2,3",household));
+        long[] observedIds=new long[3];
+        doAnswer(invocation->{
+            invocation.callRealMethod(); // Keep the genuine receipt INSERT as well as the preceding origination.
+            long loan=invocation.getArgument(3);
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            assertThat(jdbc.queryForObject("select count(*) from loans where household_id=? and id=?",Long.class,household,loan)).isEqualTo(1);
+            long asset=jdbc.queryForObject("select purchased_asset_id from loans where household_id=? and id=?",Long.class,household,loan);
+            assertThat(jdbc.queryForObject("select count(*) from assets where household_id=? and id=? and purchase_loan_id=?",Long.class,household,asset,loan)).isEqualTo(1);
+            long journal=jdbc.queryForObject("select id from ledger_journals where household_id=? and source_type='LOAN_FINANCED_PURCHASE' and source_id=?",Long.class,household,loan);
+            assertThat(jdbc.queryForObject("select count(*) from ledger_entries where household_id=? and journal_id=?",Long.class,household,journal)).isEqualTo(2);
+            assertThat(jdbc.queryForObject("select count(*) from asset_valuations where household_id=? and asset_id=?",Long.class,household,asset)).isEqualTo(1);
+            assertThat(jdbc.queryForObject("select count(*) from accounting_commands where household_id=? and request_key='after-real-posting' and source_id=?",Long.class,household,loan)).isEqualTo(1);
+            assertThat(ledger.balance(household,"ASSET:"+asset)).isEqualTo(100000);
+            assertThat(ledger.balance(household,"LOAN:"+loan)).isEqualTo(100000);
+            observedIds[0]=loan;observedIds[1]=asset;observedIds[2]=journal;
+            throw new ResourceConflictException("TEST_POST_ORIGINATION_FAILURE","Test-only failure after real posting");
+        }).when(requests).record(eq(household),eq("after-real-posting"),anyString(),anyLong());
+        create(body("CAR"),"after-real-posting").andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("TEST_POST_ORIGINATION_FAILURE"));
+        for(long id:observedIds)assertThat(id).isPositive();
+        for(var entry:before.entrySet())assertThat(jdbc.queryForList("select * from "+entry.getKey()+" where household_id=? order by 1,2,3",household)).as(entry.getKey()).isEqualTo(entry.getValue());
+        assertThat(ledger.balance(household,"CASH:"+account)).isZero();
+        assertThat(ledger.balances(household)).isEqualTo(ledger.reconstructedBalances(household));
     }
 
     @Test void generatedNameSkipsExistingHouseholdName() throws Exception {
