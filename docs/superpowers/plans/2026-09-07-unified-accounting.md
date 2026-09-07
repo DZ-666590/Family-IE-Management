@@ -46,11 +46,17 @@ LedgerReceipt result = posting.post(new LedgerPostingCommand(h, "MANUAL", source
 
 ### Task 2: Accounts, transfers, income/expense and recurring cash integration
 
-**Files:** `ledger/AccountService.java`, `AccountResponse.java`, `AccountCreateRequest.java`, `AccountPatchRequest.java`, `FinancialAccount.java`, `DefaultFinancialAccountFactory.java`; `transaction/TransactionService.java` and request/response types; `ledger/recurring/RecurringConfirmationService.java`; new `accounting/CashTransferController.java`, `CashTransferService.java` and request/response; `config/DemoDataInitializer.java`; corresponding migrations beyondV14 and tests.
+**Files:** `ledger/AccountService.java`, `AccountController.java`, `AccountResponse.java`, `AccountCreateRequest.java`, `AccountPatchRequest.java`, `FinancialAccount.java`, `DefaultFinancialAccountFactory.java`; `transaction/TransactionService.java`, `TransactionController.java` and request/response types; `ledger/recurring/RecurringConfirmationService.java`, `RecurringController.java`; new `accounting/AccountingCommandExecutor.java`, `CashTransferController.java`, `CashTransferService.java` and request/response; `config/DemoDataInitializer.java`; corresponding migrations beyondV14 and tests.
 
 **Interfaces:** Consume Task1 posting/read APIs. Add POST/GET `/api/transfers`, with fromAccountId,toAccountId,amount,occurredOn,idempotencyKey. Account responses add `balance`, `availableBalance`, opening confirmation/date semantics without removing existing fields. Register CASH and EQUITY opening counterpart; all real money writes must use it.
 
 - [ ] Add failing tests for zero cash expense, exact balance, transfer, delete-income/reverse protection, scope isolation, repeated requests, future dates and generated-row immutable financial fields.
+- [ ] Add a whole-use-case retry boundary outside transactional domain proxies. Use at most3 attempts only after a confirmed MySQL1213/40001 deadlock rollback; freeze input/key and reacquire authorization/entities on everyattempt. Never retry inside an active transaction, rollback-only context, insufficient-funds/validation failure or uncertaincommit. A narrowly scoped internal executor API is:
+```java
+public <T> T execute(java.util.function.Supplier<T> transactionalCommand);
+// Controller: executor.execute(() -> accounts.create(authentication, request));
+```
+  Verify brand-new opposite-household opening commands against real MySQL withoutwarmingledgerkeyranges. Coordinate only firstattempt afterrealmissing-key lockread; show rawdeadlock withoutwrapper, andbothvalidcommands completeexactlyonce withwrapper. Captureactualgaplocks/DBfailureevidence whereavailable; do notclaim a missinglocktrace was observed. Also test3attempts exhausted andnonretryable failures. ExistingMockMvc ambienttesttransactions mustnotlead to retrying half a business transaction.
 ```java
 // cashA=0,cashB=10000; outgoingA1000 must fail; transferBtoA1000 then outgoingA1000 succeeds.
 assertThat(read.balance(h, "CASH:"+a)).isZero();
@@ -68,6 +74,8 @@ assertThat(read.balance(h, "CASH:"+b)).isEqualTo(9000L);
 
 **Interfaces:** Use Task1 ledger, Task2 cash ownership/opening rules. Loan creation adds explicit `fundingMode` (OPENING or DISBURSEMENT) and optional disbursementAccountId required for DISBURSEMENT. Existing stored loans are not guessed/replayed at startup. Stable business IDs link loan and payment journals.
 
+All loan write HTTP usecases consume Task2 `AccountingCommandExecutor` outside their transactional service proxies; apply the same full-rollback-only retry semantics, not core-local retry.
+
 - [ ] RED tests: cash0 payment110000 cents fails atomically; cash110000 pays principal100000+interest10000, cash0, loan decreases100000, expense10000. Test prepay, repeat key changed amount/date rejection, read-only role, date and full-close boundaries.
 - [ ] Implement opening loan liability against EQUITY; actual disbursement against selected CASH. Same borrower name/loan metadata does not create money. Contract changes with posted repayments/prepayments cannot silently reset principal/history.
 - [ ] Post scheduled payment LOAN principal + EXPENSE interest / CASH total, prepayment LOAN / CASH. Preserve scheduling calculation strategy and paid/cancelled history; all checks/postings/business changes share a transaction.
@@ -79,6 +87,8 @@ assertThat(read.balance(h, "CASH:"+b)).isEqualTo(9000L);
 **Files:** `asset/AssetService.java` and request DTOs; `investment/InvestmentAccountService.java`, `InvestmentTradeService.java`, DTOs; `reporting/{NetWorthService,PortfolioService,DashboardService,AnalysisService,NetWorthSnapshotService}.java`; `budget/BudgetUsageService.java`, `transaction/LedgerReadAdapter.java`; focused accounting adapters, migrations and integration tests.
 
 **Interfaces:** Consume posting kernel/cash rules; extend investment accounts with a household-scoped funding cash account and expose it. Asset additions distinguish OPENING from PURCHASE with funding account for purchase. Opened positions and actual buys must not be conflated. Extend unified read facade for income, expense, cash flows, liabilities and valuation bridge.
+
+All asset/investment money write HTTP usecases consume Task2 `AccountingCommandExecutor` outside their transactional service proxies, with stableinput andrequestkeys.
 
 - [ ] RED acceptance: purchase at value500000 decreases CASH500000 and increases asset/position500000, no new wealth; sell/fees/dividends produce linked cash and realized results, insufficient cash and overselling roll back. Opening positions/assets create opening equity, not current income.
 - [ ] Wire buy/sell/dividend/fee to the same ledger. Match quantities/cost replay with journal amounts and cash; edited historical trades require auditable replacement/reversal and validated affected positions. Account transfers fund investment cash explicitly.
