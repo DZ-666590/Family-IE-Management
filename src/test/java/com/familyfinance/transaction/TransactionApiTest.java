@@ -91,6 +91,7 @@ class TransactionApiTest {
                 .andExpect(jsonPath("$.data.kind").value("expense"))
                 .andExpect(jsonPath("$.data.amount").value("12.30"))
                 .andExpect(jsonPath("$.data.createdByUserId").isNumber())
+                .andExpect(jsonPath("$.data.sourceType").value("MANUAL"))
                 .andExpect(jsonPath("$.data.createdByName").value("演示用户"))
                 .andExpect(jsonPath("$.data.merchant").value("便利店"))
                 .andReturn();

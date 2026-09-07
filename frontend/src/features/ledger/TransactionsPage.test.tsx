@@ -41,7 +41,7 @@ function transactionItem(id: number, creator = '演示用户') {
     accountName: '日常银行卡', memberId: 3, memberName: '凯文', categoryId: 2,
     categoryName: '餐饮', categoryParentId: null, categoryLevel: 1, merchant: '商家',
     location: null, note: null, createdByUserId: 7, createdByName: creator,
-    createdAt: '', updatedAt: ''
+    sourceType: 'MANUAL', createdAt: '', updatedAt: ''
   };
 }
 
@@ -65,22 +65,39 @@ it('shows creator, paginates transactions, and links a complete csv export', asy
   expect(request).toHaveBeenCalledWith(expect.stringContaining('page=1'), { responseType: 'page' });
 });
 
-it('keeps a permission error visible when deleting another member transaction is denied', async () => {
+it('keeps a backend permission error visible when permissions change after rendering', async () => {
   const request = vi.fn(async (path: string, options?: { method?: string }) => {
     if (path.startsWith('/api/transactions') && options?.method === 'DELETE') {
       throw new ApiError('无权操作他人创建的收支记录', { status: 403, code: 'FORBIDDEN' });
     }
-    if (path.startsWith('/api/transactions')) return pageResult([transactionItem(1, '其他成员')]);
+    if (path.startsWith('/api/transactions')) return pageResult([transactionItem(1)]);
     if (path.startsWith('/api/accounts')) return pageResult([{ id: 1, name: '日常银行卡', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }]);
     if (path.startsWith('/api/categories')) return pageResult([{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }]);
     if (path === '/api/members') return [{ id: 3, name: '凯文', roleLabel: '本人', createdAt: '' }];
     throw new Error(`unexpected ${path}`);
   });
   const user = userEvent.setup();
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><TransactionsPage request={request as RequestFn} role="MEMBER" userId={9} /></QueryClientProvider>);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><TransactionsPage request={request as RequestFn} role="MEMBER" userId={7} /></QueryClientProvider>);
   await user.click((await screen.findAllByRole('button', { name: '删除' }))[0]);
   await user.click(screen.getByRole('button', { name: '删除收支' }));
   expect(await screen.findByText('无权操作他人创建的收支记录')).toBeInTheDocument();
+});
+
+it.each([
+  ['OWNER', 9, 'MANUAL', 2, 2], ['ADMIN', 9, 'MANUAL', 2, 2],
+  ['MEMBER', 7, 'MANUAL', 2, 2], ['MEMBER', 9, 'MANUAL', 0, 0],
+  ['OWNER', 9, 'RECURRING', 2, 0], ['ADMIN', 9, 'LOAN_PAYMENT', 2, 0],
+  ['MEMBER', 7, 'LOAN_PREPAYMENT', 2, 0], ['MEMBER', 9, 'RECURRING', 0, 0]
+] as const)('gates desktop and mobile transaction actions for %s user %i source %s', async (role, userId, sourceType, edits, deletes) => {
+  const request: RequestFn = async <T,>(path: string) => {
+    if (path.startsWith('/api/transactions')) return pageResult([{ ...transactionItem(1), sourceType }]) as T;
+    if (path === '/api/members') return [] as T;
+    return pageResult([]) as T;
+  };
+  render(<QueryClientProvider client={new QueryClient()}><TransactionsPage request={request} role={role} userId={userId} /></QueryClientProvider>);
+  await screen.findByRole('table');
+  expect(screen.queryAllByRole('button', { name: '编辑' })).toHaveLength(edits);
+  expect(screen.queryAllByRole('button', { name: '删除' })).toHaveLength(deletes);
 });
 
 it('paginates category roots without losing stable parent-child order', async () => {

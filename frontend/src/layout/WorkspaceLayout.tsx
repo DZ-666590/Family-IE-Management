@@ -36,7 +36,7 @@ function WorkspaceContent({ session }: { session: Session }) {
   if (location.pathname === '/workspace/assets') return <AssetsPage request={request} role={session.role} />;
   if (location.pathname === '/workspace/investments') return <InvestmentsPage request={request} role={session.role} />;
   if (location.pathname === '/workspace/loans') return <LoansPage request={request} role={session.role} userId={session.userId} />;
-  if (location.pathname === '/workspace/notifications') return <NotificationsPage request={request} />;
+  if (location.pathname === '/workspace/notifications') return <NotificationsPage request={request} role={session.role} />;
   if (location.pathname === '/workspace/family') return <FamilyPage request={request} role={session.role} inviteRequested={new URLSearchParams(location.search).get('action') === 'invite'} onInviteRequestHandled={consumeInvite} />;
   if (location.pathname === '/workspace/settings') return <ChangePasswordPage />;
   return <DashboardPage request={request} role={session.role} />;

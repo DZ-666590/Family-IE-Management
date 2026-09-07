@@ -1,12 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { CreatedInvite, Family, FamilyInvite, HouseholdRole, Membership, Page } from '../../api/contracts';
 import { PaginationControls, usePageRecovery } from '../../shared/pagination';
 import { ConfirmDialog, DataPanel, Drawer, FormError, PageScaffold, QueryState, StatusTag, dateText, isManager, type RequestFn } from '../common';
 
 export function FamilyPage({ request, role, householdName, inviteRequested = false, onInviteRequestHandled }: { request: RequestFn; role: HouseholdRole; householdName?: string; inviteRequested?: boolean; onInviteRequestHandled?: () => void }) {
-  const client = useQueryClient();
   const family = useQuery({ queryKey: ['family'], queryFn: () => request<Family>('/api/family') });
   const [membershipPage, setMembershipPage] = useState(0);
   const [invitePage, setInvitePage] = useState(0);
@@ -28,12 +27,11 @@ export function FamilyPage({ request, role, householdName, inviteRequested = fal
   const [confirmName, setConfirmName] = useState('');
   const [rename, setRename] = useState<string | null>(null);
   const [password, setPassword] = useState<{ currentPassword: string; newPassword: string } | null>(null);
-  const invalidate = () => Promise.all([client.invalidateQueries({ queryKey: ['family'] }), client.invalidateQueries({ queryKey: ['memberships'] }), client.invalidateQueries({ queryKey: ['family-invites'] })]);
-  const createInvite = useMutation({ mutationFn: () => request<CreatedInvite>('/api/family/invites', { method: 'POST', body: { role: inviteRole, maxUses: Number(maxUses) } }), onSuccess: async value => { setCreatedInvite(value); await client.invalidateQueries({ queryKey: ['family-invites'] }); } });
-  const revoke = useMutation({ mutationFn: (id: number) => request<void>(`/api/family/invites/${id}`, { method: 'DELETE' }), onSuccess: () => client.invalidateQueries({ queryKey: ['family-invites'] }) });
-  const changeRole = useMutation({ mutationFn: ({ id, nextRole }: { id: number; nextRole: 'ADMIN' | 'MEMBER' }) => request<Membership>(`/api/family/memberships/${id}`, { method: 'PATCH', body: { role: nextRole } }), onSuccess: invalidate });
-  const transfer = useMutation({ mutationFn: (membershipId: number) => request<void>('/api/family/transfer-ownership', { method: 'POST', body: { membershipId } }), onSuccess: async () => { setTransferId(null); await invalidate(); } });
-  const saveRename = useMutation({ mutationFn: (name: string) => request<Family>('/api/family', { method: 'PATCH', body: { name } }), onSuccess: async () => { setRename(null); await client.invalidateQueries({ queryKey: ['family'] }); } });
+  const createInvite = useMutation({ mutationFn: () => request<CreatedInvite>('/api/family/invites', { method: 'POST', body: { role: inviteRole, maxUses: Number(maxUses) } }), onSuccess: value => { setCreatedInvite(value); } });
+  const revoke = useMutation({ mutationFn: (id: number) => request<void>(`/api/family/invites/${id}`, { method: 'DELETE' }) });
+  const changeRole = useMutation({ mutationFn: ({ id, nextRole }: { id: number; nextRole: 'ADMIN' | 'MEMBER' }) => request<Membership>(`/api/family/memberships/${id}`, { method: 'PATCH', body: { role: nextRole } }) });
+  const transfer = useMutation({ mutationFn: (membershipId: number) => request<void>('/api/family/transfer-ownership', { method: 'POST', body: { membershipId } }), onSuccess: () => { setTransferId(null); } });
+  const saveRename = useMutation({ mutationFn: (name: string) => request<Family>('/api/family', { method: 'PATCH', body: { name } }), onSuccess: () => { setRename(null); } });
   const changePassword = useMutation({ mutationFn: (value: NonNullable<typeof password>) => request<void>('/api/auth/change-password', { method: 'POST', body: value }), onSuccess: () => setPassword(null) });
   const archive = useMutation({ mutationFn: () => request<void>('/api/family', { method: 'DELETE', body: { confirmName } }), onSuccess: () => window.location.assign('/login') });
   const currentName = family.data?.name ?? householdName ?? '';

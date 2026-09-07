@@ -104,6 +104,7 @@ export function createApiClient({
 }: ApiClientOptions = {}) {
   let csrfPromise: Promise<CsrfToken> | null = null;
   let expiryHandled = false;
+  let sessionGeneration = 0;
 
   async function loadCsrf(): Promise<CsrfToken> {
     csrfPromise ??= (async () => {
@@ -124,6 +125,11 @@ export function createApiClient({
   }
 
   async function api<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+    const generation = sessionGeneration;
+    const assertCurrent = () => {
+      if (generation !== sessionGeneration || options.signal?.aborted) throw new DOMException('Session changed or request aborted', 'AbortError');
+    };
+    assertCurrent();
     const {
       body,
       handleUnauthorized = true,
@@ -134,6 +140,7 @@ export function createApiClient({
     const headers = new Headers(requestInit.headers);
     if (WRITE_METHODS.has(method)) {
       const csrf = await loadCsrf();
+      assertCurrent();
       headers.set(csrf.headerName, csrf.token);
     }
 
@@ -154,9 +161,11 @@ export function createApiClient({
       body: encodedBody,
       credentials: 'same-origin'
     });
+    assertCurrent();
 
     if (!response.ok) {
       const envelope = await readEnvelope(response);
+      assertCurrent();
       const failure = envelope?.error as ApiFailure | undefined;
       const error = new ApiError(failure?.message ?? '请求未能完成', {
         status: response.status,
@@ -180,15 +189,24 @@ export function createApiClient({
     }
 
     if (response.status === 204) return undefined as T;
-    if (responseType === 'blob') return await response.blob() as T;
-    if (responseType === 'text') return await response.text() as T;
+    if (responseType === 'blob' || responseType === 'text') {
+      const value = responseType === 'blob' ? await response.blob() : await response.text();
+      assertCurrent();
+      return value as T;
+    }
     const envelope = await readEnvelope(response);
+    assertCurrent();
     if (responseType === 'page') return readPage(response, envelope?.data) as T;
     return envelope?.data as T;
   }
 
   return {
     api,
+    resetSessionScope() {
+      sessionGeneration += 1;
+      csrfPromise = null;
+      expiryHandled = false;
+    },
     resetSessionExpiry() {
       expiryHandled = false;
     },

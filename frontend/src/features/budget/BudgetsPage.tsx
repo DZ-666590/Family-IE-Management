@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { Budget, BudgetRevision, BudgetScopeType, BudgetUsage, Category, HouseholdRole, Member, Page } from '../../api/contracts';
 import { localYearMonth } from '../../shared/runtime';
@@ -9,7 +9,6 @@ import { DataPanel, Drawer, FormError, PageScaffold, QueryState, StatusTag, isMa
 type BudgetDraft = { id?: number; periodMonth: string; scopeType: BudgetScopeType; categoryId: number | null; memberId: number | null; amount: string; version: number; active: boolean };
 
 export function BudgetsPage({ request, role }: { request: RequestFn; role: HouseholdRole }) {
-  const queryClient = useQueryClient();
   const [filter, setFilter] = useState<'all'|'active'|'inactive'>('all');
   const [month, setMonth] = useState(localYearMonth());
   const [draft, setDraft] = useState<BudgetDraft | null>(null);
@@ -24,7 +23,7 @@ export function BudgetsPage({ request, role }: { request: RequestFn; role: House
   useEffect(() => { setUsagePage(0); }, [month, filter]);
   usePageRecovery(usagePage, usage.data, setUsagePage);
   usePageRecovery(revisionPage, revisions.data, setRevisionPage);
-  const save = useMutation({ mutationFn: (value: NonNullable<typeof draft>) => request<Budget>(value.id ? `/api/budgets/${value.id}` : '/api/budgets', { method: value.id ? 'PATCH' : 'POST', body: value }), onSuccess: async () => { setDraft(null); await Promise.all([queryClient.invalidateQueries({ queryKey: ['budget-usage'] }), queryClient.invalidateQueries({ queryKey: ['dashboard'] }), queryClient.invalidateQueries({ queryKey: ['net-worth'] })]); } });
+  const save = useMutation({ mutationFn: (value: NonNullable<typeof draft>) => request<Budget>(value.id ? `/api/budgets/${value.id}` : '/api/budgets', { method: value.id ? 'PATCH' : 'POST', body: value }), onSuccess: () => { setDraft(null); } });
   const manager = isManager(role);
   const categoryName = (id: number | null) => categories.data?.find(item => item.id === id)?.name ?? '全部分类';
   const memberName = (id: number | null) => members.data?.find(item => item.id === id)?.name ?? '全家';

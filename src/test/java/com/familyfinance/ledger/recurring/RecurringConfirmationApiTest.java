@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -89,6 +90,14 @@ class RecurringConfirmationApiTest {
         assertThat(transaction.getOccurredOn()).isEqualTo(java.time.LocalDate.parse("2026-09-03"));
         assertThat(transaction.getSourceType()).isEqualTo(TransactionSourceType.RECURRING);
         assertThat(transaction.getSourceId()).isEqualTo(occurrence.getId());
+        mvc.perform(get("/api/transactions/{id}", firstTransaction).session(memberSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.sourceType").value("RECURRING"));
+        mvc.perform(patch("/api/transactions/{id}", firstTransaction).session(memberSession).with(csrf())
+                        .contentType("application/json").content("{\"merchant\":\"更新备注\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.sourceType").value("RECURRING"))
+                .andExpect(jsonPath("$.data.merchant").value("更新备注"));
         mvc.perform(delete("/api/transactions/{id}", firstTransaction).session(memberSession).with(csrf()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_IN_USE"))

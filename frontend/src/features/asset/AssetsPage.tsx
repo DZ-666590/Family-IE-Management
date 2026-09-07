@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { Asset, AssetType, AssetValuation, HouseholdRole, Loan, Member, NetWorth, Page } from '../../api/contracts';
 import { businessDate } from '../../shared/runtime';
@@ -19,7 +19,6 @@ export function assetUpdatePayload(value: AssetDraft) {
 }
 
 export function AssetsPage({ request, role }: { request: RequestFn; role: HouseholdRole }) {
-  const client = useQueryClient();
   const [type, setType] = useState('');
   const [draft, setDraft] = useState<AssetDraft | null>(null);
   const [valuationAsset, setValuationAsset] = useState<Asset | null>(null);
@@ -35,9 +34,9 @@ export function AssetsPage({ request, role }: { request: RequestFn; role: Househ
   useEffect(() => { setAssetPage(0); }, [type]);
   usePageRecovery(assetPage, assets.data, setAssetPage);
   usePageRecovery(valuationPage, valuations.data, setValuationPage);
-  const save = useMutation({ mutationFn: (value: AssetDraft) => request<Asset>(value.id ? `/api/assets/${value.id}` : '/api/assets', { method: value.id ? 'PATCH' : 'POST', body: value.id ? assetUpdatePayload(value) : { name: value.name, type: value.type, ownerMemberId: value.ownerMemberId ? Number(value.ownerMemberId) : null, acquiredOn: value.acquiredOn || null, purchaseValue: value.purchaseValue || null, currentValue: value.currentValue, property: value.type === 'PROPERTY' ? { address: value.address, areaSqm: value.areaSqm, usageType: value.usageType } : null, vehicle: value.type === 'VEHICLE' ? { brandModel: value.brandModel, plateHint: value.plateHint, purchaseYear: Number(value.purchaseYear) } : null } }), onSuccess: async () => { setDraft(null); await Promise.all([client.invalidateQueries({ queryKey: ['assets'] }), client.invalidateQueries({ queryKey: ['net-worth'] })]); } });
-  const addValuation = useMutation({ mutationFn: () => request<AssetValuation>(`/api/assets/${valuationAsset!.id}/valuations`, { method: 'POST', body: valuation }), onSuccess: async () => { setValuation({ valuedOn: businessDate(), value: '', note: '' }); await Promise.all([client.invalidateQueries({ queryKey: ['asset-valuations'] }), client.invalidateQueries({ queryKey: ['assets'] }), client.invalidateQueries({ queryKey: ['net-worth'] }), client.invalidateQueries({ queryKey: ['notifications'] })]); } });
-  const archive = useMutation({ mutationFn: (id: number) => request<void>(`/api/assets/${id}`, { method: 'DELETE' }), onSuccess: async () => { setArchiveId(null); await Promise.all([client.invalidateQueries({ queryKey: ['assets'] }), client.invalidateQueries({ queryKey: ['net-worth'] })]); } });
+  const save = useMutation({ mutationFn: (value: AssetDraft) => request<Asset>(value.id ? `/api/assets/${value.id}` : '/api/assets', { method: value.id ? 'PATCH' : 'POST', body: value.id ? assetUpdatePayload(value) : { name: value.name, type: value.type, ownerMemberId: value.ownerMemberId ? Number(value.ownerMemberId) : null, acquiredOn: value.acquiredOn || null, purchaseValue: value.purchaseValue || null, currentValue: value.currentValue, property: value.type === 'PROPERTY' ? { address: value.address, areaSqm: value.areaSqm, usageType: value.usageType } : null, vehicle: value.type === 'VEHICLE' ? { brandModel: value.brandModel, plateHint: value.plateHint, purchaseYear: Number(value.purchaseYear) } : null } }), onSuccess: () => { setDraft(null); } });
+  const addValuation = useMutation({ mutationFn: () => request<AssetValuation>(`/api/assets/${valuationAsset!.id}/valuations`, { method: 'POST', body: valuation }), onSuccess: () => { setValuation({ valuedOn: businessDate(), value: '', note: '' }); } });
+  const archive = useMutation({ mutationFn: (id: number) => request<void>(`/api/assets/${id}`, { method: 'DELETE' }), onSuccess: () => { setArchiveId(null); } });
   const manager = isManager(role);
   const edit = (item: Asset): AssetDraft => ({ id: item.id, name: item.name, type: item.type, ownerMemberId: String(item.ownerMemberId ?? ''), acquiredOn: item.acquiredOn ?? '', purchaseValue: item.purchaseValue ?? '', currentValue: item.currentValue, address: item.property?.address ?? '', areaSqm: String(item.property?.areaSqm ?? ''), usageType: item.property?.usageType ?? '自住', brandModel: item.vehicle?.brandModel ?? '', plateHint: item.vehicle?.plateHint ?? '', purchaseYear: String(item.vehicle?.purchaseYear ?? '') });
   const typeLabel = (value: AssetType) => value === 'PROPERTY' ? '房产' : value === 'VEHICLE' ? '车辆' : '其他';

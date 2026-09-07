@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Banknote, Landmark, WalletCards, Download } from 'lucide-react';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { Account, AccountType, Category, HouseholdRole, Member, Page, Transaction, TransactionKind } from '../../api/contracts';
@@ -10,8 +10,7 @@ import { ConfirmDialog, DataPanel, Drawer, FormError, PageScaffold, QueryState, 
 interface TransactionDraft { id?: number; kind: TransactionKind; amount: string; occurredOn: string; accountId: string; memberId: string; categoryId: string; merchant: string; location: string; note: string }
 const emptyDraft = (): TransactionDraft => ({ kind: 'expense', amount: '', occurredOn: businessDate(), accountId: '', memberId: '', categoryId: '', merchant: '', location: '', note: '' });
 
-export function TransactionsPage({ request, role }: { request: RequestFn; role: HouseholdRole; userId: number }) {
-  const queryClient = useQueryClient();
+export function TransactionsPage({ request, role, userId }: { request: RequestFn; role: HouseholdRole; userId: number }) {
   const [section, setSection] = useState<'transactions' | 'accounts' | 'categories'>('transactions');
   const [month, setMonth] = useState(localYearMonth());
   const [kind, setKind] = useState('');
@@ -51,16 +50,18 @@ export function TransactionsPage({ request, role }: { request: RequestFn; role: 
       method: value.id ? 'PATCH' : 'POST',
       body: { kind: value.kind, amount: value.amount, occurredOn: value.occurredOn, accountId: Number(value.accountId), memberId: Number(value.memberId), categoryId: Number(value.categoryId), merchant: value.merchant || null, location: value.location || null, note: value.note || null }
     }),
-    onSuccess: async () => { setDraft(null); setTransactionPage(0); await Promise.all([queryClient.invalidateQueries({ queryKey: ['transactions'] }), queryClient.invalidateQueries({ queryKey: ['dashboard'] }), queryClient.invalidateQueries({ queryKey: ['budget-usage'] })]); }
+    onSuccess: () => { setDraft(null); setTransactionPage(0); }
   });
-  const remove = useMutation({ mutationFn: (id: number) => request<void>(`/api/transactions/${id}`, { method: 'DELETE' }), onSuccess: async () => { setDeleteId(null); setTransactionPage(0); await queryClient.invalidateQueries({ queryKey: ['transactions'] }); } });
-  const saveAccount = useMutation({ mutationFn: (value: NonNullable<typeof accountDraft>) => request<Account>(value.id ? `/api/accounts/${value.id}` : '/api/accounts', { method: value.id ? 'PATCH' : 'POST', body: value }), onSuccess: async () => { setAccountDraft(null); await queryClient.invalidateQueries({ queryKey: ['accounts'] }); } });
-  const archiveAccount = useMutation({ mutationFn: (id: number) => request<void>(`/api/accounts/${id}`, { method: 'DELETE' }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['accounts'] }) });
-  const saveCategory = useMutation({ mutationFn: (value: NonNullable<typeof categoryDraft>) => request<Category>(value.id ? `/api/categories/${value.id}` : '/api/categories', { method: value.id ? 'PATCH' : 'POST', body: { name: value.name, kind: value.kind, color: value.color, parentId: value.parentId ? Number(value.parentId) : null } }), onSuccess: async () => { setCategoryDraft(null); await queryClient.invalidateQueries({ queryKey: ['categories'] }); } });
-  const deleteCategory = useMutation({ mutationFn: (id: number) => request<void>(`/api/categories/${id}`, { method: 'DELETE' }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['categories'] }) });
+  const remove = useMutation({ mutationFn: (id: number) => request<void>(`/api/transactions/${id}`, { method: 'DELETE' }), onSuccess: () => { setDeleteId(null); setTransactionPage(0); } });
+  const saveAccount = useMutation({ mutationFn: (value: NonNullable<typeof accountDraft>) => request<Account>(value.id ? `/api/accounts/${value.id}` : '/api/accounts', { method: value.id ? 'PATCH' : 'POST', body: value }), onSuccess: () => { setAccountDraft(null); } });
+  const archiveAccount = useMutation({ mutationFn: (id: number) => request<void>(`/api/accounts/${id}`, { method: 'DELETE' }) });
+  const saveCategory = useMutation({ mutationFn: (value: NonNullable<typeof categoryDraft>) => request<Category>(value.id ? `/api/categories/${value.id}` : '/api/categories', { method: value.id ? 'PATCH' : 'POST', body: { name: value.name, kind: value.kind, color: value.color, parentId: value.parentId ? Number(value.parentId) : null } }), onSuccess: () => { setCategoryDraft(null); } });
+  const deleteCategory = useMutation({ mutationFn: (id: number) => request<void>(`/api/categories/${id}`, { method: 'DELETE' }) });
 
   function editTransaction(item: Transaction) { setDraft({ id: item.id, kind: item.kind, amount: item.amount, occurredOn: item.occurredOn, accountId: String(item.accountId), memberId: String(item.memberId), categoryId: String(item.categoryId), merchant: item.merchant ?? '', location: item.location ?? '', note: item.note ?? '' }); }
   const manager = isManager(role);
+  const canEdit = (item: Transaction) => manager || item.createdByUserId === userId;
+  const canDelete = (item: Transaction) => canEdit(item) && item.sourceType === 'MANUAL';
   const action = section === 'transactions' ? { label: '记一笔', onClick: () => setDraft(emptyDraft()) } : section === 'accounts' && manager ? { label: '新建账户', onClick: () => setAccountDraft({ name: '', type: 'BANK', currency: 'CNY', openingBalance: '0.00' }) } : section === 'categories' && manager ? { label: '新建分类', onClick: () => setCategoryDraft({ name: '', kind: 'expense', color: '#3370FF', parentId: '' }) } : undefined;
 
   return <PageScaffold title="收支明细" primaryAction={action}>
@@ -77,8 +78,8 @@ export function TransactionsPage({ request, role }: { request: RequestFn; role: 
       </div>
       <QueryState loading={transactions.isLoading || accountOptions.isLoading || categoryOptions.isLoading || members.isLoading} error={transactions.error || accountOptions.error || categoryOptions.error || members.error} empty={transactions.data?.items.length === 0 && transactionPage === 0} emptyTitle="还没有收支记录" emptyDetail="点击“记一笔”开始记录家庭现金流。">
         <>
-          <div className="responsive-data"><table><thead><tr><th>日期</th><th>类型</th><th>金额</th><th>分类</th><th>账户</th><th>成员</th><th>创建人</th><th>商家 / 备注</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{transactions.data?.items.map(item => <tr key={item.id}><td>{item.occurredOn}</td><td><StatusTag tone={item.kind === 'income' ? 'success' : 'blue'}>{item.kind === 'income' ? '收入' : '支出'}</StatusTag></td><td className={`money ${item.kind}`}>{item.kind === 'expense' ? '-' : '+'}{money(item.amount)}</td><td>{item.categoryName}</td><td>{item.accountName}</td><td>{item.memberName}</td><td>{item.createdByName || '—'}</td><td><strong>{item.merchant || '—'}</strong><small>{item.note}</small></td><td><button className="text-action" onClick={() => editTransaction(item)}>编辑</button><button className="text-action danger" onClick={() => setDeleteId(item.id)}>删除</button></td></tr>)}</tbody></table>
-            <div className="mobile-card-list">{transactions.data?.items.map(item => <article className="record-card" key={item.id}><header><div><StatusTag tone={item.kind === 'income' ? 'success' : 'blue'}>{item.kind === 'income' ? '收入' : '支出'}</StatusTag><strong>{item.categoryName}</strong></div><b>{item.kind === 'expense' ? '-' : '+'}{money(item.amount)}</b></header><p>{item.occurredOn} · {item.accountName} · {item.memberName} · 创建人：{item.createdByName || '—'}</p><footer><span>{item.merchant || item.note || '无备注'}</span><span><button onClick={() => editTransaction(item)}>编辑</button><button onClick={() => setDeleteId(item.id)}>删除</button></span></footer></article>)}</div>
+          <div className="responsive-data"><table><thead><tr><th>日期</th><th>类型</th><th>金额</th><th>分类</th><th>账户</th><th>成员</th><th>创建人</th><th>商家 / 备注</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{transactions.data?.items.map(item => <tr key={item.id}><td>{item.occurredOn}</td><td><StatusTag tone={item.kind === 'income' ? 'success' : 'blue'}>{item.kind === 'income' ? '收入' : '支出'}</StatusTag></td><td className={`money ${item.kind}`}>{item.kind === 'expense' ? '-' : '+'}{money(item.amount)}</td><td>{item.categoryName}</td><td>{item.accountName}</td><td>{item.memberName}</td><td>{item.createdByName || '—'}</td><td><strong>{item.merchant || '—'}</strong><small>{item.note}</small></td><td>{canEdit(item) && <button className="text-action" onClick={() => editTransaction(item)}>编辑</button>}{canDelete(item) && <button className="text-action danger" onClick={() => setDeleteId(item.id)}>删除</button>}</td></tr>)}</tbody></table>
+            <div className="mobile-card-list">{transactions.data?.items.map(item => <article className="record-card" key={item.id}><header><div><StatusTag tone={item.kind === 'income' ? 'success' : 'blue'}>{item.kind === 'income' ? '收入' : '支出'}</StatusTag><strong>{item.categoryName}</strong></div><b>{item.kind === 'expense' ? '-' : '+'}{money(item.amount)}</b></header><p>{item.occurredOn} · {item.accountName} · {item.memberName} · 创建人：{item.createdByName || '—'}</p><footer><span>{item.merchant || item.note || '无备注'}</span><span>{canEdit(item) && <button onClick={() => editTransaction(item)}>编辑</button>}{canDelete(item) && <button onClick={() => setDeleteId(item.id)}>删除</button>}</span></footer></article>)}</div>
           </div>
           <PaginationControls page={transactionPage} totalPages={transactions.data?.totalPages ?? 0} hasNext={transactions.data?.hasNext ?? false} onPageChange={setTransactionPage} label="收支记录" />
         </>

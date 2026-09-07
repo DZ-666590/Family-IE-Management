@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { BriefcaseBusiness } from 'lucide-react';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import { businessDate } from '../../shared/runtime';
@@ -19,7 +19,6 @@ export function securityResolvePayload(value: SecurityDraft) {
 }
 
 export function InvestmentsPage({ request, role }: { request: RequestFn; role: HouseholdRole }) {
-  const client = useQueryClient();
   const [tab, setTab] = useState<'positions' | 'trades' | 'accounts' | 'quotes'>('positions');
   const [trade, setTrade] = useState<TradeDraft | null>(null);
   const [securityQuery, setSecurityQuery] = useState('');
@@ -39,14 +38,13 @@ export function InvestmentsPage({ request, role }: { request: RequestFn; role: H
   usePageRecovery(tradePage, trades.data, setTradePage);
   usePageRecovery(accountPage, accounts.data, setAccountPage);
   const manager = isManager(role);
-  const registerSecurity = useMutation({ mutationFn: (value: SecurityDraft) => request<Security>('/api/securities/resolve', { method: 'POST', body: securityResolvePayload(value) }), onSuccess: async value => { setSecurityRegistration(null); setSecurityQuery(value.tsCode); setTrade(current => current ? { ...current, securityId: String(value.id) } : current); await client.invalidateQueries({ queryKey: ['securities'] }); } });
-  const invalidateInvestment = async () => Promise.all(['portfolio','investment-trades','market-quotes','net-worth'].map(key => client.invalidateQueries({ queryKey: [key] })));
-  const saveTrade = useMutation({ mutationFn: (value: TradeDraft) => request(value.id ? `/api/investment-trades/${value.id}` : '/api/investment-trades', { method: value.id ? 'PATCH' : 'POST', body: { accountId: Number(value.accountId), securityId: Number(value.securityId), type: value.type, quantity: value.type === 'BUY' || value.type === 'SELL' ? value.quantity : null, price: value.price, fee: value.type === 'BUY' || value.type === 'SELL' ? value.fee || '0' : null, tradedOn: value.tradedOn } }), onSuccess: async () => { setTrade(null); await invalidateInvestment(); } });
-  const removeTrade = useMutation({ mutationFn: (id: number) => request<void>(`/api/investment-trades/${id}`, { method: 'DELETE' }), onSuccess: async () => { setDeleteTrade(null); await invalidateInvestment(); } });
-  const saveAccount = useMutation({ mutationFn: (value: NonNullable<typeof accountDraft>) => request<InvestmentAccount>(value.id ? `/api/investment-accounts/${value.id}` : '/api/investment-accounts', { method: value.id ? 'PATCH' : 'POST', body: value }), onSuccess: async () => { setAccountDraft(null); await client.invalidateQueries({ queryKey: ['investment-accounts'] }); } });
-  const archiveAccount = useMutation({ mutationFn: (id: number) => request<void>(`/api/investment-accounts/${id}`, { method: 'DELETE' }), onSuccess: () => client.invalidateQueries({ queryKey: ['investment-accounts'] }) });
-  const refresh = useMutation({ mutationFn: () => request<{ state: string; refreshed: number; error: string | null; quotes: MarketPrice[] }>('/api/market-quotes/refresh', { method: 'POST' }), onSuccess: async () => { await Promise.all([client.invalidateQueries({ queryKey: ['market-quotes'] }), client.invalidateQueries({ queryKey: ['portfolio'] }), client.invalidateQueries({ queryKey: ['net-worth'] })]); } });
-  const setManualPrice = useMutation({ mutationFn: () => request<MarketPrice>(`/api/securities/${manualQuote!.securityId}/manual-price`, { method: 'POST', body: manual }), onSuccess: async () => { setManualQuote(null); await invalidateInvestment(); } });
+  const registerSecurity = useMutation({ mutationFn: (value: SecurityDraft) => request<Security>('/api/securities/resolve', { method: 'POST', body: securityResolvePayload(value) }), onSuccess: value => { setSecurityRegistration(null); setSecurityQuery(value.tsCode); setTrade(current => current ? { ...current, securityId: String(value.id) } : current); } });
+  const saveTrade = useMutation({ mutationFn: (value: TradeDraft) => request(value.id ? `/api/investment-trades/${value.id}` : '/api/investment-trades', { method: value.id ? 'PATCH' : 'POST', body: { accountId: Number(value.accountId), securityId: Number(value.securityId), type: value.type, quantity: value.type === 'BUY' || value.type === 'SELL' ? value.quantity : null, price: value.price, fee: value.type === 'BUY' || value.type === 'SELL' ? value.fee || '0' : null, tradedOn: value.tradedOn } }), onSuccess: () => { setTrade(null); } });
+  const removeTrade = useMutation({ mutationFn: (id: number) => request<void>(`/api/investment-trades/${id}`, { method: 'DELETE' }), onSuccess: () => { setDeleteTrade(null); } });
+  const saveAccount = useMutation({ mutationFn: (value: NonNullable<typeof accountDraft>) => request<InvestmentAccount>(value.id ? `/api/investment-accounts/${value.id}` : '/api/investment-accounts', { method: value.id ? 'PATCH' : 'POST', body: value }), onSuccess: () => { setAccountDraft(null); } });
+  const archiveAccount = useMutation({ mutationFn: (id: number) => request<void>(`/api/investment-accounts/${id}`, { method: 'DELETE' }) });
+  const refresh = useMutation({ mutationFn: () => request<{ state: string; refreshed: number; error: string | null; quotes: MarketPrice[] }>('/api/market-quotes/refresh', { method: 'POST' }) });
+  const setManualPrice = useMutation({ mutationFn: () => request<MarketPrice>(`/api/securities/${manualQuote!.securityId}/manual-price`, { method: 'POST', body: manual }), onSuccess: () => { setManualQuote(null); } });
   const blankTrade = (): TradeDraft => ({ accountId: '', securityId: '', type: 'BUY', quantity: '', price: '', fee: '0', tradedOn: businessDate() });
   const edit = (item: InvestmentTrade): TradeDraft => ({ id: item.id, accountId: String(item.accountId), securityId: String(item.security.id), type: item.type, quantity: item.quantity ? String(item.quantity) : '', price: item.price, fee: item.fee, tradedOn: item.tradedOn });
   const tradeLabel = (value: InvestmentTradeType) => ({ BUY: '买入', SELL: '卖出', DIVIDEND: '分红', FEE: '费用' }[value]);

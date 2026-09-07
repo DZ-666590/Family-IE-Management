@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { Account, Asset, Category, HouseholdRole, Loan, LoanInstallment, Member, Membership, Page } from '../../api/contracts';
 import { businessDate } from '../../shared/runtime';
@@ -44,7 +44,6 @@ export function formatAnnualRatePercent(raw: string): string {
 }
 
 export function LoansPage({ request, role, userId = 0 }: { request: RequestFn; role: HouseholdRole; userId?: number }) {
-  const client = useQueryClient();
   const [selected, setSelected] = useState<Loan | null>(null);
   const [draft, setDraft] = useState<LoanDraft | null>(null);
   const [step, setStep] = useState(0);
@@ -62,10 +61,10 @@ export function LoansPage({ request, role, userId = 0 }: { request: RequestFn; r
   usePageRecovery(loanPage, loans.data, setLoanPage);
   usePageRecovery(schedulePage, schedule.data, setSchedulePage);
   const manager = isManager(role);
-  const save = useMutation({ mutationFn: (value: LoanDraft) => request<Loan>('/api/loans', { method: 'POST', body: loanCreatePayload(value) }), onSuccess: async () => { setDraft(null); setStep(0); await Promise.all([client.invalidateQueries({ queryKey: ['loans'] }), client.invalidateQueries({ queryKey: ['net-worth'] }), client.invalidateQueries({ queryKey: ['debt-analysis'] })]); } });
-  const confirm = useMutation({ mutationFn: (id: number) => request<LoanInstallment>(`/api/loan-installments/${id}/confirm`, { method: 'POST' }), onSuccess: async () => { await Promise.all([client.invalidateQueries({ queryKey: ['loan-schedule'] }), client.invalidateQueries({ queryKey: ['loans'] }), client.invalidateQueries({ queryKey: ['transactions'] }), client.invalidateQueries({ queryKey: ['notifications'] }), client.invalidateQueries({ queryKey: ['net-worth'] })]); } });
-  const submitPrepay = useMutation({ mutationFn: (value: NonNullable<typeof prepay>) => request(`/api/loans/${selected!.id}/prepay`, { method: 'POST', body: value }), onSuccess: async () => { setPrepay(null); await Promise.all([client.invalidateQueries({ queryKey: ['loan-schedule'] }), client.invalidateQueries({ queryKey: ['loans'] }), client.invalidateQueries({ queryKey: ['net-worth'] }), client.invalidateQueries({ queryKey: ['debt-analysis'] })]); } });
-  const archive = useMutation({ mutationFn: (id: number) => request<void>(`/api/loans/${id}`, { method: 'DELETE' }), onSuccess: () => client.invalidateQueries({ queryKey: ['loans'] }) });
+  const save = useMutation({ mutationFn: (value: LoanDraft) => request<Loan>('/api/loans', { method: 'POST', body: loanCreatePayload(value) }), onSuccess: () => { setDraft(null); setStep(0); } });
+  const confirm = useMutation({ mutationFn: (id: number) => request<LoanInstallment>(`/api/loan-installments/${id}/confirm`, { method: 'POST' }) });
+  const submitPrepay = useMutation({ mutationFn: (value: NonNullable<typeof prepay>) => request(`/api/loans/${selected!.id}/prepay`, { method: 'POST', body: value }), onSuccess: () => { setPrepay(null); } });
+  const archive = useMutation({ mutationFn: (id: number) => request<void>(`/api/loans/${id}`, { method: 'DELETE' }) });
   const blank = (): LoanDraft => ({ name: '', type: 'MORTGAGE', linkedAssetId: '', memberId: '', assignedUserId: '', paymentAccountId: '', paymentCategoryId: '', principal: '', annualRate: '', termMonths: '360', repaymentMethod: 'EQUAL_PAYMENT', startOn: businessDate(), customSchedule: [] });
   const loanType = (value: Loan['type']) => value === 'MORTGAGE' ? '房贷' : value === 'CAR' ? '车贷' : '其他贷款';
   return <PageScaffold title="贷款计划" primaryAction={manager ? { label: '新建贷款', onClick: () => { setDraft(blank()); setStep(0); setAnnualRateFeedback(null); } } : undefined} readonly={!manager}>

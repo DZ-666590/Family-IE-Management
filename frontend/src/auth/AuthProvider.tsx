@@ -1,8 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createApiClient } from '../api/client';
 import type { ApiRequestOptions } from '../api/client';
 import type { ChangePasswordRequest, RegisterRequest, RegisterResponse, Session } from '../api/contracts';
+import { refreshAfterWrite } from '../shared/write-refresh';
 
 export type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
@@ -24,10 +25,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [notice, setNotice] = useState<string | null>(null);
+  const generation = useRef(0);
 
   const client = useMemo(() => createApiClient({
-    invalidatePendingWork: () => queryClient.clear(),
+    invalidatePendingWork: () => { generation.current += 1; queryClient.clear(); },
     onSessionExpired: message => {
+      client.resetSessionScope();
       setSession(null);
       setStatus('anonymous');
       setNotice(message);
@@ -35,13 +38,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }), [queryClient]);
 
   useEffect(() => {
+    const scope = generation.current;
     const controller = new AbortController();
     client.api<Session>('/api/session', { signal: controller.signal, handleUnauthorized: false })
       .then(value => {
+        if (scope !== generation.current) return;
         setSession(value);
         setStatus('authenticated');
       })
       .catch(error => {
+        if (scope !== generation.current) return;
         if (error instanceof DOMException && error.name === 'AbortError') return;
         setSession(null);
         setStatus('anonymous');
@@ -49,32 +55,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => controller.abort();
   }, [client]);
 
+  const beginSessionTransition = useCallback(() => {
+    generation.current += 1;
+    client.resetSessionScope();
+    queryClient.clear();
+    setSession(null);
+    setStatus('anonymous');
+    return generation.current;
+  }, [client, queryClient]);
+
+  const assertCurrent = useCallback((scope: number) => {
+    if (scope !== generation.current) throw new DOMException('Session changed', 'AbortError');
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
+    const scope = beginSessionTransition();
     const body = new URLSearchParams({ username: email, password });
     const value = await client.api<Session>('/api/auth/login', { method: 'POST', body });
+    assertCurrent(scope);
     client.invalidateCsrf();
     client.resetSessionExpiry();
     setNotice(null);
     setSession(value);
     setStatus('authenticated');
-  }, [client]);
+  }, [client, beginSessionTransition, assertCurrent]);
 
   const register = useCallback(async (request: RegisterRequest) => {
+    const scope = beginSessionTransition();
     await client.api<RegisterResponse>('/api/auth/register', { method: 'POST', body: request });
+    assertCurrent(scope);
     await login(request.email, request.password);
-  }, [client, login]);
+  }, [client, login, beginSessionTransition, assertCurrent]);
 
   const logout = useCallback(async () => {
+    const scope = beginSessionTransition();
     try {
       await client.api<void>('/api/auth/logout', { method: 'POST' });
     } finally {
-      queryClient.clear();
-      setSession(null);
-      setStatus('anonymous');
-      setNotice(null);
-      client.invalidateCsrf();
+      if (scope === generation.current) {
+        queryClient.clear();
+        setSession(null);
+        setStatus('anonymous');
+        setNotice(null);
+        client.invalidateCsrf();
+      }
     }
-  }, [client, queryClient]);
+  }, [client, queryClient, beginSessionTransition]);
+
+  const request = useCallback(async <T,>(path: string, options?: ApiRequestOptions): Promise<T> => {
+    const scope = generation.current;
+    const result = await client.api<T>(path, options);
+    assertCurrent(scope);
+    await refreshAfterWrite(queryClient, path, options, () => scope === generation.current);
+    assertCurrent(scope);
+    return result;
+  }, [client, queryClient, assertCurrent]);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     const request: ChangePasswordRequest = { currentPassword, newPassword };
@@ -89,8 +124,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     register,
     logout,
     changePassword,
-    request: client.api
-  }), [session, status, notice, login, register, logout, changePassword, client]);
+    request
+  }), [session, status, notice, login, register, logout, changePassword, request]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
