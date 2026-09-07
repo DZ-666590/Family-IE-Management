@@ -43,7 +43,7 @@ expect(loanCreatePayload({...draft, annualRate: '3.1'}).annualRate).toBe(0.031);
 
 ## Task 2: Complete pagination for lists, selectors and loan schedules
 
-**Files:** `frontend/src/api/client.ts`, `contracts.ts`, new `frontend/src/shared/pagination.tsx` (transport helpers may be a separate focused `.ts` file), ledger/asset/investment/recurring/loan/family/notification page consumers as needed, and loan schedule controller/service response metadata; corresponding tests.
+**Files:** `frontend/src/api/client.ts`, `contracts.ts`, new `frontend/src/shared/pagination.tsx` (transport helpers may be a separate focused `.ts` file), ledger/asset/investment/budget/recurring/loan/family page consumers as needed, and loan schedule controller/service response metadata; corresponding tests. Notifications currently return their complete visible collection and need no artificial server paging.
 
 **Interfaces:** Existing `Page<T>` is `{items,page,size,totalElements,totalPages,hasNext}`. Preserve existing API envelope bodies; expose array endpoint page metadata through an opt-in client path, e.g. `request<Page<T>>(path,{responseType:'page'})`. JSON callers remain unchanged. Common pager uses actual `hasNext`/total metadata, not an arbitrarily increased page size. Reference dropdowns can use a shared paginated read-all helper if they are not searchable.
 
@@ -58,6 +58,7 @@ expect(lastPage.hasNext).toBe(false);
 
 - [ ] Add backward-compatible schedule pagination metadata while retaining the 50-row server cap. Expose complete totals, not guessed values derived from original term after prepayment adds history.
 - [ ] Page every existing visible list/history that was fixed to page 0 (including valuation history); reset/clamp pages after filters and removals and show an empty-page recovery path.
+- [ ] Include budget usage and revision history. Update test doubles to reflect real paged transport contracts rather than adding production-only fallbacks for incomplete mocks. A read-all helper must reject inconsistent metadata or a non-advancing page, not loop indefinitely.
 - [ ] Keep reference selections complete across pages, including editing an existing selection not on page 0; keep distinct query keys for different page/filter/projection shapes.
 - [ ] Verify selectors, 50/51/360 boundaries, filter reset, non-manager read views and mobile pager usability. Do not add business filtering or archive recovery from later rounds.
 - [ ] Run focused paging/frontend tests, affected Java schedule tests, typecheck, self-review and commit.
