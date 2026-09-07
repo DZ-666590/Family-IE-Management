@@ -9,7 +9,7 @@ export function AppRail() {
         <span aria-hidden="true">家</span>
       </NavLink>
       <div className="rail-links">
-        {railItems.map(item => {
+        {railItems.filter(item => item.key !== 'settings').map(item => {
           const active = location.pathname === item.path
             || (item.key === 'ledger' && ['/workspace/budgets', '/workspace/recurring'].includes(location.pathname))
             || (item.key === 'settings' && location.pathname === '/workspace/family');

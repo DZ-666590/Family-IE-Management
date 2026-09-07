@@ -23,15 +23,19 @@ const renderLayout = (role: Session['role'] = 'OWNER') => render(
 );
 
 it.each([
-  ['OWNER', ['家庭与成员', '系统设置'], ['邀请成员', '管理家庭'], []],
-  ['ADMIN', ['家庭与成员', '系统设置'], ['邀请成员'], ['管理家庭']],
-  ['MEMBER', ['家庭与成员', '系统设置'], [], ['邀请成员', '管理家庭']]
+  ['OWNER', ['家庭与成员', '系统设置'], ['邀请成员'], []],
+  ['ADMIN', ['家庭与成员', '系统设置'], ['邀请成员'], []],
+  ['MEMBER', ['家庭与成员', '系统设置'], [], ['邀请成员']]
 ] as const)('shows the exact %s navigation and administrative actions', async (role, modules, visibleActions, hiddenActions) => {
   renderLayout(role);
   const nav = screen.getByRole('navigation', { name: '模块导航' });
-  for (const module of modules) expect(within(nav).getByRole('link', { name: module })).toBeInTheDocument();
-  for (const action of visibleActions) expect(screen.getByRole('button', { name: action })).toBeInTheDocument();
-  for (const action of hiddenActions ?? []) expect(screen.queryByRole('button', { name: action })).not.toBeInTheDocument();
+  for (const module of modules) expect(within(nav).queryByRole('link', { name: module })).not.toBeInTheDocument();
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: '个人中心' }));
+  expect(screen.getByRole('menuitem', { name: '家庭与成员' })).toBeInTheDocument();
+  expect(screen.getByRole('menuitem', { name: '账号设置' })).toBeInTheDocument();
+  for (const action of visibleActions) expect(screen.getByRole('menuitem', { name: action })).toBeInTheDocument();
+  for (const action of hiddenActions ?? []) expect(screen.queryByRole('menuitem', { name: action })).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: '资产' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: '投资' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: '贷款' })).toBeInTheDocument();
@@ -39,6 +43,30 @@ it.each([
     await userEvent.click(screen.getByRole('link', { name: '资产' }));
     expect(screen.getByText('当前为只读协作视图')).toBeInTheDocument();
   }
+});
+
+it('navigates the profile menu by keyboard and restores focus on Escape', async () => {
+  renderLayout();
+  const user = userEvent.setup();
+  const avatar = screen.getByRole('button', { name: '个人中心' });
+  await user.click(avatar);
+  expect(screen.getByRole('menuitem', { name: '家庭与成员' })).toHaveFocus();
+  await user.keyboard('{End}');
+  expect(screen.getByRole('menuitem', { name: '退出登录' })).toHaveFocus();
+  await user.keyboard('{ArrowUp}');
+  expect(screen.getByRole('menuitem', { name: '账号设置' })).toHaveFocus();
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  expect(avatar).toHaveFocus();
+});
+
+it('opens the invitation form from the avatar without creating an invite', async () => {
+  renderLayout();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: '个人中心' }));
+  await user.click(screen.getByRole('menuitem', { name: '邀请成员' }));
+  expect(await screen.findByRole('dialog', { name: '邀请成员' })).toBeInTheDocument();
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
 });
 
 it('keeps the 52px app rail while hiding and restoring the module sidebar preference', async () => {

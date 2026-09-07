@@ -185,6 +185,21 @@ a:hover { text-decoration: underline; }
 .header-leading, .header-actions, .user-chip { display: flex; align-items: center; }
 .header-leading { gap: 8px; min-width: 0; }
 .header-actions { gap: 4px; }
+.profile-menu { position: relative; }
+.profile-trigger { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.profile-trigger:hover, .profile-trigger[aria-expanded="true"] { background: #f0f1f3; }
+.profile-trigger:focus-visible { outline: 2px solid var(--ledger-primary); outline-offset: 2px; }
+.profile-popover { position: absolute; z-index: 110; right: 0; top: calc(100% + 10px); width: min(280px, calc(100vw - 24px)); padding: 6px; border: 1px solid #e4e6e9; border-radius: 14px; background: #fff; box-shadow: 0 12px 36px rgba(20,29,45,.13), 0 2px 6px rgba(20,29,45,.05); }
+.profile-identity { padding: 12px 12px 14px; margin-bottom: 4px; border-bottom: 1px solid #edf0f2; }
+.profile-identity strong, .profile-identity span, .profile-identity small { display: block; overflow-wrap: anywhere; }
+.profile-identity strong { font-size: 14px; }
+.profile-identity span { margin-top: 3px; font-size: 12px; color: var(--ledger-muted); }
+.profile-identity small { margin-top: 8px; font-size: 11px; color: var(--ledger-muted); }
+.profile-popover [role="menuitem"] { width: 100%; min-height: 42px; display: flex; align-items: center; gap: 11px; padding: 10px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--ledger-text); text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
+.profile-popover [role="menuitem"]:hover, .profile-popover [role="menuitem"]:focus { background: #f3f4f6; outline: none; }
+.profile-popover [role="menuitem"]:focus-visible { outline: 2px solid var(--ledger-primary); outline-offset: -2px; }
+.profile-separator { height: 1px; margin: 5px 6px; background: #edf0f2; }
+.profile-popover .profile-logout { color: #b8322c; }
 .workspace-crumb { color: var(--ledger-muted); font-size: 12px; white-space: nowrap; }
 .icon-button { width: 32px; height: 32px; padding: 0; display: inline-grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #4e5969; cursor: pointer; }
 .icon-button:hover { background: #f2f3f5; color: var(--ledger-text); }

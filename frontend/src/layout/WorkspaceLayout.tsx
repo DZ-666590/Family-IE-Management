@@ -1,5 +1,5 @@
 import { useCallback, useContext, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { Session } from '../api/contracts';
 import { AuthContext } from '../auth/AuthProvider';
 import type { RequestFn } from '../features/common';
@@ -25,6 +25,8 @@ const pendingRequest: RequestFn = () => new Promise(() => undefined);
 
 function WorkspaceContent({ session }: { session: Session }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const consumeInvite = useCallback(() => navigate('/workspace/family', { replace: true }), [navigate]);
   const auth = useContext(AuthContext);
   const request = auth?.request ?? pendingRequest;
   if (location.pathname.startsWith('/workspace/extensions/')) return <PluginPage path={location.pathname} request={request} />;
@@ -36,7 +38,7 @@ function WorkspaceContent({ session }: { session: Session }) {
   if (location.pathname === '/workspace/investments') return <InvestmentsPage request={request} role={session.role} />;
   if (location.pathname === '/workspace/loans') return <LoansPage request={request} role={session.role} userId={session.userId} />;
   if (location.pathname === '/workspace/notifications') return <NotificationsPage request={request} />;
-  if (location.pathname === '/workspace/family') return <FamilyPage request={request} role={session.role} />;
+  if (location.pathname === '/workspace/family') return <FamilyPage request={request} role={session.role} inviteRequested={new URLSearchParams(location.search).get('action') === 'invite'} onInviteRequestHandled={consumeInvite} />;
   if (location.pathname === '/workspace/settings') return <ChangePasswordPage />;
   return <DashboardPage request={request} role={session.role} displayName={session.displayName} />;
 }

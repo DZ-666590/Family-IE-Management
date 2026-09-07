@@ -8,7 +8,7 @@ export function ModuleLinks({ onSelect, mobile = false }: { onSelect?: () => voi
   const plugins = usePlugins();
   return (
     <nav className="module-nav" aria-label={mobile ? '移动模块导航' : '模块导航'}>
-      {moduleItems.map(item => {
+      {moduleItems.filter(item => !['family', 'settings'].includes(item.key)).map(item => {
         const Icon = item.icon;
         return (
           <NavLink key={item.key} to={item.path} onClick={onSelect} aria-label={item.label} className={({ isActive }) => `module-link${isActive ? ' is-active' : ''}`}>

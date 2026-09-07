@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { CreatedInvite, Family, FamilyInvite, HouseholdRole, Membership } from '../../api/contracts';
 import { ConfirmDialog, DataPanel, Drawer, FormError, PageScaffold, QueryState, StatusTag, dateText, isManager, type RequestFn } from '../common';
 
-export function FamilyPage({ request, role, householdName }: { request: RequestFn; role: HouseholdRole; householdName?: string }) {
+export function FamilyPage({ request, role, householdName, inviteRequested = false, onInviteRequestHandled }: { request: RequestFn; role: HouseholdRole; householdName?: string; inviteRequested?: boolean; onInviteRequestHandled?: () => void }) {
   const client = useQueryClient();
   const family = useQuery({ queryKey: ['family'], queryFn: () => request<Family>('/api/family') });
   const memberships = useQuery({ queryKey: ['memberships'], queryFn: () => request<{ items: Membership[] }>('/api/family/memberships?page=0&size=50') });
@@ -13,6 +13,11 @@ export function FamilyPage({ request, role, householdName }: { request: RequestF
   const [inviteRole, setInviteRole] = useState<'MEMBER' | 'ADMIN'>('MEMBER');
   const [maxUses, setMaxUses] = useState('5');
   const [createdInvite, setCreatedInvite] = useState<CreatedInvite | null>(null);
+  useEffect(() => {
+    if (!inviteRequested) return;
+    if (isManager(role)) { setInviteOpen(true); setCreatedInvite(null); }
+    onInviteRequestHandled?.();
+  }, [inviteRequested, role, onInviteRequestHandled]);
   const [transferId, setTransferId] = useState<number | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [confirmName, setConfirmName] = useState('');

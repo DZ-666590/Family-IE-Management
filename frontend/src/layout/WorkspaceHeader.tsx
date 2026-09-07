@@ -1,7 +1,6 @@
-import Button from '@douyinfe/semi-ui/lib/es/button';
 import { IconBell, IconMenu, IconSidebar } from '@douyinfe/semi-icons';
 import type { Session } from '../api/contracts';
-import { canManage, roleLabel } from './navigation';
+import { ProfileMenu } from './ProfileMenu';
 import { useNavigate } from 'react-router-dom';
 
 export function WorkspaceHeader({
@@ -32,14 +31,8 @@ export function WorkspaceHeader({
         <span className="workspace-crumb">家账 / 我的家庭</span>
       </div>
       <div className="header-actions">
-        {canManage(session.role) && <Button theme="borderless" size="small" onClick={() => navigate('/workspace/family')}>邀请成员</Button>}
-        {session.role === 'OWNER' && <Button theme="borderless" size="small" onClick={() => navigate('/workspace/family')}>管理家庭</Button>}
         <button type="button" className="icon-button notification-button" aria-label="查看提醒" onClick={() => navigate('/workspace/notifications')}><IconBell /></button>
-        <div className="user-chip">
-          <span className="user-avatar" aria-hidden="true">{session.displayName.slice(0, 1)}</span>
-          <div><strong>{session.displayName}</strong><span>{roleLabel(session.role)}</span></div>
-        </div>
-        <Button theme="borderless" size="small" onClick={onLogout}>退出</Button>
+        <ProfileMenu session={session} onLogout={onLogout} />
       </div>
     </header>
   );
