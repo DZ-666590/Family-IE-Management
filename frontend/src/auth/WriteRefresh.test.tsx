@@ -176,3 +176,31 @@ it('does not repopulate an old-user cache when login occurs during the awaited r
   expect(await pending).toMatchObject({ name: 'AbortError' });
   expect(auth.session?.userId).toBe(8); expect(cache.getQueryData(['net-worth'])).toBe('B total');
 });
+
+it.each([
+  ['/api/accounts/1', 'accountName', '日常账户', '家庭新账户'],
+  ['/api/categories/1', 'categoryName', '日常支出', '家庭新分类']
+] as const)('refreshes inactive recurring labels immediately after renaming %s', async (path, field, before, after) => {
+  let name: string = before;
+  const cache = await setup(async url => {
+    if (url === '/api/session') return response(session);
+    name = after;
+    return response({ id: 1, name });
+  });
+  const rulesPage = {
+    queryKey: ['recurring-rules', 'page', 0],
+    queryFn: async () => ({ items: [{ id: 1, [field]: name }], page: 0, size: 50, totalElements: 1, totalPages: 1, hasNext: false })
+  };
+  const pendingLabels = {
+    queryKey: ['recurring-rules', 'all-reference'],
+    queryFn: async () => [{ id: 1, [field]: name }]
+  };
+  await cache.fetchQuery(rulesPage);
+  await cache.fetchQuery(pendingLabels);
+  await act(async () => { await auth.request(path, { method: 'PATCH', body: { name: after } }); });
+  expect(cache.getQueryData(rulesPage.queryKey)).toMatchObject({ items: [{ id: 1, [field]: after }] });
+  expect(cache.getQueryData(pendingLabels.queryKey)).toEqual([{ id: 1, [field]: after }]);
+  // Immediate navigation reuses these infinite-staleTime cached shapes.
+  expect(await cache.fetchQuery(rulesPage)).toMatchObject({ items: [{ id: 1, [field]: after }] });
+  expect(await cache.fetchQuery(pendingLabels)).toEqual([{ id: 1, [field]: after }]);
+});

@@ -6,8 +6,8 @@ const ledger = ['transactions', 'accounts', 'budget-usage', 'notifications', ...
 const investments = ['portfolio', 'investment-accounts', 'investment-trades', 'market-quotes', 'securities', ...summaries];
 const dependencies: Record<string, string[]> = {
   transactions: ledger,
-  accounts: ledger,
-  categories: ['categories', 'budget-revisions', ...ledger],
+  accounts: ['recurring-rules', ...ledger],
+  categories: ['categories', 'budget-revisions', 'recurring-rules', ...ledger],
   budgets: ['budgets', 'budget-revisions', ...ledger],
   assets: ['assets', 'asset-valuations', 'loans', ...summaries, 'notifications'],
   'investment-accounts': investments,
