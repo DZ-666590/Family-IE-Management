@@ -83,7 +83,7 @@ public class NetWorthService {
             long used = parseAggregateCents(transactions.sumBudgetExpenseCents(householdId, month.atDay(1),
                     month.plusMonths(1).atDay(1), budget.getScopeType().name(),
                     budget.getCategory() == null ? null : budget.getCategory().getId(),
-                    budget.getMember() == null ? null : budget.getMember().getId(), false));
+                    budget.getMember() == null ? null : budget.getMember().getId(), true));
             planned = planned.add(BigInteger.valueOf(budget.getAmountCents()));
             spent = spent.add(BigInteger.valueOf(used));
             BudgetUsageStatus status = budgetStatus(used, budget.getAmountCents());

@@ -95,7 +95,7 @@ class NetWorthServiceTest {
         when(category.getId()).thenReturn(11L);
         when(transactions.sumBudgetExpenseCents(
                 1L, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
-                "CATEGORY", 11L, null, false)).thenReturn(aggregateCents);
+                "CATEGORY", 11L, null, true)).thenReturn(aggregateCents);
 
         return new NetWorthService(accounts, assets, loans, portfolio, budgets, transactions,
                 Clock.fixed(Instant.parse("2026-09-03T12:00:00Z"), ZoneOffset.UTC)).calculate(1L, asOf);

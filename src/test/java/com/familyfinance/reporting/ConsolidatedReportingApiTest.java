@@ -44,7 +44,7 @@ class ConsolidatedReportingApiTest {
     @Autowired FinancialTransactionRepository transactions;
 
     @Test
-    void netWorthBudgetUsesStoredCentsAndMatchesDefaultCategoryDetailRollup() throws Exception {
+    void netWorthBudgetUsesStoredCentsAndMatchesUserFacingCategoryRollup() throws Exception {
         MockHttpSession session = login();
         var household = users.findByUsername("demo").orElseThrow().getHousehold();
         var member = members.findByHouseholdOrderById(household).get(0);
@@ -54,7 +54,7 @@ class ConsolidatedReportingApiTest {
         Category child = categories.saveAndFlush(new Category(
                 household, TransactionKind.EXPENSE, "汇总子分类", "#123456", false, parent, now));
         Budget budget = budgets.saveAndFlush(new Budget(
-                household, YearMonth.of(2026, 9), BudgetScopeType.CATEGORY, parent, null, 500_000L));
+                household, YearMonth.of(2026, 9), BudgetScopeType.CATEGORY, parent, null, 159_136L));
         transactions.saveAndFlush(TransactionTestFixtures.newTransaction(
                 accounts, users, household, member, parent, TransactionKind.EXPENSE, 159_135L,
                 LocalDate.of(2026, 9, 2), null, null, "整数分预算", now, now));
@@ -64,19 +64,24 @@ class ConsolidatedReportingApiTest {
 
         mvc.perform(get("/api/net-worth").session(session))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.budget.planned").value("5000.00"))
-                .andExpect(jsonPath("$.data.budget.spent").value("1591.35"));
+                .andExpect(jsonPath("$.data.budget.planned").value("1591.36"))
+                .andExpect(jsonPath("$.data.budget.spent").value("1591.36"))
+                .andExpect(jsonPath("$.data.budget.nearLimitCount").value(0))
+                .andExpect(jsonPath("$.data.budget.overLimitCount").value(1));
         mvc.perform(get("/api/budgets/usage").session(session)
                         .param("periodMonth", "2026-09"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].budget.id").value(budget.getId()))
                 .andExpect(jsonPath("$.data[0].spent").value("1591.35"))
+                .andExpect(jsonPath("$.data[0].status").value("NEAR_LIMIT"))
                 .andExpect(jsonPath("$.data[0].rollupCategories").value(false));
         mvc.perform(get("/api/budgets/usage").session(session)
                         .param("periodMonth", "2026-09")
                         .param("rollupCategories", "true"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].spent").value("1591.36"));
+                .andExpect(jsonPath("$.data[0].spent").value("1591.36"))
+                .andExpect(jsonPath("$.data[0].status").value("AT_LIMIT"))
+                .andExpect(jsonPath("$.data[0].rollupCategories").value(true));
     }
 
     @Test
