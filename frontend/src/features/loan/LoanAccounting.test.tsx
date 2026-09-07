@@ -28,8 +28,9 @@ it('previews principal plus interest and records an actual payment date with a s
   expect(await screen.findByText('预计余额 ¥100.30')).toBeInTheDocument();
   const date = screen.getByLabelText('实际还款日期');
   fireEvent.change(date, { target: { value: '2026-01-03' } });
+  await user.selectOptions(screen.getByLabelText('本次付款账户'), '3');
   await user.click(screen.getByRole('button', { name: '记录本期还款' }));
-  expect(request).toHaveBeenCalledWith('/api/loan-installments/9/confirm', expect.objectContaining({ body: { paidOn: '2026-01-03' }, headers: { 'Idempotency-Key': expect.any(String) } }));
+  expect(request).toHaveBeenCalledWith('/api/loan-installments/9/confirm', expect.objectContaining({ body: { paidOn: '2026-01-03', paymentAccountId: 3 }, headers: { 'Idempotency-Key': expect.any(String) } }));
   await waitFor(() => expect(request.mock.calls.filter(([path]) => path === '/api/loans/4').length).toBeGreaterThan(1));
 });
 it('does not give an owner an override for another assigned user', async () => {

@@ -211,6 +211,10 @@
 .payment-preview__remaining { border-top: 1px solid #e5e9ee; padding-top: 12px; margin: 12px 0; font-size: 18px; color: #4b6bee; }
 .payment-preview > small { display: block; color: #67727e; font-size: 12px; line-height: 1.6; }
 .payment-preview [role="status"] { font-size: 13px; line-height: 1.6; margin: 12px 0; }
+.loan-amount-grid, .loan-card .loan-amount-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 14px; margin: 12px 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--ledger-border); }
+.loan-amount-grid dt { color: var(--ledger-muted); font-size: 12px; line-height: 1.5; }
+.loan-amount-grid dd { margin: 4px 0 0; color: var(--ledger-text); font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.loan-card footer { flex-wrap: wrap; }
 .feature-form > fieldset { display: grid; gap: 16px; min-width: 0; border: 0; padding: 0; margin: 0; }
 .audit-list { display: grid; gap: 12px; }
 .audit-list > details { border: 1px solid #e5e9ee; border-radius: 8px; padding: 14px; overflow-x: auto; }

@@ -67,11 +67,11 @@ class LoanAccountingApiTest {
  }
  @Test void prepaymentShortageRollsBackThenExactFullCloseIsIdempotent() throws Exception {
   fund("0.00");long loan=create("OPENING");long journals=count("ledger_journals"),commands=count("accounting_commands");
-  prepay(loan,"2000.00","2026-01-03","prepay").andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("INSUFFICIENT_FUNDS"));
+  prepay(loan,"2000.00","2026-01-01","prepay").andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("INSUFFICIENT_FUNDS"));
   assertThat(count("loan_prepayments")).isZero();assertThat(count("financial_transactions")).isZero();assertThat(count("ledger_journals")).isEqualTo(journals);assertThat(count("accounting_commands")).isEqualTo(commands);assertThat(principal(loan)).isEqualTo(200000);
-  fund("2000.00");prepay(loan,"2000.00","2026-01-03","prepay").andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("CLOSED"));
-  prepay(loan,"2000.00","2026-01-03","prepay").andExpect(status().isOk());
-  prepay(loan,"1999.00","2026-01-03","prepay").andExpect(status().isConflict());prepay(loan,"2000.00","2026-01-04","prepay").andExpect(status().isConflict());
+  fund("2000.00");prepay(loan,"2000.00","2026-01-01","prepay").andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("CLOSED"));
+  prepay(loan,"2000.00","2026-01-01","prepay").andExpect(status().isOk());
+  prepay(loan,"1999.00","2026-01-01","prepay").andExpect(status().isConflict());prepay(loan,"2000.00","2026-01-04","prepay").andExpect(status().isConflict());
   assertThat(ledger.balance(household,"CASH:"+account)).isZero();assertThat(ledger.balance(household,"LOAN:"+loan)).isZero();assertThat(ledger.balance(household,"EXPENSE:"+category)).isZero();
   assertThat(count("loan_prepayments")).isEqualTo(1);assertThat(jdbc.queryForObject("select count(*) from loan_installments where loan_id=? and status='PENDING'",Long.class,loan)).isZero();
  }

@@ -14,8 +14,11 @@ public class LoanInstallment {
  @Column(name="interest_cents",nullable=false) private long interestCents;
  @Enumerated(EnumType.STRING) @Column(nullable=false) private LoanInstallmentStatus status=LoanInstallmentStatus.PENDING;
  @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="confirmed_transaction_id") private FinancialTransaction confirmedTransaction;
+ @Column(name="cancelled_by_prepayment_id") private Long cancelledByPrepaymentId;
  protected LoanInstallment(){} LoanInstallment(Loan loan, InstallmentDraft d){this.loan=loan;this.household=loan.getHousehold();installmentNo=d.installmentNo();dueOn=d.dueOn();principalCents=d.principalCents();interestCents=d.interestCents();}
  public Long getId(){return id;} public Loan getLoan(){return loan;} public Household getHousehold(){return household;} public int getInstallmentNo(){return installmentNo;} public LocalDate getDueOn(){return dueOn;} public long getPrincipalCents(){return principalCents;} public long getInterestCents(){return interestCents;} public LoanInstallmentStatus getStatus(){return status;} public FinancialTransaction getConfirmedTransaction(){return confirmedTransaction;}
  void confirm(FinancialTransaction transaction){ if(status==LoanInstallmentStatus.PENDING){confirmedTransaction=transaction;status=LoanInstallmentStatus.PAID;} }
  void cancel(){if(status==LoanInstallmentStatus.PENDING)status=LoanInstallmentStatus.CANCELLED;}
+ void cancel(long event){if(status==LoanInstallmentStatus.PENDING){cancelledByPrepaymentId=event;cancel();}}
+ public Long getCancelledByPrepaymentId(){return cancelledByPrepaymentId;}
 }

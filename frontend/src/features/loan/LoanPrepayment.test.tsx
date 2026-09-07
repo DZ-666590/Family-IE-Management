@@ -25,7 +25,7 @@ it('opens prepayment without secure-context randomUUID and reuses the key on ret
       return { id: 1, transactionId: 1, amount: '100.00', remainingPrincipal: '19900.00', status: 'ACTIVE' } as T;
     }
     if (path === '/api/loans/4') return loan as T;
-    return (path.startsWith('/api/loans?') ? page([loan]) : path === '/api/members' ? [] : page([])) as T;
+    return (path.startsWith('/api/loans?') ? page([loan]) : path === '/api/members' ? [] : path.startsWith('/api/accounts?') ? page([{ id: 1, name: '还款账户', openingConfirmed: true, availableBalance: '20000.00' }]) : page([])) as T;
   };
   try {
     const user = userEvent.setup(); mount(request);

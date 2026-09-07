@@ -22,18 +22,18 @@ public class LoanService {
     private final FinancialAccountRepository accounts; private final CategoryRepository categories; private final CurrentMembership current; private final FamilyMutationAuthorization mutations; private final Clock clock;
     private final AmortizationCalculator calculator=new AmortizationCalculator();
     private final LoanAccountingService accounting; private final AccountingRequests requests; private final LoanPrepaymentRepository prepayments; private final LoanInstallmentRepository installments;
-    private final LoanPurchasedAssetService purchasedAssets;
-    LoanService(LoanRepository loans, AssetRepository assets, FamilyMemberRepository members, AppUserRepository users, FinancialAccountRepository accounts, CategoryRepository categories, CurrentMembership current, FamilyMutationAuthorization mutations, Clock clock, LoanAccountingService accounting, AccountingRequests requests,LoanPrepaymentRepository prepayments,LoanInstallmentRepository installments,LoanPurchasedAssetService purchasedAssets) {
+    private final LoanPurchasedAssetService purchasedAssets; private final LoanTotalsService totals;
+    LoanService(LoanRepository loans, AssetRepository assets, FamilyMemberRepository members, AppUserRepository users, FinancialAccountRepository accounts, CategoryRepository categories, CurrentMembership current, FamilyMutationAuthorization mutations, Clock clock, LoanAccountingService accounting, AccountingRequests requests,LoanPrepaymentRepository prepayments,LoanInstallmentRepository installments,LoanPurchasedAssetService purchasedAssets,LoanTotalsService totals) {
         this.loans=loans;this.assets=assets;this.members=members;this.users=users;this.accounts=accounts;this.categories=categories;this.current=current;this.mutations=mutations;this.clock=clock;this.accounting=accounting;this.requests=requests;this.prepayments=prepayments;this.installments=installments;
-        this.purchasedAssets=purchasedAssets;
+        this.purchasedAssets=purchasedAssets;this.totals=totals;
     }
-    public LoanPage list(Authentication a, LoanStatus status,int page,int size){long h=current.require(a).householdId(); int p=Math.max(0,page), s=Math.min(MAX_PAGE_SIZE,Math.max(1,size)); Page<Loan> r=loans.findByHouseholdIdAndStatus(h,status==null?LoanStatus.ACTIVE:status,PageRequest.of(p,s,Sort.by(Sort.Direction.DESC,"id"))); return new LoanPage(r.stream().map(LoanResponse::from).toList(),p,s,r.getTotalElements(),r.getTotalPages(),r.hasNext());}
-    public LoanResponse get(Authentication a,long id){return LoanResponse.from(find(current.require(a).householdId(),id));}
+    public LoanPage list(Authentication a, LoanStatus status,int page,int size){long h=current.require(a).householdId(); int p=Math.max(0,page), s=Math.min(MAX_PAGE_SIZE,Math.max(1,size)); Page<Loan> r=loans.findByHouseholdIdAndStatus(h,status==null?LoanStatus.ACTIVE:status,PageRequest.of(p,s,Sort.by(Sort.Direction.DESC,"id"))); return new LoanPage(r.stream().map(l->response(l,false)).toList(),p,s,r.getTotalElements(),r.getTotalPages(),r.hasNext());}
+    public LoanResponse get(Authentication a,long id){return response(find(current.require(a).householdId(),id),false);}
     public LoanSchedulePage schedule(Authentication a,long id,int page,int size){Loan l=find(current.require(a).householdId(),id);int p=Math.max(0,page),s=Math.min(MAX_PAGE_SIZE,Math.max(1,size));long total=l.getInstallments().size();int totalPages=(int)Math.ceil((double)total/s);List<LoanInstallmentResponse> items=l.getInstallments().stream().skip((long)p*s).limit(s).map(LoanInstallmentResponse::from).toList();return new LoanSchedulePage(items,p,s,total,totalPages,p+1<totalPages);}
     @Transactional public LoanResponse create(Authentication a,LoanCreateRequest r){return create(a,r,AccountingRequests.key(null));}
     @Transactional public LoanResponse create(Authentication a,LoanCreateRequest r,String key){
         var access=mutations.requireAdmin(a);long h=access.context().householdId();String digest=requests.digest("LOAN_CREATE",access.context().userId(),r);
-        Long replay=requests.replay(h,key,digest);if(replay!=null)return LoanResponse.from(locked(h,replay));
+        Long replay=requests.replay(h,key,digest);if(replay!=null)return response(locked(h,replay),true);
         Values v=validate(h,r);if(r.fundingMode()==null)throw new RequestValidationException(Map.of("fundingMode","请选择贷款入账方式"));
         boolean purchased=Boolean.TRUE.equals(r.createPurchasedAsset());
         if(purchased!=(r.fundingMode()==LoanFundingMode.FINANCED_PURCHASE))throw new RequestValidationException(Map.of("createPurchasedAsset","本次贷款购买物必须同时选择直接购买入账方式"));
@@ -48,12 +48,12 @@ public class LoanService {
             loan.attachPurchasedAsset(purchasedAssets.create(loan,day));
         }
         loan.accounting(r.fundingMode(),day,disbursement);loans.saveAndFlush(loan);
-        accounting.originate(loan,access.context().userId(),key,false);requests.record(h,key,digest,loan.getId());return LoanResponse.from(loan);
+        accounting.originate(loan,access.context().userId(),key,false);requests.record(h,key,digest,loan.getId());return response(loan,true);
     }
     @Transactional public LoanResponse update(Authentication a,long id,LoanPatchRequest r){return update(a,id,r,AccountingRequests.key(null));}
     @Transactional public LoanResponse update(Authentication a,long id,LoanPatchRequest r,String key){
         var access=mutations.requireAdmin(a);long h=access.context().householdId();String digest=requests.digest("LOAN_UPDATE:"+id,access.context().userId(),r);
-        Long replay=requests.replay(h,key,digest);if(replay!=null)return LoanResponse.from(locked(h,replay));
+        Long replay=requests.replay(h,key,digest);if(replay!=null)return response(locked(h,replay),true);
         Loan old=locked(h,id);if(old.isArchived())throw new ResourceConflictException("LOAN_CLOSED","贷款已归档或结清");
         if(r==null)throw new RequestValidationException(Map.of("request","请求不能为空"));
         if(old.getPurchasedAssetId()!=null && (r.principal()!=null||r.accountingOn()!=null||r.startOn()!=null||r.disbursementAccountId()!=null
@@ -84,7 +84,7 @@ public class LoanService {
             if(account==null)errors.put("paymentAccountId","请选择当前家庭未归档的付款账户");if(category==null)errors.put("paymentCategoryId","请选择当前家庭的支出分类");if(!errors.isEmpty())throw new RequestValidationException(errors);
             old.updateDefaults(name,member,resolveUser(h,r.assignedUserId(),old.getAssignedUser()),asset,account,category);
         }
-        loans.flush();requests.record(h,key,digest,id);return LoanResponse.from(old);
+        loans.flush();requests.record(h,key,digest,id);return response(old,true);
     }
     @Transactional public void archive(Authentication a,long id){archive(a,id,AccountingRequests.key(null));}
     @Transactional public void archive(Authentication a,long id,String key){
@@ -109,6 +109,8 @@ public class LoanService {
     private static String required(String v,String field){return required(v,field,new LinkedHashMap<>());} private static String required(String v,String field,Map<String,String> f){String n=v==null?"":v.trim();if(n.isEmpty()||n.length()>100)f.put(field,"名称不能为空且不超过 100 个字符");return n;}
     private static long parseMoney(String raw,String field,Map<String,String> f){try{return Money.parseCents(raw);}catch(IllegalArgumentException e){f.put(field,e.getMessage());return 0;}}
     private static boolean hasContractField(LoanPatchRequest r){return r.principal()!=null||r.annualRate()!=null||r.termMonths()!=null||r.repaymentMethod()!=null||r.startOn()!=null||r.customSchedule()!=null||r.accountingOn()!=null||r.disbursementAccountId()!=null;}
+    public List<LoanPrepaymentResponse> prepaymentHistory(Authentication a,long id){long h=current.require(a).householdId();Loan loan=find(h,id);var summary=totals.read(loan,false);return prepayments.findAllByLoanIdAndHouseholdIdOrderById(id,h).stream().map(p->LoanPrepaymentResponse.from(p,loan,summary)).toList();}
+    private LoanResponse response(Loan loan,boolean current){return LoanResponse.from(loan,totals.read(loan,current));}
     private Loan locked(long h,long id){return loans.findLockedByIdAndHouseholdId(id,h).orElseThrow(()->new ResourceNotFoundException("贷款不存在"));}
     private Loan find(long h,long id){return loans.findByIdAndHouseholdId(id,h).orElseThrow(()->new ResourceNotFoundException("贷款不存在"));}
     private record Values(String name,LoanType type,Asset asset,FamilyMember member,AppUser user,FinancialAccount account,Category category,long principal,BigDecimal rate,int term,RepaymentMethod method,LocalDate start,List<InstallmentDraft> schedule){}

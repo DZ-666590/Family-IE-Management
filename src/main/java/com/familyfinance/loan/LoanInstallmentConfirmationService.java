@@ -38,6 +38,7 @@ public class LoanInstallmentConfirmationService {
    currentResponse(installment,householdId);
    if(request!=null&&request.paidOn()!=null&&!request.paidOn().equals(installment.getConfirmedTransaction().getOccurredOn()))
     throw new ResourceConflictException("LOAN_PAYMENT_ALREADY_POSTED","还款已入账，不能改变实际付款日期");
+   if(request!=null&&request.paymentAccountId()!=null&&!request.paymentAccountId().equals(installment.getConfirmedTransaction().getAccount().getId()))throw new ResourceConflictException("LOAN_PAYMENT_ALREADY_POSTED","还款已入账，不能改变实际付款账户");
    requests.record(householdId,key,digest,installmentId);return LoanInstallmentResponse.from(installment);
   }
   if(installment.getStatus()==LoanInstallmentStatus.CANCELLED) throw new ResourceConflictException("INSTALLMENT_CANCELLED","还款期次已取消");
@@ -49,13 +50,13 @@ public class LoanInstallmentConfirmationService {
   LocalDate paidOn=request==null||request.paidOn()==null?defaultPaidOn:request.paidOn();
   accounting.requirePaymentDate(loan,paidOn);
   if(paidOn.isBefore(installment.getDueOn()))throw new ResourceConflictException("INSTALLMENT_NOT_DUE","实际还款日期不能早于本期到期日；提前还本请使用提前还款");
-  FinancialTransaction transaction=FinancialTransaction.loanPayment(access.household(),account(loan,householdId),access.membership().getUser(),member(loan,householdId),category(loan,householdId),Math.addExact(installment.getPrincipalCents(),installment.getInterestCents()),paidOn,installmentId,clock.instant());
+  FinancialTransaction transaction=FinancialTransaction.loanPayment(access.household(),account(loan,householdId,request==null?null:request.paymentAccountId()),access.membership().getUser(),member(loan,householdId),category(loan,householdId),Math.addExact(installment.getPrincipalCents(),installment.getInterestCents()),paidOn,installmentId,clock.instant());
   transaction.loanSplit(installment.getPrincipalCents(),installment.getInterestCents());transactions.saveAndFlush(transaction);
   accounting.pay(loan,transaction,installment.getPrincipalCents(),installment.getInterestCents(),key);
   installment.confirm(transaction); loan.applyPrincipalPayment(installment.getPrincipalCents(),clock.instant());accounting.requireBalance(loan);notifications.resolveReference(householdId,"LOAN_INSTALLMENT",installmentId); installments.flush();
   requests.record(householdId,key,digest,installmentId);return LoanInstallmentResponse.from(installment);
  }
- private FinancialAccount account(Loan loan,long h){return accounts.findLockedByIdAndHouseholdId(loan.getPaymentAccount().getId(),h).orElseThrow(LoanInstallmentConfirmationService::stale);}
+ private FinancialAccount account(Loan loan,long h,Long actual){return accounts.findLockedByIdAndHouseholdId(actual==null?loan.getPaymentAccount().getId():actual,h).orElseThrow(LoanInstallmentConfirmationService::stale);}
  private LoanInstallmentResponse currentResponse(LoanInstallment installment,long household){
   if(installment.getConfirmedTransaction()!=null)transactions.findLockedByIdAndHouseholdId(installment.getConfirmedTransaction().getId(),household).orElseThrow(()->new ResourceConflictException("ACCOUNTING_BALANCE_MISMATCH","已付款期次缺少原交易记录"));
   return LoanInstallmentResponse.from(installment);
