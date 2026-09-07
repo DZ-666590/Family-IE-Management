@@ -34,6 +34,10 @@ public class AccountingRequests {
         } catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
     public Long replay(long household, String key, String digest) {
+        return replay(household,key,digest,new String[0]);
+    }
+    /** Only callers with an explicit historical full-request contract may supply compatibility digests. */
+    public Long replay(long household, String key, String digest, String... historicalDigests) {
         var rows=jdbc.query("select request_digest, source_id from accounting_commands where household_id=? and request_key=? for update",
             (rs,n)->new Receipt(rs.getString(1),rs.getLong(2)),household,key);
         if(rows.isEmpty()) {
@@ -41,7 +45,7 @@ public class AccountingRequests {
                 throw new ResourceConflictException("IDEMPOTENCY_KEY_REUSED", "请求键已用于其他账务操作");
             return null;
         }
-        if(!rows.get(0).digest().equals(digest)) throw new ResourceConflictException("IDEMPOTENCY_KEY_REUSED", "请求键已用于不同内容");
+        if(!rows.get(0).digest().equals(digest) && java.util.Arrays.stream(historicalDigests).noneMatch(rows.get(0).digest()::equals)) throw new ResourceConflictException("IDEMPOTENCY_KEY_REUSED", "请求键已用于不同内容");
         return rows.get(0).id();
     }
     public void record(long household,String key,String digest,long id) {

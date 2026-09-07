@@ -32,11 +32,18 @@ public class LoanService {
     public LoanPage list(Authentication a, LoanStatus status,int page,int size){long h=current.require(a).householdId(); int p=Math.max(0,page), s=Math.min(MAX_PAGE_SIZE,Math.max(1,size)); Page<Loan> r=loans.findByHouseholdIdAndStatus(h,status==null?LoanStatus.ACTIVE:status,PageRequest.of(p,s,Sort.by(Sort.Direction.DESC,"id"))); return new LoanPage(r.stream().map(l->response(l,false)).toList(),p,s,r.getTotalElements(),r.getTotalPages(),r.hasNext());}
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public LoanResponse get(Authentication a,long id){return response(find(current.require(a).householdId(),id),false);}
-    public LoanSchedulePage schedule(Authentication a,long id,int page,int size){Loan l=find(current.require(a).householdId(),id);int p=Math.max(0,page),s=Math.min(MAX_PAGE_SIZE,Math.max(1,size));long total=l.getInstallments().size();int totalPages=(int)Math.ceil((double)total/s);List<LoanInstallmentResponse> items=l.getInstallments().stream().skip((long)p*s).limit(s).map(LoanInstallmentResponse::from).toList();return new LoanSchedulePage(items,p,s,total,totalPages,p+1<totalPages);}
+    public LoanSchedulePage schedule(Authentication a,long id,int page,int size){return schedule(a,id,page,size,LoanScheduleView.ALL);}
+    public LoanSchedulePage schedule(Authentication a,long id,int page,int size,LoanScheduleView view){
+        Loan l=find(current.require(a).householdId(),id);int p=Math.max(0,page),s=Math.min(MAX_PAGE_SIZE,Math.max(1,size));
+        var rows=l.getInstallments().stream().filter(i->view==null||view==LoanScheduleView.ALL||(view==LoanScheduleView.CURRENT)==(i.getStatus()==LoanInstallmentStatus.PENDING)).toList();
+        long total=rows.size();int totalPages=(int)Math.ceil((double)total/s);
+        List<LoanInstallmentResponse> items=rows.stream().skip((long)p*s).limit(s).map(LoanInstallmentResponse::from).toList();
+        return new LoanSchedulePage(items,p,s,total,totalPages,p+1<totalPages);
+    }
     @Transactional public LoanResponse create(Authentication a,LoanCreateRequest r){return create(a,r,AccountingRequests.key(null));}
     @Transactional public LoanResponse create(Authentication a,LoanCreateRequest r,String key){
         var access=mutations.requireAdmin(a);long h=access.context().householdId();String digest=requests.digest("LOAN_CREATE",access.context().userId(),r);
-        Long replay=requests.replay(h,key,digest);if(replay!=null)return response(locked(h,replay),true);
+        Long replay=requests.replay(h,key,digest,LoanRequestHistory.create(requests,access.context().userId(),r));if(replay!=null)return response(locked(h,replay),true);
         Values v=validate(h,r);if(r.fundingMode()==null)throw new RequestValidationException(Map.of("fundingMode","请选择贷款入账方式"));
         boolean purchased=Boolean.TRUE.equals(r.createPurchasedAsset());
         if(purchased!=(r.fundingMode()==LoanFundingMode.FINANCED_PURCHASE))throw new RequestValidationException(Map.of("createPurchasedAsset","本次贷款购买物必须同时选择直接购买入账方式"));

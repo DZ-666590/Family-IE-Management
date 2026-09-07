@@ -24,7 +24,7 @@ public class LoanInstallmentConfirmationService {
  @Transactional public LoanInstallmentResponse confirm(Authentication authentication,long installmentId,LoanPaymentRequest request,LocalDate defaultPaidOn,String key) {
   var access=authorization.requireCurrent(authentication); long householdId=access.context().householdId();
   String digest=requests.digest("LOAN_PAYMENT:"+installmentId,access.context().userId(),request);
-  Long replay=requests.replay(householdId,key,digest);
+  Long replay=requests.replay(householdId,key,digest,LoanRequestHistory.payment(requests,"LOAN_PAYMENT:"+installmentId,access.context().userId(),request));
   long loanId=installments.findCurrentLoanId(installmentId,householdId).orElseThrow(()->new ResourceNotFoundException("还款期次不存在"));
   // Lock/load the loan as a root entity before any installment association can populate a stale RR snapshot.
   Loan loan=loans.findLockedByIdAndHouseholdId(loanId,householdId).orElseThrow(()->new ResourceNotFoundException("贷款不存在"));

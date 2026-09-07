@@ -39,7 +39,7 @@ export function LoanPrepaymentPanel({ loan, accounts, request, onClose, onPaid, 
  const account = selected && displayed ? { ...selected, availableBalance: displayed.availableBalance } : selected;
  const error = submit.error ?? preview.error;
  return <Drawer open draft={{ ...draft, attemptedRequest: attempt?.body ?? null }} sessionKey={sessionKey} busy={submit.isPending} title={`${loan.name} · 提前还款`} description={`当前剩余本金 ${money(loan.currentPrincipal)}；选择部分偿还本金后的未来计划。`} onClose={onClose}>
-  <form className="feature-form" onSubmit={event => { event.preventDefault();confirm(); }}>
+  <form className="feature-form loan-prepayment-form" onSubmit={event => { event.preventDefault();confirm(); }}>
    <FormError error={error} />
    <fieldset className="feature-form" disabled={submit.isPending || attempt !== null}>
     <label>提前还款金额<input required name="amount" inputMode="decimal" value={draft.amount} onChange={event => update('amount', event.target.value)} /></label>

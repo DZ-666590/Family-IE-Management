@@ -41,7 +41,7 @@ public class LoanPrepaymentService {
  @Transactional public LoanPrepaymentResponse prepay(Authentication authentication,long loanId,LoanPrepaymentRequest request){
   var access=authorization.requireAdmin(authentication); if(request==null||request.idempotencyKey()==null||request.idempotencyKey().trim().isEmpty()||request.idempotencyKey().length()>100)throw new RequestValidationException(Map.of("idempotencyKey","幂等键不能为空且不超过100个字符"));
   String key=AccountingRequests.key(request.idempotencyKey());long h=access.context().householdId();String digest=requests.digest("LOAN_PREPAYMENT:"+loanId,access.context().userId(),request);
-  Long replay=requests.replay(h,key,digest);
+  Long replay=requests.replay(h,key,digest,LoanRequestHistory.prepayment(requests,"LOAN_PREPAYMENT:"+loanId,access.context().userId(),request));
   Loan loan=loans.findLockedByIdAndHouseholdId(loanId,h).orElseThrow(()->new ResourceNotFoundException("贷款不存在"));
   if(replay!=null){
    LoanPrepayment original=prepayments.findLockedByIdAndHouseholdId(replay,h).orElseThrow(()->new ResourceNotFoundException("提前还款记录不存在"));

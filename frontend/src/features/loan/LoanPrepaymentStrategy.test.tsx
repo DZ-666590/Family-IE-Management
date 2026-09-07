@@ -45,3 +45,24 @@ it('ignores late previews for old inputs and requires a fresh confirmation after
  await waitFor(()=>expect(currentReads).toBe(2));expect(writes).toHaveLength(1);await waitFor(()=>expect(screen.getByRole('button',{name:'确认提前还款'})).toBeEnabled());await user.click(screen.getByRole('button',{name:'确认提前还款'}));
  await waitFor(()=>expect(writes).toHaveLength(2));expect(writes[0]).toMatchObject({paymentAccountId:2,planToken:'fresh-1',strategy:'REDUCE_PAYMENT'});expect(writes[1]).toMatchObject({paymentAccountId:2,planToken:'fresh-2'});expect(writes[1].idempotencyKey).toBe(writes[0].idempotencyKey);
 });
+
+it('opens the updated current plan first and resets pagination when switching to retained history',async()=>{
+ const queries:string[]=[];
+ const request:RequestFn=async <T,>(path:string)=>{
+  if(path.includes('/schedule?')){queries.push(path);const p=new URLSearchParams(path.split('?')[1]);const current=p.get('view')==='CURRENT';const pageIndex=Number(p.get('page'));const total=current?90:120;return {items:[{id:current?121+pageIndex*50:1+pageIndex*50,installmentNo:current?121+pageIndex*50:1+pageIndex*50,dueOn:current?'3999-01-31':'2026-01-31',principal:'10.00',interest:'0.00',status:current?'PENDING':'CANCELLED',confirmedTransactionId:null}],page:pageIndex,size:50,totalElements:total,totalPages:Math.ceil(total/50),hasNext:pageIndex<Math.ceil(total/50)-1} as T;}return other(path) as T;
+ };
+ const user=userEvent.setup();render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><LoansPage request={request} role="OWNER" /></QueryClientProvider>);
+ await user.click(await screen.findByRole('button',{name:'查看计划'}));const drawer=await screen.findByRole('dialog',{name:'双策略测试 · 还款计划'});
+ expect(await within(drawer).findByText('121')).toBeInTheDocument();expect(within(drawer).queryByText('已取消')).not.toBeInTheDocument();
+ await user.selectOptions(within(drawer).getByLabelText('计划范围'),'HISTORY');expect(await within(drawer).findByText('已取消')).toBeInTheDocument();
+ const pagination=within(drawer).getByRole('navigation',{name:'还款计划分页'});await user.click(within(pagination).getByRole('button',{name:'下一页'}));expect(await within(drawer).findByText('51')).toBeInTheDocument();
+ await user.selectOptions(within(drawer).getByLabelText('计划范围'),'CURRENT');expect(await within(drawer).findByText('121')).toBeInTheDocument();
+ expect(queries.some(q=>q.includes('page=1')&&q.includes('view=HISTORY'))).toBe(true);expect(queries.at(-1)).toContain('page=0');expect(queries.at(-1)).toContain('view=CURRENT');
+});
+
+it('defaults a closed loan to its paid and cancelled history',async()=>{
+ const queries:string[]=[];const closed={...loan,status:'CLOSED',currentPrincipal:'0.00'};
+ const request:RequestFn=async <T,>(path:string)=>{if(path.includes('/schedule?')){queries.push(path);return page([{id:1,installmentNo:1,dueOn:'2026-01-31',principal:'100.00',interest:'0.00',status:'PAID',paidOn:'2026-01-31',cashAmount:'100.00',confirmedTransactionId:8}]) as T;}return (path==='/api/loans/4'?closed:path.startsWith('/api/loans?')?page([closed]):other(path)) as T;};
+ const user=userEvent.setup();render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><LoansPage request={request} role="OWNER" /></QueryClientProvider>);await user.click(await screen.findByRole('button',{name:'查看计划'}));
+ expect(await screen.findByLabelText('计划范围')).toHaveValue('HISTORY');expect(queries.at(-1)).toContain('view=HISTORY');expect(await screen.findByText('已记录还款')).toBeInTheDocument();
+});

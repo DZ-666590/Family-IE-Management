@@ -75,6 +75,13 @@ class LoanPrepaymentStrategyApiTest {
   prepay(loan,body(q,"payment")).andExpect(status().isOk()).andExpect(jsonPath("$.data.remainingRepaymentTotal").value("959.56")).andExpect(jsonPath("$.data.cashAmount").value("300.00"));
   long legacy=create("0");prepay(legacy,"{\"amount\":\"300.00\",\"paidOn\":\"2026-01-01\",\"idempotencyKey\":\"legacy-default\"}").andExpect(status().isOk()).andExpect(jsonPath("$.data.strategy").value("REDUCE_PAYMENT"));assertThat(pending(legacy)).isEqualTo(12);
  }
+ @Test void currentPlanFiltersBeforePaginationWhileCompleteHistoryRemainsAccessible()throws Exception{
+  long loan=create("0");mvc.perform(patch("/api/loans/"+loan).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"termMonths\":120}")).andExpect(status().isOk());
+  var q=data(quote(loan,"300.00","REDUCE_TERM",account).andExpect(status().isOk()).andReturn());prepay(loan,body(q,"long-plan")).andExpect(status().isOk());
+  mvc.perform(get("/api/loans/"+loan+"/schedule").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.data[0].status").value("CANCELLED")).andExpect(header().string("X-Total-Elements","210"));
+  mvc.perform(get("/api/loans/"+loan+"/schedule").session(session).param("view","CURRENT")).andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(50)).andExpect(jsonPath("$.data[0].installmentNo").value(121)).andExpect(jsonPath("$.data[0].status").value("PENDING")).andExpect(header().string("X-Total-Elements","90")).andExpect(header().string("X-Total-Pages","2")).andExpect(header().string("X-Has-Next","true"));
+  mvc.perform(get("/api/loans/"+loan+"/schedule").session(session).param("view","HISTORY").param("page","2")).andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(20)).andExpect(jsonPath("$.data[0].installmentNo").value(101)).andExpect(jsonPath("$.data[0].status").value("CANCELLED")).andExpect(header().string("X-Total-Elements","120")).andExpect(header().string("X-Has-Next","false"));
+ }
  @Test void actualAccountAndBalanceAreRecheckedAfterEarlierSnapshot()throws Exception{
   long loan=create("0");String body=body(data(quote(loan,"300.00","REDUCE_TERM",account).andReturn()),"archived");long journals=count("ledger_journals");
   withEarlierSnapshot(()->jdbc.update("update financial_accounts set archived_at=CURRENT_TIMESTAMP where id=?",account),()->prepay(loan,body).andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNT_ARCHIVED")));
