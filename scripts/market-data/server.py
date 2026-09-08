@@ -3,6 +3,8 @@
 
 import argparse
 import contextlib
+import hashlib
+from pathlib import Path
 import json
 import re
 import subprocess
@@ -303,13 +305,34 @@ class MarketDataService:
         return [by_code[key] for key in sorted(by_code)]
 
 
+def release_health(directory):
+    directory = Path(directory)
+    try:
+        marker = json.loads((directory / 'deployment.json').read_text())
+        required = {'server.py', 'overseas.py', 'overseas_sources.py', 'requirements.txt'}
+        if (marker.get('schema') != 1 or not re.fullmatch('[0-9a-f]{40}', marker.get('commit', ''))
+                or set(marker.get('files', {})) != required):
+            raise ValueError('Invalid release manifest')
+        for name, digest in marker['files'].items():
+            if hashlib.sha256((directory / name).read_bytes()).hexdigest() != digest:
+                raise ValueError('Adapter integrity check failed')
+        return {'status': 'ready', 'commit': marker['commit'], 'capabilities': ['HK', 'US']}
+    except (OSError, ValueError, TypeError):
+        return {'status': 'unversioned', 'commit': None, 'capabilities': []}
+
+
 class Handler(BaseHTTPRequestHandler):
     service = None
     overseas_service = None
+    release = None
 
     def do_GET(self):
         parsed = urlparse(self.path)
         try:
+            if parsed.path == '/health' and not parsed.query:
+                payload = self.release or {'status': 'unversioned', 'commit': None}
+                self._json(200 if payload['status'] == 'ready' else 503, payload)
+                return
             if parsed.path == "/directory" and not parsed.query:
                 self._json(200, self.service.directory())
                 return
@@ -392,6 +415,7 @@ def main():
         adjustment = validate_adjust(arguments.worker_args[1])
         print(json.dumps(_candles_worker(symbol, adjustment), ensure_ascii=False, separators=(",", ":")))
         return
+    Handler.release = release_health(Path(__file__).resolve().parent)
     Handler.service = MarketDataService()
     Handler.overseas_service = OverseasMarketService()
     BoundedThreadingHTTPServer(("127.0.0.1", 8091), Handler).serve_forever()

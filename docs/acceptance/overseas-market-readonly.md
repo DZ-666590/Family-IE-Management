@@ -45,4 +45,13 @@
 
 代码保存在现有 stage2 分支，尚未推送、合并或部署。恢复稳定 SSH 后补浏览器验收与 Java/Python 实际 HTTP 链路验证，再按用户指示发布。
 
-现有 CI 仅交付 Java JAR；本次部署还必须按 `docs/operations/market-data-adapter.md` 同步 `server.py`、`overseas.py`、`overseas_sources.py`，不能只更新 JAR。当前不需要用户申请新 API 密钥。
+上述为先前交付时的状态快照。本次修复已经将 CI 改为同一提交的 JAR + 完整适配器发布包，详见 [版本化发布说明](../operations/versioned-market-release.md)。服务器接收器、目录引导和实际发布仍须另行授权；本分支没有修改正式环境。当前不需要新 API 密钥。
+
+## 版本化交付修复（本分支）
+
+- 触发依据来自父任务只读证据：正式 JAR 为 bc97b5e，两项服务 active，但正式目录缺少 overseas.py。本分支未重新连接服务器验证。
+- 打包、逐文件/整体摘要、完整成员集合、提交一致性和受控依赖目录校验均先于服务停止。
+- 停止两项服务后成对切换；新版本启动或 HK/US 探针失败时恢复旧 JAR 与旧适配器。保留锁、旧运行号拒绝、严格 SSH 命令和主机密钥验证。
+- 本分支重新执行部署安全测试 24 项、行情适配器测试 44 项，均通过；git diff --check 通过。Java/前端未修改，本轮未重跑其构建或测试。
+- 测试运行在临时文件目录，模拟 systemd 和 HTTP 边界；没有启动本地业务应用或执行 Windows/Unix 启动认证。
+- 合入 stage2 后，必须按运维说明确认 /health 与 /deployment.json 同提交，并补登录用户的港美股页面验收。单元测试通过不代表正式环境已经恢复。

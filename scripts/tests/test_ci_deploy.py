@@ -32,48 +32,47 @@ def artifact(commit=SHA):
 
 class DeployTest(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(deploy, "Deployment helper must exist")
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
-        self.jar = self.root / "app.jar"
-        self.jar.write_bytes(b"previous jar")
-        self.runner = deploy.Deployer(self.jar, self.root / "state", "example.service", "http://localhost")
+        from test_release_bundle import BundleTest
+        BundleTest.setUp(self)
+        process = patch.object(deploy.subprocess, 'run')
+        process.start()
+        self.addCleanup(process.stop)
 
     def run_deploy(self, checksum=None, commit=SHA, run_id=100):
-        raw, compressed, digest = artifact(commit)
+        from test_release_bundle import bundle
+        compressed, digest = bundle(commit=commit)
         self.runner.deploy(SHA, checksum or digest, run_id, io.BytesIO(compressed))
-        return raw
+        return artifact(commit)[0]
 
     def test_success_installs_exact_bytes_and_keeps_backup(self):
         with patch.object(self.runner, "restart"), patch.object(self.runner, "wait_ready"):
             raw = self.run_deploy()
         self.assertEqual(self.jar.read_bytes(), raw)
-        self.assertEqual(next((self.root / "state/backups").glob("*.jar")).read_bytes(), b"previous jar")
+        self.assertEqual(next((self.root / "state/backups").glob("*.jar")).read_bytes(), b"old jar")
         self.assertEqual(json.loads((self.root / "state/current.json").read_text())["commit"], SHA)
 
     def test_bad_checksum_leaves_current_jar_untouched(self):
         with self.assertRaisesRegex(ValueError, "checksum"):
             self.run_deploy(checksum="0" * 64)
-        self.assertEqual(self.jar.read_bytes(), b"previous jar")
+        self.assertEqual(self.jar.read_bytes(), b"old jar")
 
     def test_wrong_commit_in_jar_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "commit"):
             self.run_deploy(commit="b" * 40)
-        self.assertEqual(self.jar.read_bytes(), b"previous jar")
+        self.assertEqual(self.jar.read_bytes(), b"old jar")
 
     def test_unhealthy_new_version_restores_old_jar_and_metadata(self):
         with patch.object(self.runner, "restart"), patch.object(self.runner, "wait_ready", side_effect=[RuntimeError("not ready"), None]):
             with self.assertRaisesRegex(RuntimeError, "rolled back"):
                 self.run_deploy()
-        self.assertEqual(self.jar.read_bytes(), b"previous jar")
+        self.assertEqual(self.jar.read_bytes(), b"old jar")
         self.assertFalse((self.root / "state/current.json").exists())
 
     def test_restart_failure_also_restores_old_jar(self):
         with patch.object(self.runner, "restart", side_effect=[RuntimeError("restart failed"), None]), patch.object(self.runner, "wait_ready"):
             with self.assertRaisesRegex(RuntimeError, "rolled back"):
                 self.run_deploy()
-        self.assertEqual(self.jar.read_bytes(), b"previous jar")
+        self.assertEqual(self.jar.read_bytes(), b"old jar")
 
     def test_older_run_cannot_overwrite_newer_success(self):
         with patch.object(self.runner, "restart"), patch.object(self.runner, "wait_ready"):
