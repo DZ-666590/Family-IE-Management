@@ -23,7 +23,8 @@ export function StockPicker({ request, value, onChange, disabled = false }: {
   const [debounced, setDebounced] = useState('');
   useEffect(() => { const timer = setTimeout(() => setDebounced(query.trim()), 250); return () => clearTimeout(timer); }, [query]);
   const catalog = useQuery({ queryKey: ['security-catalog'], queryFn: () => request<CatalogStatus>('/api/securities/catalog-status'), staleTime: 60_000, enabled: !disabled });
-  const catalogAvailable = (catalog.data?.count ?? 0) > 0;
+  const catalogAvailable = (catalog.data?.count ?? 0) > 0
+    && (catalog.data?.state === 'READY' || catalog.data?.state === 'ERROR');
   const search = useQuery({ queryKey: ['securities', 'search-page', debounced], queryFn: () => request<Page<Security>>(`/api/securities/search?q=${encodeURIComponent(debounced)}&page=0&size=20`, { responseType: 'page' }), enabled: !disabled && catalogAvailable, staleTime: 60_000 });
   const options: SecurityReference[] = [...(search.data?.items ?? [])];
   if (value && !options.some(item => item.id === value.id)) options.unshift(value);

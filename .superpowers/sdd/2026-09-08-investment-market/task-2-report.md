@@ -34,3 +34,7 @@ Catalog search availability now follows published catalog count rather than requ
 The chart selector is now labelled `视窗缩放`, with the note `按所选时间跨度缩放，可拖动查看更早历史。` This accurately describes the klinecharts 50-pixel bar-spacing cap for short weekly/monthly ranges without discarding older warm-up bars.
 
 RED: focused InvestmentMarket + StockChart reported 3 expected failures for the stale-catalog branch and viewport wording. GREEN: the same focused suites passed 23/23. Fresh `npm run typecheck` and `npm run build` passed; the existing bundle warning remains (621.10 kB main chunk, 222.35 kB lazy KLineChart chunk). Root owns the final full frontend run. Commit: the follow-up commit containing this section (`fix: keep published investment catalog usable`).
+
+### Catalog state allowlist gate
+
+Catalog availability is now explicitly limited to positive-count `READY` and `ERROR` states. `UNKNOWN` and `DISABLED` block new searches even if a malformed or transitional response includes a positive count; the existing locked historical-position SELL path remains independent of catalog search. RED: both table cases searched before the allowlist. GREEN: InvestmentMarket 18/18 passed and `npm run typecheck` passed. No broader suite was run by coordination request. Commit: the focused gate commit containing this section (`fix: restrict searchable catalog states`).

@@ -84,6 +84,16 @@ it('keeps the last published catalog selectable when a refresh fails', async () 
   expect(request.mock.calls.some(([path]) => path.includes('/api/securities/search'))).toBe(true);
 });
 
+it.each(['UNKNOWN', 'DISABLED'])('blocks new catalog search for %s even when a positive count is reported', async state => {
+  const request = vi.fn(async (path: string) => path.includes('catalog-status')
+    ? { state, count: 5558, updatedAt: '2026-09-08T08:30:00Z' }
+    : page([security]));
+  render(wrap(<StockPicker request={request as RequestFn} value={null} onChange={() => {}}/>));
+  await screen.findByRole('button', { name: '重试目录状态' });
+  expect(screen.queryByRole('option', { name: '000001.SZ · 平安银行' })).not.toBeInTheDocument();
+  expect(request.mock.calls.some(([path]) => path.includes('/api/securities/search'))).toBe(false);
+});
+
 const account = { id: 3, name: '证券账户', brokerName: '券商', fundingAccountId: 7, currency: 'CNY', status: 'ACTIVE' as const, createdBy: 1, archivedAt: null };
 const cash = { id: 7, name: '资金卡', type: 'BANK' as const, currency: 'CNY', openingBalance: '0.00', balance: '0.00', availableBalance: '0.00', openingConfirmed: true, openingOn: '2026-01-01', archivedAt: null };
 const readyAccounts = (data = [account]) => ({ data, isLoading: false, error: null, refetch: vi.fn() });
