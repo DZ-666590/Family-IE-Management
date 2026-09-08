@@ -1,9 +1,11 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Select, { type OptionProps } from '@douyinfe/semi-ui/lib/es/select';
 import type { Page, Security } from '../../api/contracts';
 import { dateText, type RequestFn } from '../common';
 import './stock-picker.scss';
+import { StockLabel } from './StockLabel';
+import { useStockDropdown } from './useStockDropdown';
 
 type SecurityReference = Pick<Security, 'id' | 'tsCode' | 'name'> & Partial<Pick<Security, 'market'>>;
 type CatalogStatus = { state: string; count: number; updatedAt?: string; error?: string };
@@ -19,35 +21,17 @@ function securityAccessibleLabel(security: SecurityReference) {
 
 function renderSecurityLabel(security: SecurityReference) {
   const { code, exchange } = securityParts(security);
-  return <span className="stock-picker-option-content">
-    <span className="sr-only">{securityAccessibleLabel(security)}</span>
-    <strong className="stock-picker-option-name" aria-hidden="true">{security.name}</strong>
-    <span className="stock-picker-option-meta" aria-hidden="true">
-      <span className="stock-picker-option-code">{code}</span>
-      <span className="stock-picker-option-exchange">{exchange}</span>
-    </span>
-  </span>;
+  return <StockLabel name={security.name} code={code} exchange={exchange} accessibleLabel={securityAccessibleLabel(security)}/>;
 }
 
 export function StockPicker({ request, value, onChange, disabled = false }: {
   request: RequestFn; value: SecurityReference | null; onChange: (value: Security | null) => void; disabled?: boolean;
 }) {
   const id = useId();
-  const selectRef = useRef<Select>(null);
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [controlWidth, setControlWidth] = useState(0);
   const pickerId = `${id}-picker`;
-  useLayoutEffect(() => {
-    const picker = document.getElementById(pickerId);
-    if (!picker) return;
-    const measure = () => setControlWidth(picker.getBoundingClientRect().width);
-    measure();
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    observer?.observe(picker);
-    return () => observer?.disconnect();
-  }, [pickerId]);
+  const { selectRef, controlWidth, setMenuOpen } = useStockDropdown(pickerId);
   useEffect(() => { const timer = setTimeout(() => setDebounced(query.trim()), 250); return () => clearTimeout(timer); }, [query]);
   const catalog = useQuery({ queryKey: ['security-catalog'], queryFn: () => request<CatalogStatus>('/api/securities/catalog-status'), staleTime: 60_000, enabled: !disabled });
   const catalogAvailable = (catalog.data?.count ?? 0) > 0
@@ -67,20 +51,6 @@ export function StockPicker({ request, value, onChange, disabled = false }: {
               : !search.data?.items.length ? <span>没有找到匹配股票，请检查代码或名称。</span>
                 : search.data.hasNext ? <span>显示前 20 条，请输入更完整的代码或名称。</span>
                   : null;
-
-  useLayoutEffect(() => {
-    if (!menuOpen) return undefined;
-    const stopEditorEscape = (event: KeyboardEvent) => {
-      const picker = document.getElementById(pickerId);
-      if (event.key !== 'Escape' || !picker?.contains(event.target as Node)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      selectRef.current?.close();
-    };
-    window.addEventListener('keydown', stopEditorEscape, true);
-    return () => window.removeEventListener('keydown', stopEditorEscape, true);
-  }, [menuOpen, pickerId]);
 
   return <div className="stock-picker" id={pickerId} style={{ position: 'relative' }}>
     <span id={`${id}-label`} className="stock-picker__label">证券</span>

@@ -44,6 +44,16 @@
 .investment-available { margin: 0; color: var(--ledger-text); font-size: 14px; font-variant-numeric: tabular-nums; }
 .investment-draft-error { margin: 0; padding: 12px 14px; border-radius: 8px; color: #aa3941; background: #fff2f2; line-height: 1.6; font-size: 14px; }
 .investment-saved { margin: 0; color: var(--ledger-success); font-size: 14px; }
+.market-tabs { display: flex; align-items: center; gap: 24px; border-bottom: 1px solid var(--ledger-border); }
+.market-tabs button { background: none; color: var(--ledger-muted); border: 0; border-bottom: 2px solid transparent; padding: 10px 2px; font: inherit; font-size: 15px; cursor: pointer; }
+.market-tabs button[aria-pressed=true] { border-bottom-color: var(--ledger-primary); color: var(--ledger-primary); font-weight: 600; }
+.market-tabs button:focus-visible { outline: 2px solid var(--ledger-primary); outline-offset: 3px; }
+.overseas-market { min-width: 0; display: grid; gap: 20px; }
+.overseas-readonly { margin: 0; color: var(--ledger-muted); font-size: 14px; }
+.overseas-market .stock-explorer { margin: 0; max-width: 520px; }
+.overseas-market .stock-chart { border-top: 1px solid var(--ledger-border); padding-top: 24px; }
+.stock-chart-price { display: grid; gap: 5px; text-align: right; }
+.overseas-market .stock-picker-status > span { display: block; }
 .investment-direction button:focus-visible, .investment-other-business summary:focus-visible { outline: 2px solid var(--ledger-primary); outline-offset: 2px; }
 @media (max-width: 600px) {
   .investment-market-context { flex-direction: column; align-items: stretch; gap: 14px; }

@@ -10,6 +10,8 @@
 
 **Spec:** docs/superpowers/specs/2026-09-08-overseas-market-readonly-design.md
 
+**Execution status:** Source implementation and automated checks completed. Actual cloud adapter samples passed. Browser and Java/Python live HTTP acceptance remain pending because the shared SSH process repeatedly ended; see `docs/acceptance/overseas-market-readonly.md`. No push or deployment performed.
+
 ## Global Constraints
 
 - 海外目录与行情只进入独立缓存，不写入 `securities`、`investment_trades`、报价快照或现金账本。
@@ -27,7 +29,7 @@ type OverseasSearch = {items:OverseasInstrument[];hasNext:boolean;updatedAt:stri
 type OverseasCandles = {instrument:OverseasInstrument;symbol:string;source:'SINA';adjustment:'none';asOf:string|null;fetchedAt:string|null;stale:boolean;supported:boolean;bars:Array<{timestamp:number;open:number;high:number;low:number;close:number;volume:number;turnover:number|null}>};
 ```
 
-Search paths: Python `/overseas/search`, Java `/api/overseas-market/search`, params `market=HK|US&q=`. Candle paths: Python `/overseas/candles`, Java `/api/overseas-market/candles`, params `market=HK|US&symbol=`. Java wraps the exact response in the existing ApiEnvelope. Python validation errors use 400, missing instruments 404, upstream failures 503; Java maps to established safe user-facing errors.
+Search paths: Python `/overseas/search`, Java `/api/overseas-market/search`, params `market=HK|US&q=`. Candle paths: Python `/overseas/candles`, Java `/api/overseas-market/candles`, params `market=HK|US&symbol=`. Java wraps the typed response in the existing ApiEnvelope and normalizes the official HKEX currency alias `RMB` to ISO `CNY` in both search and candle instrument metadata; prices are not converted. Python validation errors use 400, missing instruments 404, upstream failures 503; Java maps to established safe user-facing errors.
 
 ### Task 1: Overseas directory and candle adapter
 
@@ -50,6 +52,7 @@ Search paths: Python `/overseas/search`, Java `/api/overseas-market/search`, par
 **Interfaces:** Consume shared wire contracts and loopback paths from Task1. Public endpoints are GET only. Reuse existing `SecurityService.requireMembership(Authentication)` and ApiEnvelope; never call security resolve/catalog import or persistence repositories for overseas instruments.
 
 - [ ] Write tests for unauthenticated rejection, authenticated non-member rejection, successful HK/USD metadata preservation, malformed market/symbol/query rejection before upstream call, wrong currency/timezone/symbol/source/adjustment response rejection, null-turnover acceptance, upstream error conversion, and absence of overseas creation in existing securities/trades tables. Use controlled stub HTTP adapter or existing market test injection patterns.
+  Include actual HKEX RMB-counter metadata: input instrument symbol80700/marketHK/currencyRMB must return currencyCNY without changing OHLC amounts, in both search and candles.
 - [ ] Run focused Maven tests and record expected RED. Do not run application-starting Windows/Unix smoke tests.
 - [ ] Extend MarketDataClient with typed search/candle methods using its already restricted loopback base; bounded query construction, no arbitrary URL input. New record shapes mirror shared contracts, bar turnover is nullable. Validate shape, max counts, identity/timezone, OHLC/chronology and supported/stale fields at Java trust boundary; do not convert timestamps using server default timezone.
 - [ ] Implement controller with membership check before provider calls and safe domain exception mapping. Preserve the A-share client/service contracts and all CNY account restrictions unchanged.
@@ -62,8 +65,10 @@ Search paths: Python `/overseas/search`, Java `/api/overseas-market/search`, par
 **Interfaces:** Consume `/api/overseas-market/search` and `/candles` wire contracts. Keep existing `ChartSecurity` type intact; let StockChart accept either existing ChartSecurity or OverseasInstrument, using type narrowing rather than fake numeric IDs. A-share query keys remain unchanged; overseas keys include market+symbol.
 
 - [ ] Write tests proving switching A/HK/US clears incompatible selection/old data, USD/HKD shown instead of RMB, search error differs from empty results, SYNCING refetches only while needed, selecting real result directly displays chart, and overseas view has no mutation entry or POST/PATCH call. Cover US local week/month boundaries across DST and preserve null turnover through aggregation.
+  Literal DST range fixture: with latest bar `2026-11-09T00:00:00-05:00`, a one-month range must retain `2026-10-09T00:00:00-04:00` and exclude October8. A fixed-offset month subtraction can otherwise wrongly drop the boundary bar by one hour.
 - [ ] Run focused frontend tests RED.
 - [ ] Add market tabs inside行情. Preserve A-share mode and selected security. Overseas panels are read-only; hide page-level investment creation while viewing overseas mode and hide A-share manual quote cards there. Normal positions/trades/account tabs are unchanged.
+  Include ancestor controls in this check: hide InvestmentSetup actions (including期初持仓) and the CNY PortfolioSummary while overseas行情 is selected, so the read-only page neither offers accounting setup nor appears to include overseas stocks in its totals.
 - [ ] Use existing Semi Select and stock-picker visual classes, exact-width positioning, ResizeObserver and Escape containment. Extract shared hook for duplicated positioning behavior rather than copy it. Search by code/name; while SYNCING poll at5s with a bounded user-visible waiting state, ERROR has explicit retry and no fabricated options.
 - [ ] Extend chart formatting/time aggregation with explicit timezone and currency. Function APIs `aggregateBars(bars,period,timezone='Asia/Shanghai')`, `selectBarsForRange(bars,period,range,timezone='Asia/Shanghai')`; preserve all old call sites. Overseas chart uses none adjustment only and displays source/date, actual instrument currency; volume in shares and missing turnover unavailable. Pass undefined rather than null to optional KLineChart turnover fields. Daily bars are full history for indicator warmup before viewport framing.
 - [ ] Run typecheck, all frontend tests and production build once. Root verifies cloud isolated UI for actual US/HK samples, market switching, no accounting writes and desktop/mobile dropdown geometry. Commit only owned frontend/test paths.

@@ -2,37 +2,50 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { aggregateBars, selectBarsForRange, type CandleBar, type CandleResponse, type ChartPeriod, type ChartRange } from './chart-data';
 import { dateText, money, type RequestFn } from '../common';
+import { isOverseasInstrument, marketMoney, type OverseasInstrument, type OverseasCandles } from './overseas-market';
 
 export type ChartSecurity = { id: number; tsCode: string; name: string };
-export function StockChart({ request, security }: { request: RequestFn; security: ChartSecurity }) {
+export function StockChart({ request, security }: { request: RequestFn; security: ChartSecurity | OverseasInstrument }) {
+  const foreign = 'symbol' in security;
+  const symbol = foreign ? security.symbol : security.tsCode;
+  const timezone = foreign ? security.timezone : 'Asia/Shanghai';
+  const formatPrice = (value: string | number | null | undefined) => foreign ? marketMoney(value, security.currency) : money(value);
   const [adjustment, setAdjustment] = useState<'none' | 'qfq'>('qfq');
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [range, setRange] = useState<ChartRange>('all');
   const [macd, setMacd] = useState(false);
-  const query = useQuery({ queryKey: ['security-candles', security.id, adjustment], queryFn: () => request<CandleResponse>(`/api/securities/${security.id}/candles?adjust=${adjustment}`), staleTime: 300_000, retry: false });
-  const periodBars = useMemo(() => aggregateBars(query.data?.bars ?? [], period), [query.data, period]);
-  const visibleBars = useMemo(() => selectBarsForRange(query.data?.bars ?? [], period, range), [query.data, period, range]);
+  const effectiveAdjustment = foreign ? 'none' : adjustment;
+  const query = useQuery({ queryKey: foreign ? ['overseas-candles', security.market, symbol] : ['security-candles', security.id, adjustment], queryFn: async (): Promise<CandleResponse> => {
+    if (!foreign) return request<CandleResponse>(`/api/securities/${security.id}/candles?adjust=${adjustment}`);
+    const value = await request<OverseasCandles>(`/api/overseas-market/candles?market=${security.market}&symbol=${encodeURIComponent(symbol)}`);
+    if (!value || !isOverseasInstrument(value.instrument, security.market) || value.instrument.symbol !== symbol
+      || value.instrument.currency !== security.currency || value.symbol !== symbol || value.source !== 'SINA' || value.adjustment !== 'none'
+      || !Array.isArray(value.bars) || typeof value.supported !== 'boolean') throw new Error('行情响应与所选股票不一致');
+    return value;
+  }, staleTime: 300_000, retry: false });
+  const periodBars = useMemo(() => aggregateBars(query.data?.bars ?? [], period, timezone), [query.data, period, timezone]);
+  const visibleBars = useMemo(() => selectBarsForRange(query.data?.bars ?? [], period, range, timezone), [query.data, period, range, timezone]);
   const last = visibleBars.at(-1);
   const periodName = ({ day: '交易日', week: '一周', month: '一月' } as const)[period];
   const rangeName = ({ '1m': '最近 1 个月', '3m': '最近 3 个月', '1y': '最近 1 年', all: '返回的全部历史' } as const)[range];
   return <section className="stock-chart">
-    <header className="stock-chart-heading"><div><span>{security.tsCode}</span><h3>{security.name}</h3></div><strong>{money(last?.close)}</strong></header>
+    <header className="stock-chart-heading"><div><span>{foreign ? `${security.exchange} · ${symbol}` : symbol}</span><h3>{security.name}</h3></div><div className="stock-chart-price">{foreign && <span>参考收盘价</span>}<strong>{formatPrice(last?.close)}</strong></div></header>
     <div className="stock-chart-controls"><div className="segmented-tabs" aria-label="K 线周期">{(['day', 'week', 'month'] as const).map(value => <button key={value} type="button" aria-pressed={period === value} className={period === value ? 'active' : ''} onClick={() => setPeriod(value)}>{({ day: '日 K', week: '周 K', month: '月 K' })[value]}</button>)}</div>
-      <label>复权方式<select value={adjustment} onChange={event => setAdjustment(event.target.value as 'none' | 'qfq')}><option value="qfq">前复权</option><option value="none">不复权</option></select></label>
+      {!foreign && <label>复权方式<select value={adjustment} onChange={event => setAdjustment(event.target.value as 'none' | 'qfq')}><option value="qfq">前复权</option><option value="none">不复权</option></select></label>}
       <label>视窗缩放<select value={range} onChange={event => setRange(event.target.value as ChartRange)}><option value="1m">最近 1 个月</option><option value="3m">最近 3 个月</option><option value="1y">最近 1 年</option><option value="all">全部</option></select></label>
       <label className="stock-chart-indicator"><input type="checkbox" checked={macd} onChange={event => setMacd(event.target.checked)}/>MACD</label>
     </div>
     <p className="stock-chart-range-note">按所选时间跨度缩放，可拖动查看更早历史。</p>
     {query.isLoading ? <div role="status" className="stock-chart-message">正在加载历史行情…</div> : query.error ? <div role="alert" className="stock-chart-message"><p>{query.error instanceof Error ? query.error.message : '行情暂时不可用'}</p><button type="button" onClick={() => { void query.refetch(); }}>重新加载行情</button></div> : !query.data?.supported ? <div role="status" className="stock-chart-message">行情源暂未覆盖这只股票。已有持仓和交易记录仍会保留。</div> : !visibleBars.length ? <div role="status" className="stock-chart-message">所选范围内没有可用的历史行情。</div> : <>
-      <div className="stock-chart-provenance" role="status"><span>{query.data.source === 'BAOSTOCK' ? 'BaoStock' : query.data.source} · 截至 {dateText(query.data.asOf)} · {rangeName}（返回数据最多约 2 年）</span>{query.data.stale && <strong>缓存行情，尚未更新到最近交易日</strong>}</div>
-      <CandleCanvas bars={periodBars} visibleCount={visibleBars.length} security={security} period={period} macd={macd}/>
-      <div className="stock-chart-footnote"><span>红涨绿跌 · 成交量：股 · 仅收盘数据</span><span>{adjustment === 'qfq' ? '前复权用于走势展示，不改变实际成本或估值。' : '不复权为实际历史价格。'}{period !== 'day' && ` ${period === 'week' ? '周 K' : '月 K'} 的首尾周期可能不完整（行情返回边界或当前周期）。`}</span></div>
-      <details className="stock-chart-details"><summary>查看最近{periodName}数据</summary><dl><div><dt>开盘</dt><dd>{money(last?.open)}</dd></div><div><dt>最高</dt><dd>{money(last?.high)}</dd></div><div><dt>最低</dt><dd>{money(last?.low)}</dd></div><div><dt>成交量</dt><dd>{last?.volume.toLocaleString('zh-CN')} 股</dd></div></dl></details>
+      <div className="stock-chart-provenance" role="status"><span>{query.data.source === 'BAOSTOCK' ? 'BaoStock' : query.data.source === 'SINA' ? '新浪财经' : query.data.source} · 截至 {dateText(query.data.asOf)} · {rangeName}（返回数据最多约 2 年）</span>{query.data.stale && <strong>缓存行情，尚未更新到最近交易日</strong>}</div>
+      <CandleCanvas bars={periodBars} visibleCount={visibleBars.length} security={{ tsCode: symbol, name: security.name }} timezone={timezone} period={period} macd={macd}/>
+      <div className="stock-chart-footnote"><span>红涨绿跌 · 成交量：股 · 仅收盘数据</span><span>{effectiveAdjustment === 'qfq' ? '前复权用于走势展示，不改变实际成本或估值。' : '不复权为实际历史价格。'}{period !== 'day' && ` ${period === 'week' ? '周 K' : '月 K'} 的首尾周期可能不完整（行情返回边界或当前周期）。`}</span></div>
+      <details className="stock-chart-details"><summary>查看最近{periodName}数据</summary><dl><div><dt>开盘</dt><dd>{formatPrice(last?.open)}</dd></div><div><dt>最高</dt><dd>{formatPrice(last?.high)}</dd></div><div><dt>最低</dt><dd>{formatPrice(last?.low)}</dd></div><div><dt>成交量</dt><dd>{last?.volume.toLocaleString('zh-CN')} 股</dd></div></dl></details>
     </>}
   </section>;
 }
 
-function CandleCanvas({ bars, visibleCount, security, period, macd }: { bars: CandleBar[]; visibleCount: number; security: ChartSecurity; period: ChartPeriod; macd: boolean }) {
+function CandleCanvas({ bars, visibleCount, security, timezone, period, macd }: { bars: CandleBar[]; visibleCount: number; security: Pick<ChartSecurity, 'tsCode' | 'name'>; timezone: string; period: ChartPeriod; macd: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -43,12 +56,12 @@ function CandleCanvas({ bars, visibleCount, security, period, macd }: { bars: Ca
     setFailed(false);
     void import('klinecharts').then(({ init, dispose }) => {
       if (cancelled) return;
-      const chart = init(element, { locale: 'zh-CN', timezone: 'Asia/Shanghai', styles: { candle: { bar: { upColor: '#c74b50', downColor: '#31846a', noChangeColor: '#67727e', upBorderColor: '#c74b50', downBorderColor: '#31846a', upWickColor: '#c74b50', downWickColor: '#31846a' } } } });
+      const chart = init(element, { locale: 'zh-CN', timezone, styles: { candle: { bar: { upColor: '#c74b50', downColor: '#31846a', noChangeColor: '#67727e', upBorderColor: '#c74b50', downBorderColor: '#31846a', upWickColor: '#c74b50', downWickColor: '#31846a' } } } });
       if (!chart) { setFailed(true); return; }
       cleanup = () => dispose(element);
       chart.setSymbol({ ticker: security.tsCode, pricePrecision: 2, volumePrecision: 0 });
       chart.setPeriod({ span: 1, type: period });
-      chart.setDataLoader({ getBars: ({ type, callback }) => callback(type === 'init' ? bars.map(bar => ({ ...bar })) : [], false) });
+      chart.setDataLoader({ getBars: ({ type, callback }) => callback(type === 'init' ? bars.map(bar => ({ ...bar, turnover: bar.turnover ?? undefined })) : [], false) });
       chart.createIndicator({ name: 'MA', paneId: 'candle_pane' });
       const indicatorStyles = { bars: [{ upColor: '#c74b50', downColor: '#31846a', noChangeColor: '#67727e' }] };
       chart.createIndicator({ name: 'VOL', styles: indicatorStyles });
@@ -65,6 +78,6 @@ function CandleCanvas({ bars, visibleCount, security, period, macd }: { bars: Ca
       cleanup = () => { observer?.disconnect(); dispose(element); };
     }).catch(() => { cleanup?.(); cleanup = undefined; if (!cancelled) setFailed(true); });
     return () => { cancelled = true; cleanup?.(); };
-  }, [bars, visibleCount, security.tsCode, period, macd]);
+  }, [bars, visibleCount, security.tsCode, timezone, period, macd]);
   return <>{failed && <p role="alert">图表暂时无法绘制，可展开下方查看价格数据。</p>}<div ref={host} className="stock-chart-canvas" role={failed ? undefined : 'img'} aria-label={failed ? undefined : `${security.name} K 线图，可缩放和拖动`}/></>;
 }
