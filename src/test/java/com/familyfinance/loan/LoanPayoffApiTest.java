@@ -133,7 +133,7 @@ class LoanPayoffApiTest {
   var pool=java.util.concurrent.Executors.newSingleThreadExecutor();var intercepted=new java.util.concurrent.atomic.AtomicBoolean();long readerThread=Thread.currentThread().getId();
   org.mockito.Mockito.doAnswer(call->{
    Object result=call.callRealMethod();String sql=call.getArgument(0);
-   if(Thread.currentThread().getId()==readerThread&&sql.startsWith("select i.status,i.principal_cents")&&!sql.endsWith("for update")&&intercepted.compareAndSet(false,true))
+   if(Thread.currentThread().getId()==readerThread&&sql.startsWith("select i.status,i.principal_amount")&&!sql.endsWith("for update")&&intercepted.compareAndSet(false,true))
     pool.submit(()->{payoff(loan,payment).andExpect(status().isOk());return null;}).get(10,java.util.concurrent.TimeUnit.SECONDS);
    return result;
   }).when(jdbc).query(org.mockito.ArgumentMatchers.anyString(),org.mockito.ArgumentMatchers.any(org.springframework.jdbc.core.RowMapper.class),org.mockito.ArgumentMatchers.any(Object[].class));

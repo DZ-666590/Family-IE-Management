@@ -86,7 +86,7 @@ public class FinancialTransaction {
     public Long getLoanPrincipalCents(){return loanPrincipalCents;}
     public Long getLoanInterestCents(){return loanInterestCents;}
     public void loanSplit(long principal,long interest){
-        if((sourceType!=TransactionSourceType.LOAN_PAYMENT&&sourceType!=TransactionSourceType.LOAN_PREPAYMENT)||principal<=0||interest<0||Math.addExact(principal,interest)!=amountCents)
+        if((sourceType!=TransactionSourceType.LOAN_PAYMENT&&sourceType!=TransactionSourceType.LOAN_PREPAYMENT)||principal<0||(sourceType==TransactionSourceType.LOAN_PREPAYMENT&&principal==0)||interest<0||amountCents<=0||Math.addExact(principal,interest)!=amountCents)
             throw new IllegalArgumentException("invalid loan payment allocation");
         loanPrincipalCents=principal;loanInterestCents=interest;
     }

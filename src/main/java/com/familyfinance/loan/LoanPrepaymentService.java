@@ -35,8 +35,8 @@ public class LoanPrepaymentService {
   if(paidOn.isBefore(account.getOpeningOn()))throw new ResourceConflictException("ACCOUNT_ACTIVITY_BEFORE_OPENING","实际还款日期不能早于账户开账日期");
   long cash=jdbc.queryForList("select balance_cents from ledger_accounts where household_id=? and account_code=?",Long.class,h,"CASH:"+selected).stream().findFirst().orElse(0L);
   long amount=parse(raw);if(amount>loan.getCurrentPrincipalCents())throw new RequestValidationException(Map.of("amount","提前还款金额不能超过剩余本金"));if(amount==loan.getCurrentPrincipalCents())throw new ResourceConflictException("LOAN_PAYOFF_REQUIRED","全部偿还请使用一次结清核对实际本金与利息扣款");
-  var effective=strategy==null?PrepaymentStrategy.REDUCE_PAYMENT:strategy;var periods=plans.pending(h,loanId,false);var before=drafts(loan,periods);var after=planner.plan(before,amount,loan.getAnnualRate(),loan.getRepaymentMethod(),paidOn,effective);
-  return new LoanPrepaymentPreview(effective,Money.formatCents(amount),Money.formatCents(amount),selected,Money.formatCents(cash),paidOn,token(loan,periods,amount,paidOn,selected,effective),LoanPrepaymentPreview.summarize(before),LoanPrepaymentPreview.summarize(after));
+  var effective=strategy==null?PrepaymentStrategy.REDUCE_PAYMENT:strategy;var periods=plans.pending(h,loanId,false);var before=drafts(loan,periods);var after=planner.plan(before,DecimalMoney.fromCents(amount),loan.getAnnualRate(),loan.getRepaymentMethod(),paidOn,effective,null,plans.roundingContext(h,loanId,false),loan.getMinimumInstallmentAmount());
+  return new LoanPrepaymentPreview(effective,Money.formatCents(amount),Money.formatCents(amount),selected,Money.formatCents(cash),paidOn,token(loan,periods,amount,paidOn,selected,effective,false),LoanPrepaymentPreview.summarize(before),LoanPrepaymentPreview.summarize(after));
  }
  @Transactional public LoanPrepaymentResponse prepay(Authentication authentication,long loanId,LoanPrepaymentRequest request){
   var access=authorization.requireAdmin(authentication); if(request==null||request.idempotencyKey()==null||request.idempotencyKey().trim().isEmpty()||request.idempotencyKey().length()>100)throw new RequestValidationException(Map.of("idempotencyKey","幂等键不能为空且不超过100个字符"));
@@ -52,8 +52,8 @@ public class LoanPrepaymentService {
   accounting.requirePaymentDate(loan,paidOn);
   var periods=plans.pending(h,loanId,true);var selectedAccount=account(loan,h,request.paymentAccountId());var strategy=request.strategy()==null?PrepaymentStrategy.REDUCE_PAYMENT:request.strategy();boolean full=amount==loan.getCurrentPrincipalCents();
   if(full&&(request.strategy()!=null||request.planToken()!=null||plans.dueInterest(periods,paidOn)>0))throw new ResourceConflictException("LOAN_PAYOFF_REQUIRED","全部偿还请使用一次结清核对实际本金与利息扣款");
-  if(request.strategy()!=null||request.planToken()!=null)plans.requireMatch(token(loan,periods,amount,paidOn,selectedAccount.getId(),strategy),request.planToken());
-  List<InstallmentDraft> replacement=full?List.of():planner.plan(drafts(loan,periods),amount,loan.getAnnualRate(),loan.getRepaymentMethod(),paidOn,strategy);
+  if(request.strategy()!=null||request.planToken()!=null)plans.requireMatch(token(loan,periods,amount,paidOn,selectedAccount.getId(),strategy,true),request.planToken());
+  List<InstallmentDraft> replacement=full?List.of():planner.plan(drafts(loan,periods),DecimalMoney.fromCents(amount),loan.getAnnualRate(),loan.getRepaymentMethod(),paidOn,strategy,null,plans.roundingContext(h,loanId,true),loan.getMinimumInstallmentAmount());
   LoanPrepayment prepayment=new LoanPrepayment(loan,key,amount,paidOn,clock.instant());if(!full)prepayment.strategy(strategy);prepayments.saveAndFlush(prepayment);
   FinancialTransaction transaction=FinancialTransaction.loanPrepayment(access.household(),selectedAccount,access.membership().getUser(),member(loan,h),category(loan,h),amount,paidOn,prepayment.getId(),clock.instant());
   transaction.loanSplit(amount,0);transactions.saveAndFlush(transaction);
@@ -63,11 +63,11 @@ public class LoanPrepaymentService {
   int nextNo=currentSchedule.stream().mapToInt(LoanInstallment::getInstallmentNo).max().orElse(0)+1;
   loan.applyPrincipalPayment(amount,clock.instant());accounting.requireBalance(loan);
   for(var row:currentSchedule)if(row.getStatus()==LoanInstallmentStatus.PENDING){row.cancel(prepayment.getId());notifications.resolveReference(h,"LOAN_INSTALLMENT",row.getId());}
-  installments.saveAll(replacement.stream().map(d->new LoanInstallment(loan,new InstallmentDraft(nextNo+d.installmentNo()-1,d.dueOn(),d.principalCents(),d.interestCents(),d.remainingPrincipalCents()))).toList());
+  installments.saveAll(replacement.stream().map(d->new LoanInstallment(loan,d.renumber(nextNo+d.installmentNo()-1))).toList());
   loans.flush(); requests.record(h,key,digest,prepayment.getId()); return LoanPrepaymentResponse.from(prepayment,loan,totals.read(loan,true));
  }
- private String token(Loan loan,List<LoanPlanToken.Period> periods,long amount,LocalDate day,long account,PrepaymentStrategy strategy){return plans.token(loan,periods,"PARTIAL_PREPAYMENT",day,account,0,"principalCents="+amount+";strategy="+strategy.name());}
- private List<InstallmentDraft> drafts(Loan loan,List<LoanPlanToken.Period> periods){long remaining=loan.getCurrentPrincipalCents();List<InstallmentDraft> rows=new ArrayList<>();for(var p:periods){remaining=Math.subtractExact(remaining,p.principalCents());rows.add(new InstallmentDraft(p.installmentNo(),p.dueOn(),p.principalCents(),p.interestCents(),remaining));}if(remaining!=0)throw new ResourceConflictException("LOAN_PLAN_INVALID","待还计划本金与剩余本金不一致，请核对计划");return rows;}
+ private String token(Loan loan,List<LoanPlanToken.Period> periods,long amount,LocalDate day,long account,PrepaymentStrategy strategy,boolean current){return plans.token(loan,periods,"PARTIAL_PREPAYMENT",day,account,0,"principalCents="+amount+";strategy="+strategy.name()+";rounding="+plans.roundingContext(loan.getHousehold().getId(),loan.getId(),current));}
+ private List<InstallmentDraft> drafts(Loan loan,List<LoanPlanToken.Period> periods){long remaining=loan.getCurrentPrincipalCents();List<InstallmentDraft> rows=new ArrayList<>();for(var p:periods){remaining=Math.subtractExact(remaining,p.principalCents());rows.add(p.draft(remaining));}if(remaining!=0)throw new ResourceConflictException("LOAN_PLAN_INVALID","待还计划本金与剩余本金不一致，请核对计划");return rows;}
  private void validate(Loan loan,LocalDate day){
   if(loan.getStatus()!=LoanStatus.ACTIVE)throw new ResourceConflictException("LOAN_CLOSED","贷款已归档或结清");
   if(day==null||day.isAfter(LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai")))))throw new RequestValidationException(Map.of("paidOn","还款日期不能为空且不能晚于今天"));

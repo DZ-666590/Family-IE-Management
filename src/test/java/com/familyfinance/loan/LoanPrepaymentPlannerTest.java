@@ -26,7 +26,7 @@ class LoanPrepaymentPlannerTest {
   var payment=plan(before,30000,"0.12",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_PAYMENT);
   assertThat(term).hasSize(9);assertThat(term.subList(0,8)).allSatisfy(p->assertThat(p.principalCents()+p.interestCents()).isEqualTo(10662));assertThat(term.get(8).principalCents()+term.get(8).interestCents()).isEqualTo(9206);
   assertThat(term.stream().mapToLong(InstallmentDraft::interestCents).sum()).isEqualTo(4502);
-  assertThat(payment).hasSize(12);assertThat(payment.subList(0,11)).allSatisfy(p->assertThat(p.principalCents()+p.interestCents()).isEqualTo(7996));assertThat(payment.get(11).principalCents()+payment.get(11).interestCents()).isEqualTo(8000);assertThat(payment.stream().mapToLong(InstallmentDraft::interestCents).sum()).isEqualTo(5956);
+  assertThat(payment).hasSize(12);assertThat(payment.subList(0,11)).allSatisfy(p->assertThat(p.principalCents()+p.interestCents()).isEqualTo(7996));assertThat(payment.get(11).principalCents()+payment.get(11).interestCents()).isEqualTo(8001);assertThat(payment.stream().mapToLong(InstallmentDraft::interestCents).sum()).isEqualTo(5957);
  }
  @Test void equalPrincipalRetainsVaryingCapsAndFixedTermDates(){
   var before=standard(120000,"0.12",RepaymentMethod.EQUAL_PRINCIPAL);
@@ -39,9 +39,9 @@ class LoanPrepaymentPlannerTest {
   var one=new AmortizationCalculator().calculate(600,new BigDecimal("0.01"),1,paid,RepaymentMethod.EQUAL_PAYMENT);
   assertThat(one.get(0).interestCents()).isEqualTo(1);
   var after=plan(standard(1201,"0.01",RepaymentMethod.EQUAL_PAYMENT),1,"0.01",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_PAYMENT);
-  assertThat(after.get(6).principalCents()).isEqualTo(100);assertThat(after.get(6).interestCents()).isEqualTo(1);assertThat(after.get(11).principalCents()).isEqualTo(96);
+  assertThat(after).extracting(InstallmentDraft::principalCents).containsExactly(100L,100L,100L,101L,100L,100L,101L,100L,101L,101L,101L,95L);assertThat(after.stream().mapToLong(InstallmentDraft::interestCents).sum()).isEqualTo(6);
   var before=List.of(new InstallmentDraft(1,paid.plusMonths(1),700,1,0));
-  for(var strategy:PrepaymentStrategy.values()){var next=plan(before,100,"0.01",RepaymentMethod.EQUAL_PAYMENT,strategy);assertThat(next.get(0).principalCents()).isEqualTo(600);assertThat(next.get(0).interestCents()).isEqualTo(1);}
+  for(var strategy:List.of(PrepaymentStrategy.REDUCE_TERM,PrepaymentStrategy.REDUCE_PAYMENT)){var next=plan(before,100,"0.01",RepaymentMethod.EQUAL_PAYMENT,strategy);assertThat(next.get(0).principalCents()).isEqualTo(600);assertThat(next.get(0).interestCents()).isEqualTo(1);}
  }
  @Test void customIrregularDatesUseOriginalImplicitRatesAndPrincipalWeights(){
   var before=List.of(new InstallmentDraft(5,LocalDate.of(2026,1,7),20000,3000,80000),new InstallmentDraft(6,LocalDate.of(2026,4,19),30000,8000,50000),new InstallmentDraft(7,LocalDate.of(2027,2,3),50000,1000,0));
@@ -57,7 +57,7 @@ class LoanPrepaymentPlannerTest {
  }
  @Test void tinyResidualRejectsFixedTermButTermStrategyClipsWithoutZeroRows(){
   var before=standard(120000,"0",RepaymentMethod.EQUAL_PAYMENT);
-  assertThatThrownBy(()->plan(before,119999,"0",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_PAYMENT)).hasMessageContaining("每期至少");
+  assertThatThrownBy(()->plan(before,119999,"0",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_PAYMENT)).hasMessageContaining("正现金");
   var term=plan(before,119999,"0",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_TERM);assertThat(term).hasSize(1);assertThat(term.get(0).principalCents()).isEqualTo(1);
   var small=plan(before,1,"0",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_TERM);assertThat(small).hasSize(12);assertThat(small.get(11).principalCents()).isEqualTo(9999);
  }
@@ -65,10 +65,10 @@ class LoanPrepaymentPlannerTest {
   var before=new AmortizationCalculator().calculate(120000,new BigDecimal("0.12"),360,LocalDate.of(2025,12,31),RepaymentMethod.EQUAL_PAYMENT);
   assertThat(before).hasSize(360).allSatisfy(row->assertThat(row.principalCents()).isPositive());
   assertThat(before.stream().mapToLong(InstallmentDraft::principalCents).sum()).isEqualTo(120000);
-  assertThatThrownBy(()->plan(before,119640,"0.12",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_PAYMENT))
-   .isInstanceOf(com.familyfinance.shared.ResourceConflictException.class).hasMessageContaining("缩短期限").hasMessageContaining("一次结清");
+  var fixed=plan(before,119640,"0.12",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_PAYMENT);
+  assertThat(fixed).hasSize(360).allSatisfy(r->assertThat(r.principalCents()+r.interestCents()).isPositive());assertThat(fixed.stream().mapToLong(InstallmentDraft::interestCents).sum()).isEqualTo(973);
   var term=plan(before,119640,"0.12",RepaymentMethod.EQUAL_PAYMENT,PrepaymentStrategy.REDUCE_TERM);
-  assertThat(term).containsExactly(new InstallmentDraft(1,LocalDate.of(2026,1,31),360,4,0));
+  assertThat(term).singleElement().satisfies(r->{assertThat(r.principalCents()).isEqualTo(360);assertThat(r.interestCents()).isEqualTo(4);assertThat(r.remainingPrincipalCents()).isZero();});
  }
  @Test void dueTodayFullAndMismatchedEmptySchedulesCannotBeSilentlyReplanned(){
   var before=standard(120000,"0",RepaymentMethod.EQUAL_PAYMENT);

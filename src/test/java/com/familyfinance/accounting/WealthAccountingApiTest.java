@@ -277,7 +277,7 @@ class WealthAccountingApiTest {
   jdbc.update("update loans set funding_mode='OPENING',disbursement_account_id=null where id=?",loan);
   long payment=postedTransaction("EXPENSE","1.00","2026-01-02",category,"payment-fixture");
   jdbc.update("update financial_transactions set source_type='LOAN_PAYMENT',source_id=?,loan_principal_cents=100,loan_interest_cents=0 where id=?",loan,payment);
-  for(String invalid:new String[]{"loan_principal_cents=null", "loan_interest_cents=null", "loan_principal_cents=0,loan_interest_cents=100", "loan_interest_cents=1"})
+  for(String invalid:new String[]{"loan_principal_cents=null", "loan_interest_cents=null", "loan_principal_cents=-1,loan_interest_cents=101", "loan_interest_cents=1"})
    org.assertj.core.api.Assertions.assertThatThrownBy(()->jdbc.update("update financial_transactions set "+invalid+" where id=?",payment)).isInstanceOf(org.springframework.dao.DataAccessException.class).satisfies(error->assertThat(error.getMessage()).containsIgnoringCase("check"));
   jdbc.update("update financial_transactions set source_type='MANUAL',source_id=null,loan_principal_cents=null,loan_interest_cents=null where id=?",payment);
   assertThat(jdbc.queryForObject("select count(*) from loans where id=?",Long.class,loan)).isEqualTo(1);

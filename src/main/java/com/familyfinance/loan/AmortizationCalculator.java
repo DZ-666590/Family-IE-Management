@@ -3,56 +3,26 @@ package com.familyfinance.loan;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/** Pure, cents-based schedule generator. The final row receives every principal rounding remainder. */
+/** Exact legacy-cent adapter for new precision-aware schedules. Persisted old plans are never recalculated. */
 public final class AmortizationCalculator {
     static final int RATE_SCALE = 6;
-    static final int WORK_SCALE = 24;
     static final BigDecimal MAX_ANNUAL_RATE = BigDecimal.ONE;
-    private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
     private static final BigDecimal TWELVE = BigDecimal.valueOf(12);
 
     public List<InstallmentDraft> calculate(
             long principalCents, BigDecimal annualRate, int termMonths, LocalDate startOn, RepaymentMethod method) {
         validate(principalCents, annualRate, termMonths, startOn, method);
-        BigDecimal monthlyRate = annualRate.setScale(RATE_SCALE, RoundingMode.UNNECESSARY).divide(TWELVE, WORK_SCALE, RoundingMode.HALF_UP);
-        BigDecimal equalPayment = method == RepaymentMethod.EQUAL_PAYMENT
-                ? equalPayment(principalCents, monthlyRate, termMonths) : null;
-        List<InstallmentDraft> drafts = new ArrayList<>(termMonths);
-        long remaining = principalCents;
-        for (int index = 1; index <= termMonths; index++) {
-            long interest = periodInterest(remaining, annualRate);
-            long principal = index == termMonths ? remaining : principalFor(method, principalCents, termMonths, equalPayment, interest, remaining);
-            if (principal <= 0 || principal > remaining) principal = remaining;
-            remaining = Math.subtractExact(remaining, principal);
-            drafts.add(new InstallmentDraft(index, startOn.plusMonths(index), principal, interest, remaining));
-        }
-        return List.copyOf(drafts);
-    }
-
-    private static long principalFor(RepaymentMethod method, long original, int months, BigDecimal payment, long interest, long remaining) {
-        if (method == RepaymentMethod.EQUAL_PRINCIPAL) return original / months;
-        return Math.subtractExact(cents(payment), interest);
-    }
-
-    private static BigDecimal equalPayment(long principalCents, BigDecimal monthlyRate, int months) {
-        BigDecimal principal = BigDecimal.valueOf(principalCents);
-        if (monthlyRate.signum() == 0) return principal.divide(BigDecimal.valueOf(months), WORK_SCALE, RoundingMode.HALF_UP);
-        BigDecimal growth = BigDecimal.ONE.add(monthlyRate).pow(months);
-        return principal.multiply(monthlyRate).multiply(growth)
-                .divide(growth.subtract(BigDecimal.ONE), WORK_SCALE, RoundingMode.HALF_UP);
+        return new PreciseLoanScheduleCalculator().calculate(com.familyfinance.shared.DecimalMoney.fromCents(principalCents),annualRate,
+                java.util.stream.IntStream.rangeClosed(1,termMonths).mapToObj(startOn::plusMonths).toList(),method,LoanRoundingContext.ZERO)
+                .stream().map(PreciseInstallmentDraft::legacy).toList();
     }
 
     /** Round once at the cent boundary; rounding a repeating monthly rate first can lose an exact half cent. */
     static long periodInterest(long principalCents, BigDecimal annualRate) {
         return BigDecimal.valueOf(principalCents).multiply(annualRate).divide(TWELVE, 0, RoundingMode.HALF_UP).longValueExact();
-    }
-
-    private static long cents(BigDecimal cents) {
-        return cents.setScale(0, RoundingMode.HALF_UP).longValueExact();
     }
 
     private static void validate(long principalCents, BigDecimal annualRate, int termMonths, LocalDate startOn, RepaymentMethod method) {

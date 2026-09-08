@@ -256,11 +256,11 @@ class AssetApiTest {
         createValuation(owner, assetId, "2026-09-01", "600000.00");
         jdbc.update("""
                 insert into loans (id,household_id,name,loan_type,linked_asset_id,payment_account_id,payment_category_id,
-                                  principal_cents,annual_rate,term_months,repayment_method,start_on,current_principal_cents,status,created_by)
+                                  principal_amount,annual_rate,term_months,repayment_method,start_on,current_principal_amount,status,created_by)
                 values (1,1,'资产引用贷款','MORTGAGE',?,
                         (select min(id) from financial_accounts where household_id=1),
                         (select min(id) from categories where household_id=1 and kind='EXPENSE'),
-                        100,0.000000,1,'EQUAL_PAYMENT',date '2026-01-01',100,'ACTIVE',1)
+                        1.00,0.000000,1,'EQUAL_PAYMENT',date '2026-01-01',1.00,'ACTIVE',1)
                 """, assetId);
 
         mvc.perform(delete("/api/assets/{id}", assetId).session(owner).with(csrf()))

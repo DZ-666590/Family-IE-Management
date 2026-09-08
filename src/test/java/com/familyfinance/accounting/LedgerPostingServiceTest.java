@@ -224,7 +224,7 @@ class LedgerPostingServiceTest {
 
     @Test
     void loanRepaymentUsesPrincipalPlusInterestAndCannotOverpayPrincipal() {
-        jdbc.update("insert into loans(household_id,name,loan_type,payment_account_id,payment_category_id,principal_cents,annual_rate,term_months,repayment_method,start_on,current_principal_cents,status,created_by) values (?,'loan','OTHER',?,?,10000,0,12,'EQUAL_PRINCIPAL',?,10000,'ACTIVE',?)",h,cash,category,day,actor);
+        jdbc.update("insert into loans(household_id,name,loan_type,payment_account_id,payment_category_id,principal_amount,annual_rate,term_months,repayment_method,start_on,current_principal_amount,status,created_by) values (?,'loan','OTHER',?,?,100.00,0,12,'EQUAL_PRINCIPAL',?,100.00,'ACTIVE',?)",h,cash,category,day,actor);
         long loan=jdbc.queryForObject("select id from loans where household_id=?",Long.class,h);
         posting.post(command("LOAN_OPENING",loan,"loan-open",day,List.of(
                 new LedgerEntryInput("LOAN:"+loan,LOAN,0,10000,null,null),

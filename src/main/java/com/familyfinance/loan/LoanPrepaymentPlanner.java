@@ -1,46 +1,119 @@
 package com.familyfinance.loan;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
+import java.math.*;
 import java.time.LocalDate;
 import java.util.*;
-import com.familyfinance.shared.ResourceConflictException;
+import com.familyfinance.shared.*;
 
-/** Pure rescheduling over the preserved future date sequence. */
+/** Only future dates; ADJUST_TERM is explicit, REDUCE_TERM preserves original cash caps. */
 public final class LoanPrepaymentPlanner {
- public List<InstallmentDraft> plan(List<InstallmentDraft> before,long amount,BigDecimal annualRate,RepaymentMethod method,LocalDate paidOn,PrepaymentStrategy strategy){
-  if(before.isEmpty()||before.size()>360)throw new ResourceConflictException("LOAN_PLAN_INVALID","贷款未来计划为空或超出360期，请核对计划");
-  long original=0;LocalDate previous=null;
-  for(var row:before){
-   if(row.principalCents()<=0||row.interestCents()<0||(previous!=null&&!row.dueOn().isAfter(previous)))throw new ResourceConflictException("LOAN_PLAN_INVALID","贷款计划金额或日期异常，请核对计划");
-   if(!row.dueOn().isAfter(paidOn))throw new ResourceConflictException("LOAN_OVERDUE_INSTALLMENTS","请先确认所有到期未付期次，再进行部分提前还款");
-   original=Math.addExact(original,row.principalCents());previous=row.dueOn();
-  }
-  if(amount<=0||amount>=original)throw new ResourceConflictException("LOAN_PAYOFF_REQUIRED","部分还款须小于剩余本金；全部偿还请使用一次结清");
-  long remaining=Math.subtractExact(original,amount),initial=remaining,oldRemaining=original;
-  boolean fixed=strategy==PrepaymentStrategy.REDUCE_PAYMENT;
-  if(fixed&&remaining<before.size())throw new ResourceConflictException("LOAN_FIXED_TERM_INFEASIBLE","剩余本金不足每期至少一分钱，请选择缩短期限或一次结清");
-  List<InstallmentDraft> standard=fixed&&method!=RepaymentMethod.CUSTOM?new AmortizationCalculator().calculate(remaining,annualRate,before.size(),paidOn,method):List.of();
-  if(standard.stream().anyMatch(row->row.principalCents()<=0))throw new ResourceConflictException("LOAN_FIXED_TERM_INFEASIBLE","剩余本金无法按原还款方式保留全部期次，请选择缩短期限或一次结清");
-  List<InstallmentDraft> result=new ArrayList<>();
-  for(int i=0;i<before.size()&&remaining>0;i++){
-   var old=before.get(i);
-   // For custom periods calculate the exact rational interest directly, avoiding a rounded intermediate rate.
-   long interest=method==RepaymentMethod.CUSTOM?BigDecimal.valueOf(remaining).multiply(BigDecimal.valueOf(old.interestCents())).divide(BigDecimal.valueOf(oldRemaining),0,RoundingMode.HALF_UP).longValueExact():AmortizationCalculator.periodInterest(remaining,annualRate);
-   long principal;
-   if(!fixed){principal=Math.min(remaining,Math.subtractExact(Math.addExact(old.principalCents(),old.interestCents()),interest));}
-   else if(method!=RepaymentMethod.CUSTOM){principal=standard.get(i).principalCents();}
-   else if(i==before.size()-1){principal=remaining;}
-   else{
-    long desired=BigDecimal.valueOf(initial).multiply(BigDecimal.valueOf(old.principalCents())).divide(BigDecimal.valueOf(original),0,RoundingMode.DOWN).longValueExact();
-    long lower=Math.max(1,remaining-(oldRemaining-old.principalCents())),upper=Math.min(remaining-(before.size()-i-1),old.principalCents());
-    principal=Math.max(lower,Math.min(desired,upper));
-   }
-   if(principal<=0||principal>remaining)throw new ResourceConflictException("LOAN_PLAN_INVALID","原逐期付款上限不足以偿还本金，请核对计划");
-   remaining=Math.subtractExact(remaining,principal);oldRemaining=Math.subtractExact(oldRemaining,old.principalCents());
-   result.add(new InstallmentDraft(i+1,old.dueOn(),principal,interest,remaining));
-  }
-  if(remaining!=0)throw new ResourceConflictException("LOAN_PLAN_INVALID","原期限内无法偿还全部本金，请核对计划");
-  return List.copyOf(result);
+ private static final MathContext MC=MathContext.DECIMAL128;
+ public List<InstallmentDraft> plan(List<InstallmentDraft> before,long amount,BigDecimal rate,RepaymentMethod method,LocalDate day,PrepaymentStrategy strategy){
+  return plan(before,DecimalMoney.fromCents(amount),rate,method,day,strategy,null,LoanRoundingContext.ZERO,null);
  }
+ public List<InstallmentDraft> plan(List<InstallmentDraft> before,BigDecimal amount,BigDecimal rate,RepaymentMethod method,LocalDate day,
+       PrepaymentStrategy strategy,Integer targetPeriods,LoanRoundingContext context,BigDecimal minimum){
+  BigDecimal original=validate(before,day);amount=DecimalMoney.settled(amount);
+  if(amount.signum()<=0||amount.compareTo(original)>=0)throw new ResourceConflictException("LOAN_PAYOFF_REQUIRED","部分还款须小于剩余本金；全部偿还请使用一次结清");
+  return planRemaining(before,original.subtract(amount),rate,method,strategy,targetPeriods,context,minimum);
+ }
+ public List<InstallmentDraft> planRemaining(List<InstallmentDraft> before,BigDecimal remaining,BigDecimal rate,RepaymentMethod method,
+       PrepaymentStrategy strategy,Integer targetPeriods,LoanRoundingContext context,BigDecimal minimum){
+  BigDecimal original=validate(before,null);remaining=DecimalMoney.settled(remaining);
+  if(remaining.signum()<=0||remaining.compareTo(original)>0)throw invalid();
+  if(strategy==null)strategy=PrepaymentStrategy.REDUCE_PAYMENT;
+  int count=before.size();
+  if(strategy==PrepaymentStrategy.ADJUST_TERM){
+   if(targetPeriods==null||targetPeriods<1||targetPeriods>=before.size())throw new RequestValidationException(Map.of("targetPeriods","请选择比当前未来期数更小的正整数"));
+   count=targetPeriods;
+  }else if(targetPeriods!=null)throw new RequestValidationException(Map.of("targetPeriods","仅调整期限策略可指定期数"));
+  List<InstallmentDraft> result;
+  try{
+   if(strategy==PrepaymentStrategy.REDUCE_TERM)result=capped(before,remaining,rate,method,context);
+   else if(method==RepaymentMethod.CUSTOM)result=custom(before,remaining,count,context,strategy==PrepaymentStrategy.REDUCE_PAYMENT);
+   else result=new PreciseLoanScheduleCalculator().calculate(remaining,rate,before.subList(0,count).stream().map(InstallmentDraft::dueOn).toList(),method,context).stream().map(PreciseInstallmentDraft::legacy).toList();
+  }catch(IllegalArgumentException e){throw new ResourceConflictException("LOAN_FIXED_TERM_INFEASIBLE","所选期数不能形成每期正现金的还款计划，请选择可行期数或一次结清");}
+  LoanTermOptions.requireMinimum(result,minimum);return result;
+ }
+ private List<InstallmentDraft> custom(List<InstallmentDraft> before,BigDecimal principal,int count,LoanRoundingContext context,boolean preserveCaps){
+  var rates=customRates(before);BigDecimal weights=BigDecimal.ZERO;
+  for(int i=0;i<count;i++)weights=weights.add(weight(before.get(i)));
+  BigDecimal originalRemaining=before.stream().map(InstallmentDraft::principalAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
+  BigDecimal cumP=BigDecimal.ZERO,cumI=BigDecimal.ZERO,paidP=BigDecimal.ZERO,paidI=BigDecimal.ZERO;
+  List<InstallmentDraft> rows=new ArrayList<>();
+  for(int i=0;i<count;i++){
+   var old=before.get(i);var rate=rates.get(i);boolean last=i==count-1;
+   // CUSTOM interest is contractual against settled opening principal after cent allocation.
+   BigDecimal rawI=principal.subtract(paidP).multiply(rate.interest,MC).divide(rate.principal,MC);
+   BigDecimal rawP=weights.signum()==0?BigDecimal.ZERO:principal.multiply(weight(old),MC).divide(weights,MC);
+   BigDecimal pp=last?principal.subtract(cumP):PreciseLoanScheduleCalculator.stored(rawP),pi=PreciseLoanScheduleCalculator.stored(rawI);
+   cumP=cumP.add(pp);cumI=cumI.add(pi);
+   BigDecimal p=last?principal.subtract(paidP):cumP.setScale(2,RoundingMode.FLOOR).subtract(paidP);
+   BigDecimal interest=context.preciseInterestPaid().add(cumI).setScale(2,RoundingMode.HALF_UP).subtract(context.actualInterestPaid()).subtract(paidI);
+   originalRemaining=originalRemaining.subtract(old.principalAmount());
+   if(!last){
+    BigDecimal lower=interest.signum()==0?new BigDecimal("0.01"):BigDecimal.ZERO;
+    if(preserveCaps)lower=lower.max(principal.subtract(paidP).subtract(originalRemaining));
+    int reserve=1; // The last selected row must retain principal.
+    for(int j=i+1;j<count-1;j++)if(rates.get(j).interest.signum()==0)reserve++;
+    BigDecimal upper=principal.subtract(paidP).subtract(BigDecimal.valueOf(reserve,2));
+    if(preserveCaps)upper=upper.min(old.principalAmount());
+    if(lower.compareTo(upper)>0)throw new IllegalArgumentException("custom bounds cannot produce positive cash");
+    p=p.max(lower).min(upper);
+   }else if(preserveCaps&&p.compareTo(old.principalAmount())>0)throw new IllegalArgumentException("custom final principal exceeds original cap");
+   paidP=paidP.add(p);paidI=paidI.add(interest);BigDecimal remaining=principal.subtract(paidP);
+   requireCash(p,interest,remaining,last);
+   rows.add(draft(i,old,p,interest,remaining,pp,pi,context.preciseInterestPaid().add(cumI).subtract(context.actualInterestPaid()).subtract(paidI),preserveCaps?"CUSTOM_BOUNDED_CENTS_V1":"CUSTOM_REALLOCATION_V1",rate));
+  }
+  return List.copyOf(rows);
+ }
+ private List<InstallmentDraft> capped(List<InstallmentDraft> before,BigDecimal principal,BigDecimal annualRate,RepaymentMethod method,LoanRoundingContext context){
+  var rates=method==RepaymentMethod.CUSTOM?customRates(before):List.<Ratio>of();
+  BigDecimal balance=principal,cumP=BigDecimal.ZERO,cumI=BigDecimal.ZERO,paidP=BigDecimal.ZERO,paidI=BigDecimal.ZERO;
+  List<InstallmentDraft> result=new ArrayList<>();
+  for(int i=0;i<before.size();i++){
+   var old=before.get(i);Ratio ratio=method==RepaymentMethod.CUSTOM?rates.get(i):null;
+   BigDecimal rawI=ratio==null?balance.multiply(annualRate,MC).divide(BigDecimal.valueOf(12),MC):principal.subtract(paidP).multiply(ratio.interest,MC).divide(ratio.principal,MC);
+   BigDecimal pi=PreciseLoanScheduleCalculator.stored(rawI);cumI=cumI.add(pi);
+   BigDecimal interest=context.preciseInterestPaid().add(cumI).setScale(2,RoundingMode.HALF_UP).subtract(context.actualInterestPaid()).subtract(paidI);
+   BigDecimal cap=old.principalAmount().add(old.interestAmount()),remaining=principal.subtract(paidP);
+   BigDecimal p=cap.subtract(interest).min(remaining);boolean last=p.compareTo(remaining)==0;
+   BigDecimal rawP=cap.subtract(rawI),pp=last?principal.subtract(cumP):PreciseLoanScheduleCalculator.stored(rawP);
+   paidP=paidP.add(p);paidI=paidI.add(interest);cumP=cumP.add(pp);remaining=principal.subtract(paidP);
+   requireCash(p,interest,remaining,last);
+   if(pp.signum()<0||(!last&&rawP.compareTo(balance)>=0))throw invalid();
+   result.add(draft(i,old,p,interest,remaining,pp,pi,context.preciseInterestPaid().add(cumI).subtract(context.actualInterestPaid()).subtract(paidI),ratio==null?"CAPPED_CASH_V1":"CUSTOM_CAPPED_CASH_V1",ratio));
+   if(last)return List.copyOf(result);balance=balance.subtract(rawP,MC);
+  }
+  throw invalid();
+ }
+ private static InstallmentDraft draft(int i,InstallmentDraft old,BigDecimal p,BigDecimal interest,BigDecimal remaining,BigDecimal pp,BigDecimal pi,BigDecimal carry,String policy,Ratio ratio){
+  return new InstallmentDraft(i+1,old.dueOn(),DecimalMoney.toCents(p),DecimalMoney.toCents(interest),DecimalMoney.toCents(remaining),pp.setScale(12),pi.setScale(12),carry.setScale(12),policy,ratio==null?null:ratio.principal,ratio==null?null:ratio.interest);
+ }
+ private static void requireCash(BigDecimal p,BigDecimal i,BigDecimal remaining,boolean last){
+  if(p.signum()<0||i.signum()<0||p.add(i).signum()<=0||remaining.signum()<0||(!last&&remaining.signum()==0))throw new IllegalArgumentException("invalid cash allocation");
+ }
+ private static BigDecimal weight(InstallmentDraft row){return row.precisePrincipalAmount()==null?row.principalAmount():row.precisePrincipalAmount();}
+ private record Ratio(BigDecimal principal,BigDecimal interest){}
+ private static List<Ratio> customRates(List<InstallmentDraft> before){
+  BigDecimal remaining=before.stream().map(InstallmentDraft::principalAmount).reduce(BigDecimal.ZERO,BigDecimal::add);List<Ratio> rates=new ArrayList<>();
+  for(var old:before){
+   BigDecimal denominator=old.customRatePrincipalAmount()==null?remaining:old.customRatePrincipalAmount();
+   BigDecimal numerator=old.customRateInterestAmount()==null?old.interestAmount():old.customRateInterestAmount();
+   if(denominator.signum()<=0||numerator.signum()<0)throw invalid();
+   rates.add(new Ratio(denominator.setScale(12),numerator.setScale(12)));remaining=remaining.subtract(old.principalAmount());
+  }
+  return rates;
+ }
+ private static BigDecimal validate(List<InstallmentDraft> before,LocalDate day){
+  if(before==null||before.isEmpty()||before.size()>360)throw invalid();
+  BigDecimal total=BigDecimal.ZERO;LocalDate previous=null;
+  for(var row:before){
+   if(row.principalCents()<0||row.interestCents()<0||row.principalAmount().add(row.interestAmount()).signum()<=0||(previous!=null&&!row.dueOn().isAfter(previous)))throw invalid();
+   if(day!=null&&!row.dueOn().isAfter(day))throw new ResourceConflictException("LOAN_OVERDUE_INSTALLMENTS","请先确认所有到期未付期次，再进行部分提前还款");
+   total=total.add(row.principalAmount());previous=row.dueOn();
+  }
+  return total;
+ }
+ private static ResourceConflictException invalid(){return new ResourceConflictException("LOAN_PLAN_INVALID","原逐期付款上限或贷款计划不足以偿还本金，请核对计划");}
 }

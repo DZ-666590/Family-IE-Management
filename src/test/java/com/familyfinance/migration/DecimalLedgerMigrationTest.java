@@ -36,7 +36,7 @@ class DecimalLedgerMigrationTest {
             var entries=rows(c,"select * from ledger_entries order by id");
             var journals=rows(c,"select * from ledger_journals order by id");
             var sources=rows(c,"select * from ledger_sources order by source_id");
-            var latest=Flyway.configure().dataSource(url,user,password).locations(location).load();
+            var latest=Flyway.configure().dataSource(url,user,password).locations(location).target("22").load();
             latest.migrate();
             assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("22");
             assertThat(rows(c,"select household_id,account_code,kind,balance_cents from ledger_accounts order by account_code")).isEqualTo(accounts);

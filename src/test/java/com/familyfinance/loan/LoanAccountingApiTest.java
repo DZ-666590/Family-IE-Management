@@ -161,11 +161,11 @@ class LoanAccountingApiTest {
  }
  @Test void existingPrincipalDriftIsRejectedWithoutAnyAdditionalMoneyWrites() throws Exception {
   fund("5000.00");long loan=create("OPENING"),journals=count("ledger_journals");
-  jdbc.update("update loans set current_principal_cents=190000 where id=?",loan);
+  jdbc.update("update loans set current_principal_amount=1900.00 where id=?",loan);
   pay(first(loan),"drift-pay","2026-01-03").andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNTING_BALANCE_MISMATCH"));
   prepay(loan,"100.00","2026-01-03","drift-prepay").andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNTING_BALANCE_MISMATCH"));
   assertThat(principal(loan)).isEqualTo(190000);assertThat(ledger.balance(household,"LOAN:"+loan)).isEqualTo(200000);assertThat(count("ledger_journals")).isEqualTo(journals);assertThat(count("financial_transactions")).isZero();
-  jdbc.update("update loans set current_principal_cents=0 where id=?",loan);
+  jdbc.update("update loans set current_principal_amount=0 where id=?",loan);
   mvc.perform(delete("/api/loans/"+loan).session(session).with(csrf())).andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNTING_BALANCE_MISMATCH"));
  }
  @Test void oldLoanRowsStayUninitializedAndCannotBePaidOrSilentlyRebooked() throws Exception {
