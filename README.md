@@ -55,7 +55,7 @@ npm run dev
 - 家庭可维护现金、银行卡和钱包账户；新建收支必须选择一个有效账户。注册并创建家庭时会在同一事务中创建默认账户和默认分类，但不会替家庭猜测预算月份或金额；预算须由所有者或管理员显式创建。
 - 分类支持两级结构，父子分类必须同为收入或同为支出；收支可直接使用一级或二级分类。
 - 月度预算支持家庭总额、分类和成员范围，修改会保留不可变修订记录。预算使用额由已确认支出实时计算，不保存可能漂移的累计值。
-- 周期规则支持月度和周度计划。到期时先生成待确认项，分配用户确认后才创建一笔真实收支；重复确认返回同一笔收支，不会重复记账。
+- 周期规则支持月度、季度、年度和周度计划。到期时先生成待确认项，分配用户确认后才创建一笔真实收支；支持批量确认、跳过本期，重复确认返回同一笔收支，不会重复记账。
 - `StageTwoLedgerSmokeTest` 使用真实随机端口、HTTP Cookie/CSRF 和临时文件型 H2，完成一次创建、生成、确认和预算核对，完全关闭应用后再以同一数据库重启并核对持久化状态与 Flyway V1–V7。
 
 ### 第二阶段资产、A 股投资与日线行情
@@ -150,7 +150,7 @@ MySQL 的备份、恢复和迁移失败处理由服务器运维流程负责；�
 - `GET|POST /api/budgets`、`GET|PATCH /api/budgets/{id}`
 - `GET /api/budgets/{id}/revisions`、`GET /api/budgets/usage?periodMonth=YYYY-MM`
 - `GET|POST /api/recurring-rules`、`PATCH|DELETE /api/recurring-rules/{id}`
-- `GET /api/recurring-occurrences`、`POST /api/recurring-occurrences/{id}/confirm`
+- `GET /api/recurring-occurrences`、`POST /api/recurring-occurrences/{id}/confirm`、`POST /api/recurring-occurrences/confirm`、`POST /api/recurring-occurrences/{id}/cancel`
 - `GET|POST /api/assets`、`GET|PATCH|DELETE /api/assets/{id}`、`GET|POST /api/assets/{id}/valuations`
 - `GET|POST /api/investment-accounts`、`GET|PATCH|DELETE /api/investment-accounts/{id}`
 - `GET /api/securities/search?q=`、`POST /api/securities/resolve`

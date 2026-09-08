@@ -85,6 +85,20 @@ public class RecurringController {
         return ApiEnvelope.data(executor.execute(()->confirmationService.confirm(authentication, id,occurredOn)));
     }
 
+    @PostMapping("/api/recurring-occurrences/confirm")
+    ApiEnvelope<RecurringBatchConfirmResponse> confirmBatch(
+            Authentication authentication, @RequestBody RecurringBatchConfirmRequest request) {
+        LocalDate occurredOn = LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai")));
+        return ApiEnvelope.data(executor.execute(
+                () -> confirmationService.confirmBatch(authentication, request == null ? null : request.occurrenceIds(), occurredOn)));
+    }
+
+    @PostMapping("/api/recurring-occurrences/{id}/cancel")
+    ApiEnvelope<RecurringOccurrenceResponse> cancel(
+            Authentication authentication, @PathVariable long id) {
+        return ApiEnvelope.data(executor.execute(() -> confirmationService.cancel(authentication, id)));
+    }
+
     private static <T> ResponseEntity<ApiEnvelope<List<T>>> page(
             List<T> items, int page, int size, long totalElements, int totalPages, boolean hasNext) {
         return ResponseEntity.ok()

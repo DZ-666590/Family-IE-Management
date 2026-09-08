@@ -169,7 +169,7 @@ public class RecurringService {
         if (request != null && scheduleType == RecurringScheduleType.WEEKLY && request.dayOfMonth() != null) {
             fields.put("dayOfMonth", "周规则不能指定月度日期");
         }
-        if (scheduleType == RecurringScheduleType.MONTHLY) dayOfWeek = null;
+        if (scheduleType != RecurringScheduleType.WEEKLY) dayOfWeek = null;
         if (scheduleType == RecurringScheduleType.WEEKLY) dayOfMonth = null;
         LocalDate startOn = request == null || request.startOn() == null ? rule.getStartOn() : request.startOn();
         LocalDate endOn = request == null || !request.endOnPresent() ? rule.getEndOn() : request.endOn();
@@ -193,9 +193,9 @@ public class RecurringService {
                 || request.intervalValue() != null || request.dayOfMonth() != null
                 || request.dayOfWeek() != null || request.startOn() != null || request.endOnPresent());
         LocalDate nextDue = scheduleChanged
-                ? RecurrenceCalculator.withinEnd(
-                        RecurrenceCalculator.firstDue(scheduleType, dayOfMonth, dayOfWeek, startOn), endOn)
+                ? nextDueAfterExistingOccurrences(rule, scheduleType, interval, dayOfMonth, dayOfWeek, startOn, endOn)
                 : RecurrenceCalculator.withinEnd(rule.getNextDueOn(), endOn);
+        if (scheduleChanged) occurrences.deletePendingByRuleId(ruleId);
         try {
             rule.update(kind, amount, scheduleType, interval, dayOfMonth, dayOfWeek, startOn, endOn, nextDue,
                     account, member, category, assignee, paused);
@@ -289,11 +289,17 @@ public class RecurringService {
             Map<String, String> fields) {
         if (type == null) fields.put("scheduleType", "周期类型不能为空");
         if (interval < 1 || interval > 120) fields.put("intervalValue", "周期间隔必须在 1 到 120 之间");
-        if (type == RecurringScheduleType.MONTHLY && (dayOfMonth == null || dayOfMonth < 1 || dayOfMonth > 31)) {
-            fields.put("dayOfMonth", "月度日期必须在 1 到 31 之间");
+        if ((type == RecurringScheduleType.MONTHLY
+                || type == RecurringScheduleType.QUARTERLY
+                || type == RecurringScheduleType.YEARLY)
+                && (dayOfMonth == null || dayOfMonth < 1 || dayOfMonth > 31)) {
+            fields.put("dayOfMonth", "月度、季度和年度日期必须在 1 到 31 之间");
         }
-        if (type == RecurringScheduleType.MONTHLY && dayOfWeek != null) {
-            fields.put("dayOfWeek", "月度规则不能指定星期");
+        if ((type == RecurringScheduleType.MONTHLY
+                || type == RecurringScheduleType.QUARTERLY
+                || type == RecurringScheduleType.YEARLY)
+                && dayOfWeek != null) {
+            fields.put("dayOfWeek", "月度、季度和年度规则不能指定星期");
         }
         if (type == RecurringScheduleType.WEEKLY && dayOfWeek == null) {
             fields.put("dayOfWeek", "周规则必须指定星期");
@@ -315,6 +321,32 @@ public class RecurringService {
             fields.put("amount", exception.getMessage());
             return 0;
         }
+    }
+
+    private LocalDate nextDueAfterExistingOccurrences(
+            RecurringRule rule,
+            RecurringScheduleType scheduleType,
+            int interval,
+            Integer dayOfMonth,
+            DayOfWeek dayOfWeek,
+            LocalDate startOn,
+            LocalDate endOn) {
+        LocalDate nextDue = RecurrenceCalculator.firstDue(scheduleType, dayOfMonth, dayOfWeek, startOn);
+        if (rule.getNextDueOn() == null && endOn == null) {
+            return nextDue;
+        }
+        LocalDate existingCursor = occurrences.findTopByRuleIdAndStatusOrderByDueOnDescIdDesc(
+                        rule.getId(), RecurringOccurrenceStatus.CONFIRMED)
+                .map(RecurringOccurrence::getDueOn)
+                .map(confirmed -> RecurrenceCalculator.nextDue(
+                        scheduleType, interval, dayOfMonth, confirmed))
+                .orElse(null);
+        if (existingCursor != null) {
+            while (nextDue != null && nextDue.isBefore(existingCursor)) {
+                nextDue = RecurrenceCalculator.nextDue(scheduleType, interval, dayOfMonth, nextDue);
+            }
+        }
+        return RecurrenceCalculator.withinEnd(nextDue, endOn);
     }
 
     /** Caller must already own the household row lock; mutations always lock household, then rule. */

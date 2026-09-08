@@ -68,4 +68,9 @@ public class RecurringOccurrence {
         this.confirmedTransaction = transaction;
         this.status = RecurringOccurrenceStatus.CONFIRMED;
     }
+
+    void cancel() {
+        this.status = RecurringOccurrenceStatus.CANCELLED;
+        this.confirmedTransaction = null;
+    }
 }

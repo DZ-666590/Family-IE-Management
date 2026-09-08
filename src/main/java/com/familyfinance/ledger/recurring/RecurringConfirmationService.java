@@ -18,6 +18,12 @@ import com.familyfinance.transaction.FinancialTransaction;
 import com.familyfinance.transaction.FinancialTransactionRepository;
 import com.familyfinance.transaction.TransactionSourceType;
 import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -62,7 +68,7 @@ public class RecurringConfirmationService {
 
     @Transactional
     public RecurringOccurrenceResponse confirm(Authentication authentication, long occurrenceId) {
-        return confirm(authentication,occurrenceId,java.time.LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai"))));
+        return confirm(authentication,occurrenceId,LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))));
     }
     @Transactional
     public RecurringOccurrenceResponse confirm(Authentication authentication,long occurrenceId,java.time.LocalDate occurredOn) {
@@ -126,6 +132,46 @@ public class RecurringConfirmationService {
             throw new ResourceConflictException(
                     "RECURRING_CONFIRMATION_RACE", "周期账单已由另一请求确认，请重试");
         }
+    }
+
+    @Transactional
+    public RecurringBatchConfirmResponse confirmBatch(
+            Authentication authentication, List<Long> occurrenceIds, LocalDate occurredOn) {
+        if (occurrenceIds == null || occurrenceIds.isEmpty()) {
+            throw new com.familyfinance.shared.RequestValidationException(
+                    Map.of("occurrenceIds", "至少选择一条待确认账单"));
+        }
+        LinkedHashSet<Long> uniqueIds = new LinkedHashSet<>(occurrenceIds);
+        if (uniqueIds.contains(null) || uniqueIds.stream().anyMatch(id -> id <= 0)) {
+            throw new com.familyfinance.shared.RequestValidationException(
+                    Map.of("occurrenceIds", "账单编号无效"));
+        }
+        if (uniqueIds.size() > 100) {
+            throw new com.familyfinance.shared.RequestValidationException(
+                    Map.of("occurrenceIds", "单次最多确认 100 条账单"));
+        }
+        List<RecurringOccurrenceResponse> confirmed = new ArrayList<>(uniqueIds.size());
+        for (Long id : uniqueIds) confirmed.add(confirm(authentication, id, occurredOn));
+        return new RecurringBatchConfirmResponse(occurrenceIds.size(), confirmed.size(), confirmed);
+    }
+
+    @Transactional
+    public RecurringOccurrenceResponse cancel(Authentication authentication, long occurrenceId) {
+        FamilyMutationAuthorization.LockedFamilyAccess access = mutationAuthorization.requireCurrent(authentication);
+        RecurringOccurrence occurrence = occurrences.findLockedByIdAndHouseholdId(
+                        occurrenceId, access.context().householdId())
+                .orElseThrow(() -> new ResourceNotFoundException("周期发生项不存在"));
+        Long assigneeId = occurrence.getAssignedUser() == null ? null : occurrence.getAssignedUser().getId();
+        permissions.requireCanConfirmAssignedOccurrence(access.context(), assigneeId);
+        if (occurrence.getStatus() == RecurringOccurrenceStatus.CONFIRMED) {
+            throw new ResourceConflictException("OCCURRENCE_CONFIRMED", "已确认的周期发生项不能跳过");
+        }
+        if (occurrence.getStatus() == RecurringOccurrenceStatus.CANCELLED) {
+            return RecurringOccurrenceResponse.from(occurrence);
+        }
+        occurrence.cancel();
+        occurrences.flush();
+        return RecurringOccurrenceResponse.from(occurrence);
     }
 
     private static ResourceConflictException staleReference() {
