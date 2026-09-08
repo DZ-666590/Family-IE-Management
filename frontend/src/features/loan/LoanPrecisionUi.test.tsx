@@ -94,3 +94,18 @@ it('does not turn sub-cent input into spendable cash and explains how to correct
  expect(await screen.findByText('额外本金请输入大于 0 且最多两位小数的金额。')).toBeInTheDocument();
  expect(screen.getByRole('button', { name: '确认还款' })).toBeDisabled(); expect(reads.some(path => path.includes('/repayment-preview?'))).toBe(false);
 });
+
+it('distinguishes undetermined custom term searches from proven infeasibility', async () => {
+ const request: RequestFn = async <T,>(path: string) => {
+  if (path.includes('/term-options?')) return { remainingPrincipal: '3.00', duePrincipal: '0.00', dueInterest: '0.04', policy: initialPolicy, options: [1, 2, 4].map(periods => ({ periods, allowed: false, reason: 'LOAN_PLAN_SEARCH_LIMIT', evaluationStatus: 'UNDETERMINED', firstPaymentAmount: null, roundingPolicy: null })) } as T;
+  if (path.includes('/repayment-preview?')) throw new ApiError('本次计算尚未确定可行计划', { status: 409, code: 'LOAN_PLAN_SEARCH_LIMIT' });
+  return fixture(path) as T;
+ };
+ const user = mount(request); fireEvent.change(screen.getByLabelText('额外提前偿还本金'), { target: { value: '0.60' } });
+ await user.click(screen.getByRole('radio', { name: /自选更短期数/ }));
+ expect(await screen.findByText(/部分期数尚未确定/)).toBeInTheDocument();
+ expect(screen.queryByText(/没有可用的后续期数/)).not.toBeInTheDocument();
+ expect(within(screen.getByLabelText('后续还款期数')).getByRole('option', { name: /1 期 · 计算尚未确定/ })).toBeDisabled();
+ expect(screen.getByLabelText('额外提前偿还本金')).toBeEnabled();
+ expect(screen.getByRole('button', { name: '确认还款' })).toBeDisabled();
+});

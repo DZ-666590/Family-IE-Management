@@ -92,7 +92,7 @@ class LoanTermOptionsApiTest {
   mvc.perform(post("/api/loans/"+loan+"/prepay").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"amount\":\"0.01\",\"paidOn\":\"2026-01-01\",\"idempotencyKey\":\"custom-ratio\"}")).andExpect(status().isOk());
   assertThat(jdbc.queryForObject("select custom_rate_principal_amount from loan_installments where loan_id=? and status='PENDING' order by installment_no limit 1",java.math.BigDecimal.class,loan)).isEqualByComparingTo("1.00");
   mvc.perform(get("/api/loans/"+loan+"/prepayment-preview").session(session).param("amount","0.49").param("paidOn","2026-01-01")).andExpect(status().isOk()).andExpect(jsonPath("$.data.after.schedule[0].preciseInterestAmount").value("0.005000000000"));
-  options(loan,"0.49","2026-01-01").andExpect(status().isOk()).andExpect(jsonPath("$.data.options[1].allowed").value(true)).andExpect(jsonPath("$.data.options[1].roundingPolicy").value("CUSTOM_REALLOCATION_V1"));
+  options(loan,"0.49","2026-01-01").andExpect(status().isOk()).andExpect(jsonPath("$.data.options[1].allowed").value(true)).andExpect(jsonPath("$.data.options[1].roundingPolicy").value("CUSTOM_REALLOCATION_V2"));
  }
  @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(ints={1,2})
  void oversizedCustomPrincipalReturnsValidationWithoutCreatingFinancialState(int periods)throws Exception{

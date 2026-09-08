@@ -60,7 +60,7 @@ it.each([new TypeError('响应丢失'), new ApiError('服务暂不可用', { sta
  expect(writes).toHaveLength(2); expect(writes[1]).toEqual(writes[0]); expect(writes[0]).toMatchObject({ planToken: 'frozen-token', additionalPrincipal: '3000.00', targetPeriods: null });
 });
 
-it.each(['INSUFFICIENT_FUNDS', 'LOAN_PLAN_CHANGED'])('keeps draft editable and requires a refreshed quote after definite %s rejection', async code => {
+it.each(['INSUFFICIENT_FUNDS', 'LOAN_PLAN_CHANGED', 'LOAN_PLAN_SEARCH_LIMIT'])('keeps draft editable and requires a refreshed quote after definite %s rejection', async code => {
  const writes: Record<string, unknown>[] = []; let reads = 0;
  const request: RequestFn = async <T,>(path: string, options?: Parameters<RequestFn>[1]) => {
   if (options?.method === 'POST') { writes.push(options.body as Record<string, unknown>); if (writes.length === 1) throw new ApiError('重新核对资金和计划', { status: 409, code }); return {} as T; }

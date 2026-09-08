@@ -14,11 +14,11 @@ import org.springframework.transaction.annotation.*;
 
 @Service
 public class LoanRepaymentPolicyService {
- private final LoanRepository loans;private final CurrentMembership current;private final FamilyPermissionService permissions;
+ private final LoanPlanningBudgetFactory planningBudgets;private final LoanRepository loans;private final CurrentMembership current;private final FamilyPermissionService permissions;
  private final FamilyMutationAuthorization mutations;private final JdbcTemplate jdbc;private final LoanPlanToken plans;private final FinancialAccountRepository accounts;private final Clock clock;
  public LoanRepaymentPolicyService(LoanRepository loans,CurrentMembership current,FamilyPermissionService permissions,FamilyMutationAuthorization mutations,
-        JdbcTemplate jdbc,LoanPlanToken plans,FinancialAccountRepository accounts,Clock clock){
-  this.loans=loans;this.current=current;this.permissions=permissions;this.mutations=mutations;this.jdbc=jdbc;this.plans=plans;this.accounts=accounts;this.clock=clock;
+        JdbcTemplate jdbc,LoanPlanToken plans,FinancialAccountRepository accounts,Clock clock,LoanPlanningBudgetFactory planningBudgets){
+  this.loans=loans;this.current=current;this.permissions=permissions;this.mutations=mutations;this.jdbc=jdbc;this.plans=plans;this.accounts=accounts;this.clock=clock;this.planningBudgets=planningBudgets;
  }
  @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
  public LoanRepaymentPolicy get(Authentication a,long id){var c=current.require(a);permissions.requireAdmin(c);return LoanRepaymentPolicy.from(find(id,c.householdId()));}
@@ -76,7 +76,7 @@ public class LoanRepaymentPolicyService {
   var projection=project(loan,plans.pending(h,id,false),day,extra,plans.roundingContext(h,id,false));
   var choices=projection.remainingPrincipal().signum()==0?List.<LoanTermOptions.Option>of():
         loan.getRepaymentMethod()==RepaymentMethod.CUSTOM?
-        new LoanTermOptions().evaluateCustom(projection.future().stream().map(p->p.draft(0)).toList(),projection.remainingPrincipal(),projection.roundingContext(),loan.getMinimumInstallmentAmount()):
+        new LoanTermOptions().evaluateCustom(projection.future().stream().map(p->p.draft(0)).toList(),projection.remainingPrincipal(),projection.roundingContext(),loan.getMinimumInstallmentAmount(),planningBudgets.create()):
         new LoanTermOptions().evaluate(projection.remainingPrincipal(),loan.getAnnualRate(),projection.future().stream().map(LoanPlanToken.Period::dueOn).toList(),loan.getRepaymentMethod(),projection.roundingContext(),loan.getMinimumInstallmentAmount());
   return new TermOptionsResponse(DecimalMoney.format(projection.remainingPrincipal()),DecimalMoney.format(projection.duePrincipal()),DecimalMoney.format(projection.dueInterest()),LoanRepaymentPolicy.from(loan),choices);
  }

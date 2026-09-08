@@ -1,13 +1,11 @@
 package com.familyfinance.loan;
 
-import com.familyfinance.category.*;
 import com.familyfinance.accounting.*;
 import com.familyfinance.family.*;
 import com.familyfinance.household.*;
 import com.familyfinance.ledger.*;
 import com.familyfinance.shared.*;
 import com.familyfinance.transaction.*;
-import com.familyfinance.notification.NotificationService;
 import java.time.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -15,9 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class LoanInstallmentConfirmationService {
- private final LoanInstallmentRepository installments; private final FinancialTransactionRepository transactions; private final FinancialAccountRepository accounts; private final CategoryRepository categories; private final FamilyMemberRepository members; private final FamilyMutationAuthorization authorization; private final FamilyPermissionService permissions; private final NotificationService notifications; private final Clock clock;
+ private final LoanInstallmentRepository installments; private final FinancialTransactionRepository transactions; private final FinancialAccountRepository accounts; private final FamilyMutationAuthorization authorization; private final FamilyPermissionService permissions; private final Clock clock;
  private final LoanAccountingService accounting; private final AccountingRequests requests; private final LoanRepository loans; private final LoanInstallmentSettlement settlement;
- LoanInstallmentConfirmationService(LoanInstallmentRepository installments, FinancialTransactionRepository transactions, FinancialAccountRepository accounts, CategoryRepository categories, FamilyMemberRepository members, FamilyMutationAuthorization authorization, FamilyPermissionService permissions, NotificationService notifications, Clock clock,LoanAccountingService accounting,AccountingRequests requests,LoanRepository loans,LoanInstallmentSettlement settlement) {this.installments=installments;this.transactions=transactions;this.accounts=accounts;this.categories=categories;this.members=members;this.authorization=authorization;this.permissions=permissions;this.notifications=notifications;this.clock=clock;this.accounting=accounting;this.requests=requests;this.loans=loans;this.settlement=settlement;}
+ LoanInstallmentConfirmationService(LoanInstallmentRepository installments, FinancialTransactionRepository transactions, FinancialAccountRepository accounts, FamilyMutationAuthorization authorization, FamilyPermissionService permissions, Clock clock,LoanAccountingService accounting,AccountingRequests requests,LoanRepository loans,LoanInstallmentSettlement settlement) {this.installments=installments;this.transactions=transactions;this.accounts=accounts;this.authorization=authorization;this.permissions=permissions;this.clock=clock;this.accounting=accounting;this.requests=requests;this.loans=loans;this.settlement=settlement;}
  @Transactional public LoanInstallmentResponse confirm(Authentication authentication,long installmentId) {
   return confirm(authentication,installmentId,new LoanPaymentRequest(null),LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))),AccountingRequests.key(null));
  }
@@ -58,7 +56,5 @@ public class LoanInstallmentConfirmationService {
   if(installment.getConfirmedTransaction()!=null)transactions.findLockedByIdAndHouseholdId(installment.getConfirmedTransaction().getId(),household).orElseThrow(()->new ResourceConflictException("ACCOUNTING_BALANCE_MISMATCH","已付款期次缺少原交易记录"));
   return LoanInstallmentResponse.from(installment);
  }
- private Category category(Loan loan,long h){return categories.findByIdAndHouseholdId(loan.getPaymentCategory().getId(),h).filter(c->c.getKind()==TransactionKind.EXPENSE).orElseThrow(LoanInstallmentConfirmationService::stale);}
- private FamilyMember member(Loan loan,long h){if(loan.getMember()!=null)return members.findByIdAndHouseholdId(loan.getMember().getId(),h).orElseThrow(LoanInstallmentConfirmationService::stale);return members.findFirstByHouseholdIdAndLinkedUserId(h,loan.getAssignedUser().getId()).orElseThrow(LoanInstallmentConfirmationService::stale);}
  private static ResourceConflictException stale(){return new ResourceConflictException("STALE_REFERENCE","贷款关联的账户、分类或成员已失效");}
 }

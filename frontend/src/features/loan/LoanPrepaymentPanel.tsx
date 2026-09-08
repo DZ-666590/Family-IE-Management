@@ -10,8 +10,8 @@ import { LoanStrategyComparison } from './LoanStrategyComparison';
 import { LoanRepaymentPolicyPanel } from './LoanRepaymentPolicyPanel';
 
 type Attempt = { body: LoanRepaymentRequest; preview: LoanRepaymentPreview };
-const rejectedBeforePosting = new Set(['LOAN_PLAN_CHANGED', 'INSUFFICIENT_FUNDS', 'ACCOUNT_ARCHIVED', 'ACCOUNTING_NOT_INITIALIZED', 'ACCOUNTING_BALANCE_MISMATCH', 'LOAN_CLOSED', 'VALIDATION_ERROR', 'ACCOUNT_ACTIVITY_BEFORE_OPENING', 'LOAN_PAYMENT_BEFORE_OPENING', 'LOAN_PAYMENT_CHRONOLOGY', 'STALE_REFERENCE', 'LOAN_FIXED_TERM_INFEASIBLE', 'LOAN_PLAN_INVALID', 'LOAN_PAYOFF_REQUIRED', 'LOAN_CONTRACT_MINIMUM', 'INSTALLMENT_UNASSIGNED', 'LOAN_POLICY_CHANGED']);
-const optionReason = (reason: string | null) => reason === 'BELOW_CONTRACT_MINIMUM' || reason === 'LOAN_CONTRACT_MINIMUM' ? '低于合同最低常规还款额' : '无法形成有效的分币还款计划';
+const rejectedBeforePosting = new Set(['LOAN_PLAN_CHANGED', 'INSUFFICIENT_FUNDS', 'ACCOUNT_ARCHIVED', 'ACCOUNTING_NOT_INITIALIZED', 'ACCOUNTING_BALANCE_MISMATCH', 'LOAN_CLOSED', 'VALIDATION_ERROR', 'ACCOUNT_ACTIVITY_BEFORE_OPENING', 'LOAN_PAYMENT_BEFORE_OPENING', 'LOAN_PAYMENT_CHRONOLOGY', 'STALE_REFERENCE', 'LOAN_FIXED_TERM_INFEASIBLE', 'LOAN_PLAN_INVALID', 'LOAN_PAYOFF_REQUIRED', 'LOAN_CONTRACT_MINIMUM', 'INSTALLMENT_UNASSIGNED', 'LOAN_POLICY_CHANGED', 'LOAN_PLAN_SEARCH_LIMIT']);
+const optionReason = (reason: string | null) => reason === 'LOAN_PLAN_SEARCH_LIMIT' ? '计算尚未确定，请调整输入后重试' : reason === 'BELOW_CONTRACT_MINIMUM' || reason === 'LOAN_CONTRACT_MINIMUM' ? '低于合同最低常规还款额' : '无法形成有效的分币还款计划';
 
 export function LoanPrepaymentPanel({ loan, accounts, request, onClose, onPaid, onPayoff }: { loan: Loan; accounts: Account[]; request: RequestFn; onClose: () => void; onPaid: () => Promise<void>; onPayoff: () => void }) {
  const [draft, setDraft] = useState(() => ({ additionalPrincipal: '', paidOn: businessDate(), paymentAccountId: String(loan.paymentAccountId), strategy: 'REDUCE_PAYMENT' as PrepaymentStrategy, targetPeriods: '', idempotencyKey: newIdempotencyKey() }));
@@ -63,6 +63,7 @@ export function LoanPrepaymentPanel({ loan, accounts, request, onClose, onPaid, 
  const displayed = attempt?.preview ?? (enabled && !preview.isFetching && !preview.isError ? preview.data : undefined);
  const matchingTerms = contextEnabled && !terms.isFetching && !terms.isError ? terms.data : undefined;
  const options = displayed?.termOptions ?? matchingTerms?.options;
+ const hasUndetermined = options?.some(option => option.evaluationStatus === 'UNDETERMINED' || option.reason === 'LOAN_PLAN_SEARCH_LIMIT');
  const projected = contextEnabled && !maximum.isFetching && !maximum.isError ? maximum.data : undefined;
  const context = displayed ? { duePrincipal: displayed.duePrincipalAmount, dueInterest: displayed.dueInterestAmount, remainingPrincipal: displayed.before.principalAmount } : projected;
  const futureCount = displayed?.before.periodCount ?? (options?.length ? Math.max(...options.map(option => option.periods)) : 0);
@@ -94,7 +95,8 @@ export function LoanPrepaymentPanel({ loan, accounts, request, onClose, onPaid, 
     <label><input type="radio" name="strategy" value="ADJUST_TERM" checked={draft.strategy === 'ADJUST_TERM'} onChange={() => update('strategy', 'ADJUST_TERM')} /><span><strong>自选更短期数</strong><small>选择更早结束的期数，重新测算各期付款</small></span></label>
     {draft.strategy === 'ADJUST_TERM' && <label className="loan-target-periods">后续还款期数<select required name="targetPeriods" value={draft.targetPeriods} onChange={event => update('targetPeriods', event.target.value)}><option value="">请选择可行期数</option>{options?.filter(option => option.periods < futureCount).map(option => <option key={option.periods} value={option.periods} disabled={!option.allowed}>{option.periods} 期 · {option.allowed ? `首期 ${money(option.firstPaymentAmount)}` : optionReason(option.reason)}</option>)}</select></label>}
     {draft.strategy === 'ADJUST_TERM' && loan.repaymentMethod === 'CUSTOM' && <p className="source-note">自定义本金重分配保留所选前缀日期和合同利息比例，可能提高部分期次付款，请逐期对比。</p>}
-    {options && (options.length === 0 || !options.some(option => option.allowed && (draft.strategy !== 'ADJUST_TERM' || option.periods < futureCount))) && <p role="status">没有可用的后续期数。可调整额外本金、核对合同规则，或使用「改为一次结清」。</p>}
+    {hasUndetermined && <p role="status">部分期数尚未确定，请调整额外本金或选择已验证的期数后重新预览。未确定不代表没有可行计划。</p>}
+    {options && !hasUndetermined && (options.length === 0 || !options.some(option => option.allowed && (draft.strategy !== 'ADJUST_TERM' || option.periods < futureCount))) && <p role="status">没有可用的后续期数。可调整额外本金、核对合同规则，或使用「改为一次结清」。</p>}
    </fieldset>}
    {displayed && <LoanStrategyComparison preview={displayed} method={loan.repaymentMethod} />}
    <LoanRepaymentPolicyPanel loanId={loan.id} sessionKey={sessionKey} request={request} disabled={submit.isPending || attempt !== null} onDraftChange={setPolicyDraft} onChanged={refreshQuote} onBusyChange={setPolicyBusy} />

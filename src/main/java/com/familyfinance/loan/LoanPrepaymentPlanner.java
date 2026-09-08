@@ -19,6 +19,10 @@ public final class LoanPrepaymentPlanner {
  }
  public List<InstallmentDraft> planRemaining(List<InstallmentDraft> before,BigDecimal remaining,BigDecimal rate,RepaymentMethod method,
        PrepaymentStrategy strategy,Integer targetPeriods,LoanRoundingContext context,BigDecimal minimum){
+  return planRemaining(before,remaining,rate,method,strategy,targetPeriods,context,minimum,LoanPlanningBudget.standard());
+ }
+ public List<InstallmentDraft> planRemaining(List<InstallmentDraft> before,BigDecimal remaining,BigDecimal rate,RepaymentMethod method,
+       PrepaymentStrategy strategy,Integer targetPeriods,LoanRoundingContext context,BigDecimal minimum,LoanPlanningBudget budget){
   BigDecimal original=validate(before,null);remaining=DecimalMoney.settled(remaining);
   if(remaining.signum()<=0||remaining.compareTo(original)>0)throw invalid();
   if(strategy==null)strategy=PrepaymentStrategy.REDUCE_PAYMENT;
@@ -30,42 +34,73 @@ public final class LoanPrepaymentPlanner {
   List<InstallmentDraft> result;
   try{
    if(strategy==PrepaymentStrategy.REDUCE_TERM)result=capped(before,remaining,rate,method,context);
-   else if(method==RepaymentMethod.CUSTOM)result=custom(before,remaining,count,context,strategy==PrepaymentStrategy.REDUCE_PAYMENT);
+   else if(method==RepaymentMethod.CUSTOM)result=custom(before,remaining,count,context,strategy==PrepaymentStrategy.REDUCE_PAYMENT,minimum,budget);
    else result=new PreciseLoanScheduleCalculator().calculate(remaining,rate,before.subList(0,count).stream().map(InstallmentDraft::dueOn).toList(),method,context).stream().map(PreciseInstallmentDraft::legacy).toList();
   }catch(IllegalArgumentException e){throw new ResourceConflictException("LOAN_FIXED_TERM_INFEASIBLE","所选期数不能形成每期正现金的还款计划，请选择可行期数或一次结清");}
   LoanTermOptions.requireMinimum(result,minimum);return result;
  }
- private List<InstallmentDraft> custom(List<InstallmentDraft> before,BigDecimal principal,int count,LoanRoundingContext context,boolean preserveCaps){
-  var rates=customRates(before);BigDecimal weights=BigDecimal.ZERO;
-  for(int i=0;i<count;i++)weights=weights.add(weight(before.get(i)));
-  BigDecimal originalRemaining=before.stream().map(InstallmentDraft::principalAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
-  BigDecimal cumP=BigDecimal.ZERO,cumI=BigDecimal.ZERO,paidP=BigDecimal.ZERO,paidI=BigDecimal.ZERO;
-  List<InstallmentDraft> rows=new ArrayList<>();
-  for(int i=0;i<count;i++){
-   var old=before.get(i);var rate=rates.get(i);boolean last=i==count-1;
-   // CUSTOM interest is contractual against settled opening principal after cent allocation.
-   BigDecimal rawI=principal.subtract(paidP).multiply(rate.interest,MC).divide(rate.principal,MC);
-   BigDecimal rawP=weights.signum()==0?BigDecimal.ZERO:principal.multiply(weight(old),MC).divide(weights,MC);
-   BigDecimal pp=last?principal.subtract(cumP):PreciseLoanScheduleCalculator.stored(rawP),pi=PreciseLoanScheduleCalculator.stored(rawI);
-   cumP=cumP.add(pp);cumI=cumI.add(pi);
-   BigDecimal p=last?principal.subtract(paidP):cumP.setScale(2,RoundingMode.FLOOR).subtract(paidP);
-   BigDecimal interest=context.preciseInterestPaid().add(cumI).setScale(2,RoundingMode.HALF_UP).subtract(context.actualInterestPaid()).subtract(paidI);
-   originalRemaining=originalRemaining.subtract(old.principalAmount());
-   if(!last){
-    BigDecimal lower=interest.signum()==0?new BigDecimal("0.01"):BigDecimal.ZERO;
-    if(preserveCaps)lower=lower.max(principal.subtract(paidP).subtract(originalRemaining));
-    int reserve=1; // The last selected row must retain principal.
-    for(int j=i+1;j<count-1;j++)if(rates.get(j).interest.signum()==0)reserve++;
-    BigDecimal upper=principal.subtract(paidP).subtract(BigDecimal.valueOf(reserve,2));
-    if(preserveCaps)upper=upper.min(old.principalAmount());
-    if(lower.compareTo(upper)>0)throw new IllegalArgumentException("custom bounds cannot produce positive cash");
-    p=p.max(lower).min(upper);
-   }else if(preserveCaps&&p.compareTo(old.principalAmount())>0)throw new IllegalArgumentException("custom final principal exceeds original cap");
-   paidP=paidP.add(p);paidI=paidI.add(interest);BigDecimal remaining=principal.subtract(paidP);
-   requireCash(p,interest,remaining,last);
-   rows.add(draft(i,old,p,interest,remaining,pp,pi,context.preciseInterestPaid().add(cumI).subtract(context.actualInterestPaid()).subtract(paidI),preserveCaps?"CUSTOM_BOUNDED_CENTS_V1":"CUSTOM_REALLOCATION_V1",rate));
+ private List<InstallmentDraft> custom(List<InstallmentDraft> before,BigDecimal principal,int count,LoanRoundingContext context,boolean preserveCaps,BigDecimal minimum,LoanPlanningBudget budget){
+  budget.enter(); // Also bounds setup across all term candidates after exhaustion.
+  var search=new CustomSearch(before,principal,count,context,preserveCaps,minimum,budget);
+  if(!search.solve(0,DecimalMoney.toCents(principal),BigDecimal.ZERO,BigDecimal.ZERO))throw new IllegalArgumentException("no bounded custom allocation exists");
+  return List.copyOf(Arrays.asList(search.result));
+ }
+ /** Exact finite search if exhausted normally; a work limit is explicitly UNDETERMINED, never infeasible. */
+ private static final class CustomSearch {
+  final List<InstallmentDraft> before;final List<Ratio> rates;final BigDecimal principal;
+  final LoanRoundingContext context;final boolean caps,zeroWeight;final BigDecimal minimum;
+  final LoanPlanningBudget budget;final InstallmentDraft[] result;
+  final BigDecimal[] precisePrincipal,cumulativePrincipal;final long[] oldRemaining;final int[] reserved;
+  CustomSearch(List<InstallmentDraft> before,BigDecimal principal,int count,LoanRoundingContext context,boolean caps,BigDecimal minimum,LoanPlanningBudget budget){
+   this.before=before;this.principal=principal;this.context=context;this.caps=caps;this.minimum=minimum;this.budget=budget;
+   rates=customRates(before);result=new InstallmentDraft[count];precisePrincipal=new BigDecimal[count];cumulativePrincipal=new BigDecimal[count];oldRemaining=new long[count];reserved=new int[count];
+   BigDecimal weights=BigDecimal.ZERO;for(int i=0;i<count;i++)weights=weights.add(weight(before.get(i)));
+   zeroWeight=weights.signum()==0;BigDecimal sum=BigDecimal.ZERO,weightSoFar=BigDecimal.ZERO;
+   long old=before.stream().mapToLong(InstallmentDraft::principalCents).reduce(0,Math::addExact);
+   for(int i=0;i<count;i++){
+    weightSoFar=weightSoFar.add(weight(before.get(i)));
+    // Normalize cumulative targets so per-row metadata cannot over-allocate a zero-weight tail.
+    BigDecimal target=i==count-1?principal:PreciseLoanScheduleCalculator.stored(zeroWeight?BigDecimal.ZERO:principal.multiply(weightSoFar,MC).divide(weights,MC)).min(principal);
+    precisePrincipal[i]=target.subtract(sum);sum=target;cumulativePrincipal[i]=target;
+    old=Math.subtractExact(old,before.get(i).principalCents());oldRemaining[i]=old;
+   }
+   int needed=1;for(int i=count-2;i>=0;i--){reserved[i]=needed;if(rates.get(i).interest.signum()==0)needed++;}
   }
-  return List.copyOf(rows);
+  boolean solve(int index,long remaining,BigDecimal cumulativeInterest,BigDecimal allocatedInterest){
+   budget.enter();
+   var ratio=rates.get(index);var old=before.get(index);boolean last=index==result.length-1;
+   BigDecimal preciseInterest=PreciseLoanScheduleCalculator.stored(BigDecimal.valueOf(remaining,2).multiply(ratio.interest,MC).divide(ratio.principal,MC));
+   BigDecimal nextInterest=cumulativeInterest.add(preciseInterest);
+   BigDecimal interest=context.preciseInterestPaid().add(nextInterest).setScale(2,RoundingMode.HALF_UP).subtract(context.actualInterestPaid()).subtract(allocatedInterest);
+   if(interest.signum()<0||interest.compareTo(DecimalMoney.MAX_AMOUNT)>0)return false;
+   long lower=interest.signum()==0?1:0,upper=last?remaining:remaining-reserved[index];
+   upper=Math.min(upper,DecimalMoney.toCents(DecimalMoney.MAX_AMOUNT.subtract(interest)));
+   if(!last&&minimum!=null)lower=Math.max(lower,DecimalMoney.toCents(minimum.subtract(interest).max(BigDecimal.ZERO)));
+   if(caps){lower=Math.max(lower,remaining-oldRemaining[index]);upper=Math.min(upper,old.principalCents());}
+   if(!last&&zeroWeight)upper=Math.min(upper,0);
+   if(last)lower=Math.max(lower,remaining);
+   if(lower>upper)return false;
+   long target=last?remaining:DecimalMoney.toCents(cumulativePrincipal[index].setScale(2,RoundingMode.FLOOR))-DecimalMoney.toCents(principal)+remaining;
+   target=Math.max(lower,Math.min(target,upper));
+   if(attempt(index,remaining,target,preciseInterest,nextInterest,interest,allocatedInterest,last))return true;
+   if(lower!=target&&attempt(index,remaining,lower,preciseInterest,nextInterest,interest,allocatedInterest,last))return true;
+   if(upper!=target&&upper!=lower&&attempt(index,remaining,upper,preciseInterest,nextInterest,interest,allocatedInterest,last))return true;
+   // Enumerate the remaining legal cents around the target. Every branch enters a counted child state.
+   for(long distance=1;target-distance>=lower||target+distance<=upper;distance++){
+    long left=target-distance,right=target+distance;
+    if(left>lower&&left<upper&&attempt(index,remaining,left,preciseInterest,nextInterest,interest,allocatedInterest,last))return true;
+    if(right>lower&&right<upper&&attempt(index,remaining,right,preciseInterest,nextInterest,interest,allocatedInterest,last))return true;
+   }
+   return false;
+  }
+  boolean attempt(int index,long remaining,long payment,BigDecimal preciseInterest,BigDecimal nextInterest,BigDecimal interest,BigDecimal allocatedInterest,boolean last){
+   BigDecimal p=BigDecimal.valueOf(payment,2);
+   if(p.add(interest).signum()<=0||p.add(interest).compareTo(DecimalMoney.MAX_AMOUNT)>0)return false;
+   result[index]=draft(index,before.get(index),p,interest,BigDecimal.valueOf(remaining-payment,2),precisePrincipal[index],preciseInterest,
+     context.preciseInterestPaid().add(nextInterest).subtract(context.actualInterestPaid()).subtract(allocatedInterest).subtract(interest),
+     caps?"CUSTOM_BOUNDED_CENTS_V2":"CUSTOM_REALLOCATION_V2",rates.get(index));
+   return last||solve(index+1,remaining-payment,nextInterest,allocatedInterest.add(interest));
+  }
  }
  private List<InstallmentDraft> capped(List<InstallmentDraft> before,BigDecimal principal,BigDecimal annualRate,RepaymentMethod method,LoanRoundingContext context){
   var rates=method==RepaymentMethod.CUSTOM?customRates(before):List.<Ratio>of();

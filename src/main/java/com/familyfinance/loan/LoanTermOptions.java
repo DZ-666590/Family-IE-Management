@@ -7,7 +7,12 @@ import com.familyfinance.shared.DecimalMoney;
 
 /** Every candidate is evaluated; callers must not assume allowed counts form an interval. */
 public final class LoanTermOptions {
- public record Option(int periods,boolean allowed,String reason,String firstPaymentAmount,String roundingPolicy){}
+ public enum EvaluationStatus { FEASIBLE, INFEASIBLE, UNDETERMINED }
+ public record Option(int periods,boolean allowed,String reason,String firstPaymentAmount,String roundingPolicy,EvaluationStatus evaluationStatus){
+  public Option(int periods,boolean allowed,String reason,String firstPaymentAmount,String roundingPolicy){
+   this(periods,allowed,reason,firstPaymentAmount,roundingPolicy,allowed?EvaluationStatus.FEASIBLE:"LOAN_PLAN_SEARCH_LIMIT".equals(reason)?EvaluationStatus.UNDETERMINED:EvaluationStatus.INFEASIBLE);
+  }
+ }
  public List<Option> evaluate(BigDecimal principal,BigDecimal annualRate,List<LocalDate> dates,RepaymentMethod method,
         LoanRoundingContext context,BigDecimal minimumInstallmentAmount){
   List<Option> result=new ArrayList<>();
@@ -21,11 +26,14 @@ public final class LoanTermOptions {
   return List.copyOf(result);
  }
  public List<Option> evaluateCustom(List<InstallmentDraft> before,BigDecimal principal,LoanRoundingContext context,BigDecimal minimum){
+  return evaluateCustom(before,principal,context,minimum,LoanPlanningBudget.standard());
+ }
+ public List<Option> evaluateCustom(List<InstallmentDraft> before,BigDecimal principal,LoanRoundingContext context,BigDecimal minimum,LoanPlanningBudget budget){
   List<Option> result=new ArrayList<>();
   for(int count=1;count<=before.size();count++){
    try{
     var rows=new LoanPrepaymentPlanner().planRemaining(before,principal,BigDecimal.ZERO,RepaymentMethod.CUSTOM,
-      count==before.size()?PrepaymentStrategy.REDUCE_PAYMENT:PrepaymentStrategy.ADJUST_TERM,count==before.size()?null:count,context,minimum);
+      count==before.size()?PrepaymentStrategy.REDUCE_PAYMENT:PrepaymentStrategy.ADJUST_TERM,count==before.size()?null:count,context,minimum,budget);
     result.add(new Option(count,true,null,DecimalMoney.format(rows.get(0).principalAmount().add(rows.get(0).interestAmount())),rows.get(0).roundingPolicy()));
    }catch(com.familyfinance.shared.ResourceConflictException e){result.add(new Option(count,false,e.code(),null,null));}
   }

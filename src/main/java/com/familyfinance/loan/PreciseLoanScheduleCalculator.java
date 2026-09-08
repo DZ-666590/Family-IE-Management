@@ -25,15 +25,15 @@ public final class PreciseLoanScheduleCalculator {
             payment=principal.multiply(rate,MC).multiply(growth,MC).divide(growth.subtract(BigDecimal.ONE,MC),MC);
         }
         if(method==RepaymentMethod.EQUAL_PAYMENT){
-            var fixed=allocate(principal,rate,dates,method,context,payment.setScale(2,RoundingMode.HALF_UP),true);
+            var fixed=allocate(principal,rate,dates,method,context,payment.setScale(2,RoundingMode.HALF_UP),true,payment.divide(BigDecimal.ONE.add(rate,MC),MC));
             if(fixed!=null)return fixed;
         }
-        var cumulative=allocate(principal,rate,dates,method,context,payment,false);
+        var cumulative=allocate(principal,rate,dates,method,context,payment,false,null);
         if(cumulative==null)throw new IllegalArgumentException("selected term cannot produce positive cash installments");
         return cumulative;
     }
     private List<PreciseInstallmentDraft> allocate(BigDecimal principal,BigDecimal rate,List<LocalDate> dates,
-            RepaymentMethod method,LoanRoundingContext context,BigDecimal payment,boolean fixed) {
+            RepaymentMethod method,LoanRoundingContext context,BigDecimal payment,boolean fixed,BigDecimal normalFinalPrincipal) {
         BigDecimal balance=principal,precisePrincipal=BigDecimal.ZERO,preciseInterest=BigDecimal.ZERO,
                 actualPrincipal=BigDecimal.ZERO,actualInterest=BigDecimal.ZERO;
         List<PreciseInstallmentDraft> result=new ArrayList<>();
@@ -41,6 +41,11 @@ public final class PreciseLoanScheduleCalculator {
             boolean terminal=i==dates.size()-1;
             BigDecimal rawInterest=balance.multiply(rate,MC);
             BigDecimal rawPrincipal=method==RepaymentMethod.EQUAL_PRINCIPAL?payment:payment.subtract(rawInterest,MC);
+            if(fixed&&dates.size()>1){
+                if(rawPrincipal.signum()<=0)return null;
+                // Assess maturity before replacing the ordinary final principal with all remaining debt.
+                if(terminal&&balance.subtract(rawPrincipal,MC).compareTo(normalFinalPrincipal)>=0)return null;
+            }
             if(balance.signum()<=0||rawPrincipal.signum()<0||(!terminal&&rawPrincipal.compareTo(balance)>=0))return null;
             BigDecimal pi=stored(rawInterest);
             BigDecimal pp=terminal?principal.subtract(precisePrincipal):stored(rawPrincipal);

@@ -24,6 +24,7 @@ class ReportingApiTest {
 
     @Autowired
     MockMvc mvc;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Test
     void dashboardReturnsDeterministicSeptemberSeedStatistics() throws Exception {
@@ -110,11 +111,10 @@ class ReportingApiTest {
     @Test
     void netWorthReadDoesNotCreateSnapshots() throws Exception {
         MockHttpSession session = login();
-
-        mvc.perform(get("/api/net-worth").session(session))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.history.length()")
-                        .value(0));
+        long household=jdbc.queryForObject("select household_id from app_users where username='demo'",Long.class);
+        var before=jdbc.queryForList("select * from net_worth_snapshots where household_id=? order by snapshot_on,id",household);
+        mvc.perform(get("/api/net-worth").session(session)).andExpect(status().isOk());
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForList("select * from net_worth_snapshots where household_id=? order by snapshot_on,id",household)).isEqualTo(before);
     }
 
     private MockHttpSession login() throws Exception {

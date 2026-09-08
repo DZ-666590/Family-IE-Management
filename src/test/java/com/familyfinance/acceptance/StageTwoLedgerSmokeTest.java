@@ -164,6 +164,7 @@ class StageTwoLedgerSmokeTest {
                         "--spring.datasource.url=" + h2Url(database),
                         "--spring.datasource.username=sa",
                         "--spring.datasource.password=",
+                        "--spring.flyway.locations=classpath:db/migration",
                         "--spring.jpa.hibernate.ddl-auto=validate",
                         "--app.seed.enabled=false",
                         "--app.scheduling.enabled=false",

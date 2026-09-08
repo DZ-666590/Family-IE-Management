@@ -89,7 +89,7 @@ export interface LoanPrecision { precisePrincipalAmount?: string | null; precise
 export interface LoanPrepaymentSchedule { principalAmount: string; periodCount: number; maturityOn: string | null; nextPaymentOn: string | null; nextPaymentAmount: string | null; totalInterest: string; repaymentTotal: string; schedule: Array<LoanPrecision & { installmentNo: number; dueOn: string; principal: string; interest: string; paymentAmount: string; remainingPrincipal: string }> }
 export interface LoanPrepaymentPreview { strategy: PrepaymentStrategy; principalAmount: string; cashAmount: string; paymentAccountId: number; availableBalance: string; paidOn: string; planToken: string; before: LoanPrepaymentSchedule; after: LoanPrepaymentSchedule }
 export interface LoanRepaymentPolicy { minimumInstallmentAmount: string | null; sourceNote: string | null; revision: number }
-export interface LoanTermOption { periods: number; allowed: boolean; reason: string | null; firstPaymentAmount: string | null; roundingPolicy: string | null }
+export interface LoanTermOption { evaluationStatus?: 'FEASIBLE' | 'INFEASIBLE' | 'UNDETERMINED'; periods: number; allowed: boolean; reason: string | null; firstPaymentAmount: string | null; roundingPolicy: string | null }
 export interface LoanTermOptions { remainingPrincipal: string; duePrincipal: string; dueInterest: string; policy: LoanRepaymentPolicy; options: LoanTermOption[] }
 export interface LoanRepaymentPreview {
  dueInstallments: Array<{ installmentId: number; installmentNo: number; dueOn: string; principalAmount: string; interestAmount: string; cashAmount: string }>;

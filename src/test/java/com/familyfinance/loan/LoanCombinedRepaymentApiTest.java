@@ -29,6 +29,7 @@ class LoanCombinedRepaymentApiTest {
  @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
  @MockitoSpyBean LoanAccountingService accounting;
  @MockitoSpyBean LoanPlanToken plans;
+ @MockitoSpyBean LoanPlanningBudgetFactory planningBudgets;
  MockHttpSession session; long household,member,user,category,account;
  @BeforeEach void setup()throws Exception{
   String email=UUID.randomUUID()+"@combined.test";
@@ -89,16 +90,40 @@ class LoanCombinedRepaymentApiTest {
   assertThat(data(repay(loan,request).andExpect(status().isOk()).andReturn())).isEqualTo(result);
   repay(loan,request.replace("9000.00","8999.00")).andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_REUSED"));
  }
- @Test void fractionalInterestOnlyDueKeepsPreciseContextAndNoZeroPrincipalLeg()throws Exception{
+ @org.junit.jupiter.params.ParameterizedTest
+ @org.junit.jupiter.params.provider.CsvSource({"0.60,300,36,0.64,8.08,11.08","0.61,299,35,0.65,8.05,11.04"})
+ void fractionalInterestOnlyDueKeepsPreciseContextAndNoZeroPrincipalLeg(String extra,long remainingCents,long cashCents,String totalCash,String futureInterest,String futureCash)throws Exception{
   long loan=create("3.60","0.12",360,null);fund("1.00");
-  var q=data(quote(loan,"0.60").andExpect(status().isOk()).andExpect(jsonPath("$.data.duePrincipalAmount").value("0.00")).andExpect(jsonPath("$.data.dueInterestAmount").value("0.04")).andExpect(jsonPath("$.data.totalCashAmount").value("0.64")).andReturn());
+  var q=data(quote(loan,extra).andExpect(status().isOk()).andExpect(jsonPath("$.data.duePrincipalAmount").value("0.00")).andExpect(jsonPath("$.data.dueInterestAmount").value("0.04")).andExpect(jsonPath("$.data.totalCashAmount").value(totalCash)).andExpect(jsonPath("$.data.after.periodCount").value(359)).andExpect(jsonPath("$.data.after.totalInterest").value(futureInterest)).andExpect(jsonPath("$.data.after.repaymentTotal").value(futureCash)).andExpect(jsonPath("$.data.after.schedule[358].paymentAmount").value("0.04")).andReturn());
   repay(loan,body(q,"fractional")).andExpect(status().isOk());
-  assertThat(ledger.balance(household,"CASH:"+account)).isEqualTo(36);assertThat(ledger.balance(household,"LOAN:"+loan)).isEqualTo(300);assertThat(ledger.balance(household,"EXPENSE:"+category)).isEqualTo(4);
+  assertThat(ledger.balance(household,"CASH:"+account)).isEqualTo(cashCents);assertThat(ledger.balance(household,"LOAN:"+loan)).isEqualTo(remainingCents);assertThat(ledger.balance(household,"EXPENSE:"+category)).isEqualTo(4);
   assertThat(jdbc.queryForObject("select count(*) from ledger_entries e join ledger_journals j on e.journal_id=j.id where j.household_id=? and j.source_type='LOAN_PAYMENT'",Long.class,household)).isEqualTo(2);
   assertThat(jdbc.queryForObject("select precise_interest_amount from loan_installments where loan_id=? and status='PAID'",BigDecimal.class,loan)).isEqualByComparingTo("0.036");
   var context=plans.roundingContext(household,loan,false);
   assertThat(context.preciseInterestPaid()).isEqualByComparingTo("0.036");assertThat(context.actualInterestPaid()).isEqualByComparingTo("0.04");
   assertThat(q.path("after").path("schedule").get(0).path("interest").asText()).isEqualTo("0.03");
+  assertThat(jdbc.queryForObject("select sum(interest_amount) from loan_installments where loan_id=? and status='PENDING'",BigDecimal.class,loan)).isEqualByComparingTo(futureInterest);
+  assertThat(jdbc.queryForList("select distinct rounding_policy from loan_installments where loan_id=? and status='PENDING'",String.class,loan)).containsExactly("CUMULATIVE_CENTS_V1");
+  assertThat(jdbc.queryForObject("select principal_amount from loan_installments where loan_id=? and status='PENDING' order by installment_no desc limit 1",BigDecimal.class,loan)).isEqualByComparingTo("0.04");
+ }
+ @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(booleans={false,true})
+ void customRoundedInterestLookaheadSurvivesCombinedConfirmationAndReload(boolean legacy)throws Exception{
+  long loan=create("0.06","0",3,"[{\"dueOn\":\"2026-01-31\",\"principal\":\"0.04\",\"interest\":\"0.01\"},{\"dueOn\":\"2026-02-28\",\"principal\":\"0.01\",\"interest\":\"0.01\"},{\"dueOn\":\"2026-03-31\",\"principal\":\"0.01\",\"interest\":\"0.01\"}]");
+  if(legacy)jdbc.update("update loan_installments set precise_principal_amount=null,precise_interest_amount=null,interest_carry_amount=null,rounding_policy=null,custom_rate_principal_amount=null,custom_rate_interest_amount=null where loan_id=?",loan);
+  var original=snapshot();
+  mvc.perform(get("/api/loans/"+loan+"/term-options").session(session).param("additionalPrincipal","0.03").param("paidOn","2026-01-01")).andExpect(status().isOk()).andExpect(jsonPath("$.data.options[2].allowed").value(true));
+  var q=data(quote(loan,"0.03","2026-01-01",account,"REDUCE_PAYMENT",null).andExpect(status().isOk()).andExpect(jsonPath("$.data.after.periodCount").value(3)).andExpect(jsonPath("$.data.after.totalInterest").value("0.03")).andExpect(jsonPath("$.data.after.repaymentTotal").value("0.06")).andReturn());
+  assertSnapshot(original);
+  repay(loan,body(q,"custom-lookahead")).andExpect(status().isOk());
+  assertThat(jdbc.queryForList("select principal_cents from loan_installments where loan_id=? and status='PENDING' order by installment_no",Long.class,loan)).containsExactly(1L,1L,1L);
+  assertThat(jdbc.queryForList("select interest_cents from loan_installments where loan_id=? and status='PENDING' order by installment_no",Long.class,loan)).containsExactly(1L,1L,1L);
+  assertThat(jdbc.queryForObject("select precise_principal_amount from loan_installments where loan_id=? and status='PENDING' order by installment_no limit 1",BigDecimal.class,loan)).isEqualByComparingTo("0.02");
+  for(var row:jdbc.queryForList("select id from loan_installments where loan_id=? and status='PENDING' order by installment_no",Long.class,loan))
+   mvc.perform(post("/api/loan-installments/"+row+"/confirm").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"paidOn\":\"2026-03-31\"}")).andExpect(status().isOk());
+  assertThat(ledger.balance(household,"LOAN:"+loan)).isZero();
+  assertThat(jdbc.queryForObject("select status from loans where id=?",String.class,loan)).isEqualTo("CLOSED");
+  assertThat(plans.roundingContext(household,loan,false).preciseInterestPaid()).isEqualByComparingTo("0.025");
+  assertThat(plans.roundingContext(household,loan,false).actualInterestPaid()).isEqualByComparingTo("0.03");
  }
  @Test void tokenBindsAmountsDateAccountTermPolicyAndPrecision()throws Exception{
   long loan=sample();var q=data(quote(loan,"3000.00").andExpect(status().isOk()).andReturn());String request=body(q,"bound");
@@ -111,6 +136,39 @@ class LoanCombinedRepaymentApiTest {
   mvc.perform(patch("/api/loans/"+loan+"/repayment-policy").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"revision\":0,\"sourceNote\":\"Revised contract\"}")).andExpect(status().isOk());
   repay(loan,request).andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("LOAN_PLAN_CHANGED"));
   assertThat(count("financial_transactions")).isZero();
+ }
+ @Test void exhaustedSearchIsUndeterminedAndPostsNothing()throws Exception{
+  long loan=sample();var q=data(quote(loan,"3000.00").andExpect(status().isOk()).andReturn());var before=snapshot();
+  doReturn(new LoanPlanningBudget(0)).when(planningBudgets).create();
+  repay(loan,body(q,"bounded-search")).andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("LOAN_PLAN_SEARCH_LIMIT"));
+  assertSnapshot(before);
+  mvc.perform(get("/api/loans/"+loan+"/term-options").session(session).param("additionalPrincipal","3000.00").param("paidOn","2026-01-31")).andExpect(status().isOk()).andExpect(jsonPath("$.data.options[0].evaluationStatus").value("UNDETERMINED")).andExpect(jsonPath("$.data.options[0].reason").value("LOAN_PLAN_SEARCH_LIMIT"));
+  assertSnapshot(before);
+ }
+ @Test void previewSharesSelectedPlanBudgetWithAllAlternateTerms()throws Exception{
+  long loan=sample();var budget=new LoanPlanningBudget(5);doReturn(budget).when(planningBudgets).create();
+  quote(loan,"3000.00").andExpect(status().isOk()).andExpect(jsonPath("$.data.after.periodCount").value(2))
+   .andExpect(jsonPath("$.data.termOptions[0].evaluationStatus").value("FEASIBLE"))
+   .andExpect(jsonPath("$.data.termOptions[1].evaluationStatus").value("UNDETERMINED"));
+  assertThat(budget.used()).isEqualTo(5);assertThat(count("financial_transactions")).isZero();
+ }
+ @Test void calculationRevisionRejectsPreviousQuoteWithoutChangingItsInputs()throws Exception{
+  long loan=sample();var previousToken=new java.util.concurrent.atomic.AtomicReference<String>();
+  doAnswer(invocation->{previousToken.set(LegacyLoanPlanTokenV1.token(invocation.getArgument(0),invocation.getArgument(1),invocation.getArgument(2),invocation.getArgument(3),invocation.getArgument(4),invocation.getArgument(5),invocation.getArgument(6)));return invocation.callRealMethod();})
+   .when(plans).token(any(Loan.class),anyList(),anyString(),any(java.time.LocalDate.class),anyLong(),anyLong(),anyString());
+  var q=data(quote(loan,"3000.00").andExpect(status().isOk()).andReturn());var before=snapshot();
+  String request=body(q,"old-calculation").replace(q.path("planToken").asText(),previousToken.get());
+  repay(loan,request).andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("LOAN_PLAN_CHANGED"));assertSnapshot(before);
+ }
+ @Test void successfulPreviousCalculationReceiptReplaysBeforeNewCalculationChecks()throws Exception{
+  long loan=sample();
+  doAnswer(invocation->LegacyLoanPlanTokenV1.token(invocation.getArgument(0),invocation.getArgument(1),invocation.getArgument(2),invocation.getArgument(3),invocation.getArgument(4),invocation.getArgument(5),invocation.getArgument(6)))
+   .when(plans).token(any(Loan.class),anyList(),anyString(),any(java.time.LocalDate.class),anyLong(),anyLong(),anyString());
+  String request=body(data(quote(loan,"3000.00").andExpect(status().isOk()).andReturn()),"old-calculation-receipt");
+  var original=data(repay(loan,request).andExpect(status().isOk()).andReturn());var before=snapshot();
+  doCallRealMethod().when(plans).token(any(Loan.class),anyList(),anyString(),any(java.time.LocalDate.class),anyLong(),anyLong(),anyString());
+  doReturn(new LoanPlanningBudget(0)).when(planningBudgets).create();
+  assertThat(data(repay(loan,request).andExpect(status().isOk()).andReturn())).isEqualTo(original);assertSnapshot(before);
  }
  @Test void changedBalanceRequiresNewQuoteForTheDisplayedResult()throws Exception{
   long loan=sample();String request=body(data(quote(loan,"3000.00").andExpect(status().isOk()).andReturn()),"balance");fund("5001.00");var before=snapshot();

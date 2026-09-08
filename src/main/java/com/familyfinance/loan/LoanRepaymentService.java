@@ -24,15 +24,16 @@ public class LoanRepaymentService {
     private final LoanPlanToken plans;private final LoanRepaymentPolicyService policies;
     private final LoanInstallmentSettlement settlement;private final LoanPrepaymentService prepayments;
     private final LoanRepaymentBatchRepository batches;private final JdbcTemplate jdbc;private final Clock clock;
+    private final LoanPlanningBudgetFactory planningBudgets;
     private final LoanPrepaymentPlanner planner=new LoanPrepaymentPlanner();
     public LoanRepaymentService(LoanRepository loans,LoanInstallmentRepository installments,FinancialAccountRepository accounts,
             CurrentMembership current,FamilyMutationAuthorization authorization,FamilyPermissionService permissions,
             LoanAccountingService accounting,CashAccountingService cash,LedgerPostingService posting,AccountingRequests requests,
             LoanPlanToken plans,LoanRepaymentPolicyService policies,LoanInstallmentSettlement settlement,
-            LoanPrepaymentService prepayments,LoanRepaymentBatchRepository batches,JdbcTemplate jdbc,Clock clock){
+            LoanPrepaymentService prepayments,LoanRepaymentBatchRepository batches,JdbcTemplate jdbc,Clock clock,LoanPlanningBudgetFactory planningBudgets){
         this.loans=loans;this.installments=installments;this.accounts=accounts;this.current=current;this.authorization=authorization;
         this.permissions=permissions;this.accounting=accounting;this.cash=cash;this.posting=posting;this.requests=requests;
-        this.plans=plans;this.policies=policies;this.settlement=settlement;this.prepayments=prepayments;this.batches=batches;this.jdbc=jdbc;this.clock=clock;
+        this.plans=plans;this.policies=policies;this.settlement=settlement;this.prepayments=prepayments;this.batches=batches;this.jdbc=jdbc;this.clock=clock;this.planningBudgets=planningBudgets;
     }
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ,propagation=Propagation.REQUIRES_NEW)
     public LoanRepaymentPreview preview(Authentication a,long id,String extra,LocalDate day,Long accountId,
@@ -104,11 +105,11 @@ public class LoanRepaymentService {
         if(strategy!=PrepaymentStrategy.ADJUST_TERM&&target!=null)throw new RequestValidationException(Map.of("targetPeriods","只有指定期数策略可设置目标期数"));
         if(strategy==PrepaymentStrategy.ADJUST_TERM&&(target==null||target<1||target>=projection.future().size()))
             throw new RequestValidationException(Map.of("targetPeriods","目标期数必须为正且少于原未来期数；保留期数请使用降低月供"));
-        var before=futureDrafts(projection);
+        var before=futureDrafts(projection);var budget=planningBudgets.create();
         var after=projection.remainingPrincipal().signum()==0?List.<InstallmentDraft>of():planner.planRemaining(before,projection.remainingPrincipal(),
-                loan.getAnnualRate(),loan.getRepaymentMethod(),strategy,target,projection.roundingContext(),loan.getMinimumInstallmentAmount());
+                loan.getAnnualRate(),loan.getRepaymentMethod(),strategy,target,projection.roundingContext(),loan.getMinimumInstallmentAmount(),budget);
         var options=projection.remainingPrincipal().signum()==0?List.<LoanTermOptions.Option>of():loan.getRepaymentMethod()==RepaymentMethod.CUSTOM
-                ?new LoanTermOptions().evaluateCustom(before,projection.remainingPrincipal(),projection.roundingContext(),loan.getMinimumInstallmentAmount())
+                ?new LoanTermOptions().evaluateCustom(before,projection.remainingPrincipal(),projection.roundingContext(),loan.getMinimumInstallmentAmount(),budget)
                 :new LoanTermOptions().evaluate(projection.remainingPrincipal(),loan.getAnnualRate(),projection.future().stream().map(LoanPlanToken.Period::dueOn).toList(),loan.getRepaymentMethod(),projection.roundingContext(),loan.getMinimumInstallmentAmount());
         BigDecimal principal=projection.duePrincipal().add(additional),interest=projection.dueInterest(),total=DecimalMoney.settled(principal.add(interest));
         long effectiveMember=settlement.memberId(loan,locked);settlement.category(loan);
