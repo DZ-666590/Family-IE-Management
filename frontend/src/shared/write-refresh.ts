@@ -3,7 +3,7 @@ import type { ApiRequestOptions } from '../api/client';
 
 const summaries = ['dashboard', 'net-worth', 'analysis', 'debt-analysis', 'plugin'];
 const ledger = ['transactions', 'accounts', 'accounting-history', 'transfers', 'budget-usage', 'notifications', ...summaries];
-const investments = [...ledger, 'portfolio', 'investment-accounts', 'investment-trades', 'market-quotes', 'securities', ...summaries];
+const investments = [...ledger, 'portfolio', 'investment-setup', 'investment-accounts', 'investment-trades', 'market-quotes', 'securities', ...summaries];
 const dependencies: Record<string, string[]> = {
   transactions: ledger,
   transfers: ledger,
@@ -15,6 +15,7 @@ const dependencies: Record<string, string[]> = {
   'investment-trades': investments,
   'market-quotes': investments,
   securities: investments,
+  'investment-setup': ['investment-setup'],
   loans: ['loans', 'loan-schedule', 'loan-prepayments', 'loan-repayments', 'loan-repayment-preview', 'loan-term-options', 'loan-repayment-policy', 'assets', ...ledger],
   'loan-installments': ['loans', 'loan-schedule', 'loan-prepayments', 'loan-repayments', 'loan-repayment-preview', 'loan-term-options', ...ledger],
   'recurring-rules': ['recurring-rules', 'recurring-occurrences', ...ledger],

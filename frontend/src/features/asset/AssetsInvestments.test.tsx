@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { AssetsPage } from './AssetsPage';
 import { InvestmentsPage } from '../investment/InvestmentsPage';
-import { securityResolvePayload } from '../investment/InvestmentsPage';
 import { assetUpdatePayload } from './AssetsPage';
 import type { RequestFn } from '../common';
 import { businessDate } from '../../shared/runtime';
@@ -12,29 +11,21 @@ import { ApiError } from '../../api/client';
 const wrap = (node: React.ReactNode) => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>;
 const page = <T,>(items: T[]) => ({ items, page: 0, size: 50, totalElements: items.length, totalPages: items.length ? 1 : 0, hasNext: false });
 
-it('protects programmatic security selection and only dismisses the top nested confirmation', async () => {
-  let registered = false;
+it('protects a selected catalog stock as an unsaved trade draft', async () => {
   const request: RequestFn = async <T,>(path: string) => {
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '0', marketValue: '0', realizedProfit: '0', unrealizedProfit: '0', totalProfit: '0', unpricedPositions: 0 } } as T;
     if (path === '/api/market-quotes') return [] as T;
-    if (path === '/api/securities/resolve') { registered = true; return { id: 5, tsCode: '000001.SZ', name: '平安银行' } as T; }
-    if (path.startsWith('/api/securities/search')) return page(registered ? [{ id: 5, tsCode: '000001.SZ', name: '平安银行' }] : []) as T;
+    if (path === '/api/investment-setup') return { completed: true, hasAccounts: true, hasTrades: true } as T;
+    if (path === '/api/securities/catalog-status') return { state: 'READY', count: 5558 } as T;
+    if (path.startsWith('/api/securities/search')) return page([{ id: 5, tsCode: '000001.SZ', name: '平安银行', market: 'SZ', active: true, securityType: 'STOCK' }]) as T;
     return page([]) as T;
   };
   const user = userEvent.setup(); render(wrap(<InvestmentsPage request={request} role="OWNER" />));
   await user.click(screen.getByRole('button', { name: '记一笔投资' }));
-  await user.click(screen.getByRole('button', { name: '登记证券' }));
-  await user.type(screen.getByLabelText('六位代码'), '000001');
-  await user.keyboard('{Escape}');
-  await user.keyboard('{Escape}');
-  expect(screen.getByRole('dialog', { name: '登记 A 股证券' })).toBeInTheDocument();
-  expect(screen.queryByRole('dialog', { name: '放弃未保存的修改？' })).not.toBeInTheDocument();
-  await user.type(screen.getByLabelText('证券名称'), '平安银行');
-  await user.click(screen.getByRole('button', { name: '登记并选择' }));
-  await waitFor(() => expect(screen.queryByRole('dialog', { name: '登记 A 股证券' })).not.toBeInTheDocument());
-  expect(screen.getByRole('button', { name: '登记证券' })).toHaveFocus();
-  expect(await screen.findByRole('option', { name: '000001.SZ · 平安银行' })).toBeInTheDocument();
+  await screen.findByRole('option', { name: '000001.SZ · 平安银行' });
+  await user.selectOptions(screen.getByLabelText('证券'), '5');
   expect(screen.getByLabelText('证券')).toHaveValue('5');
+  expect(screen.queryByRole('button', { name: '登记证券' })).not.toBeInTheDocument();
   await user.keyboard('{Escape}');
   expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeInTheDocument();
 });
@@ -91,7 +82,7 @@ it('shows server asset values and quote provenance without member mutations', as
   expect(screen.getByText('行情已过期')).toBeInTheDocument();
 });
 
-it('offers security registration when an investment search has no matches', async () => {
+it('offers catalog search without manual registration when no matches exist', async () => {
   const request = vi.fn(async (path: string) => {
     if (path === '/api/portfolio') return { positions: [], totals: { cost: '0.00', marketValue: '0.00', realizedProfit: '0.00', unrealizedProfit: '0.00', totalProfit: '0.00', unpricedPositions: 0 } };
     if (path.startsWith('/api/investment-accounts')) return page([{ id: 1, fundingAccountId: 2, name: '证券账户', brokerName: '测试券商', currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null }]);
@@ -104,13 +95,10 @@ it('offers security registration when an investment search has no matches', asyn
   render(wrap(<InvestmentsPage request={request as RequestFn} role="OWNER" />));
 
   await userEvent.click(await screen.findByRole('button', { name: '记一笔投资' }));
-  expect(await screen.findByRole('button', { name: '登记证券' })).toBeInTheDocument();
+  expect(await screen.findByLabelText('证券搜索')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '登记证券' })).not.toBeInTheDocument();
 });
 
-it('normalizes a six-digit A-share code with the selected market', () => {
-  expect(securityResolvePayload({ code: ' 000001 ', market: 'SZ', name: '平安银行' }))
-    .toEqual({ tsCode: '000001.SZ', name: '平安银行' });
-});
 
 it('omits immutable fields when editing an asset', () => {
   expect(assetUpdatePayload({
