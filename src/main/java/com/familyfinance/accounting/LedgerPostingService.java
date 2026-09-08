@@ -15,6 +15,18 @@ public class LedgerPostingService {
         this.store=store; this.validation=validation; this.balances=balances; this.clock=clock;
     }
 
+    /** Preflight one aggregate debit before a multi-journal command writes its first child. */
+    @Transactional(propagation=org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void requireAvailableCash(long household,long account,java.time.LocalDate day,java.math.BigDecimal amount) {
+        amount=com.familyfinance.shared.DecimalMoney.settled(amount);
+        if(amount.signum()<=0)throw new IllegalArgumentException("cash debit must be positive");
+        store.lock(household);String code="CASH:"+account;
+        if(store.accounts(household,true).stream().noneMatch(a->a.code().equals(code)))
+            throw LedgerStore.conflict("INSUFFICIENT_FUNDS","付款账户余额不足，请先核对资金记录");
+        balances.calculate(household,List.of(new LedgerBalances.Change(day,List.of(
+                new LedgerEntryInput(code,LedgerAccountKind.CASH,java.math.BigDecimal.ZERO,amount,null,null)))),true);
+    }
+
     @Transactional
     public LedgerReceipt post(LedgerPostingCommand command) {
         validation.command(command);

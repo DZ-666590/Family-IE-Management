@@ -20,9 +20,12 @@ public class LoanPrepayment {
  @Column(name="paid_on",nullable=false) private LocalDate paidOn;
  @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="transaction_id") private FinancialTransaction transaction;
  @Column(name="created_at",nullable=false) private Instant createdAt;
+ @Column(name="repayment_batch_id") private Long repaymentBatchId;
  protected LoanPrepayment(){}
  LoanPrepayment(Loan loan,String requestKey,long amountCents,LocalDate paidOn,Instant createdAt){this.household=loan.getHousehold();this.loan=loan;this.requestKey=requestKey;this.amount=DecimalMoney.fromCents(amountCents);this.paidOn=paidOn;this.createdAt=createdAt;}
  void attach(FinancialTransaction value){this.transaction=value;}
+ void attachRepaymentBatch(long id){if(repaymentBatchId!=null)throw new IllegalStateException("repayment batch is immutable");repaymentBatchId=id;}
+ public Long getRepaymentBatchId(){return repaymentBatchId;}
  void strategy(PrepaymentStrategy value){this.strategy=value;}
  public PrepaymentStrategy getStrategy(){return strategy;}
  void payoff(long interest){this.interestAmount=DecimalMoney.fromCents(interest);this.operationKind=LoanPrepaymentKind.PAYOFF;}

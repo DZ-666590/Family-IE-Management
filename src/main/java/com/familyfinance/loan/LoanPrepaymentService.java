@@ -19,8 +19,8 @@ import com.familyfinance.notification.NotificationService;
 public class LoanPrepaymentService {
  private final LoanRepository loans; private final LoanPrepaymentRepository prepayments; private final FinancialTransactionRepository transactions; private final FinancialAccountRepository accounts; private final CategoryRepository categories; private final FamilyMemberRepository members; private final FamilyMutationAuthorization authorization; private final Clock clock; private final LoanPrepaymentPlanner planner=new LoanPrepaymentPlanner();
  private final CurrentMembership current;private final FamilyPermissionService permissions;private final JdbcTemplate jdbc;private final NotificationService notifications;
- private final LoanTotalsService totals; private final LoanPlanToken plans; private final LoanAccountingService accounting; private final AccountingRequests requests; private final LoanInstallmentRepository installments;
- LoanPrepaymentService(LoanRepository loans,LoanPrepaymentRepository prepayments,FinancialTransactionRepository transactions,FinancialAccountRepository accounts,CategoryRepository categories,FamilyMemberRepository members,FamilyMutationAuthorization authorization,Clock clock,LoanAccountingService accounting,AccountingRequests requests,LoanInstallmentRepository installments,LoanTotalsService totals,LoanPlanToken plans,CurrentMembership current,FamilyPermissionService permissions,JdbcTemplate jdbc,NotificationService notifications){this.current=current;this.permissions=permissions;this.jdbc=jdbc;this.notifications=notifications;this.totals=totals;this.plans=plans;this.loans=loans;this.prepayments=prepayments;this.transactions=transactions;this.accounts=accounts;this.categories=categories;this.members=members;this.authorization=authorization;this.clock=clock;this.accounting=accounting;this.requests=requests;this.installments=installments;}
+ private final LoanTotalsService totals; private final LoanPlanToken plans; private final LoanAccountingService accounting; private final AccountingRequests requests; private final LoanInstallmentRepository installments; private final LoanInstallmentSettlement settlement;
+ LoanPrepaymentService(LoanRepository loans,LoanPrepaymentRepository prepayments,FinancialTransactionRepository transactions,FinancialAccountRepository accounts,CategoryRepository categories,FamilyMemberRepository members,FamilyMutationAuthorization authorization,Clock clock,LoanAccountingService accounting,AccountingRequests requests,LoanInstallmentRepository installments,LoanTotalsService totals,LoanPlanToken plans,CurrentMembership current,FamilyPermissionService permissions,JdbcTemplate jdbc,NotificationService notifications,LoanInstallmentSettlement settlement){this.current=current;this.permissions=permissions;this.jdbc=jdbc;this.notifications=notifications;this.totals=totals;this.plans=plans;this.loans=loans;this.prepayments=prepayments;this.transactions=transactions;this.accounts=accounts;this.categories=categories;this.members=members;this.authorization=authorization;this.clock=clock;this.accounting=accounting;this.requests=requests;this.installments=installments;this.settlement=settlement;}
  @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
  public LoanPrepaymentPreview preview(Authentication authentication,long loanId,String raw,LocalDate paidOn,PrepaymentStrategy strategy,Long accountId){
   var context=current.require(authentication);permissions.requireAdmin(context);long h=context.householdId();
@@ -54,17 +54,26 @@ public class LoanPrepaymentService {
   if(full&&(request.strategy()!=null||request.planToken()!=null||plans.dueInterest(periods,paidOn)>0))throw new ResourceConflictException("LOAN_PAYOFF_REQUIRED","全部偿还请使用一次结清核对实际本金与利息扣款");
   if(request.strategy()!=null||request.planToken()!=null)plans.requireMatch(token(loan,periods,amount,paidOn,selectedAccount.getId(),strategy,true),request.planToken());
   List<InstallmentDraft> replacement=full?List.of():planner.plan(drafts(loan,periods),DecimalMoney.fromCents(amount),loan.getAnnualRate(),loan.getRepaymentMethod(),paidOn,strategy,null,plans.roundingContext(h,loanId,true),loan.getMinimumInstallmentAmount());
-  LoanPrepayment prepayment=new LoanPrepayment(loan,key,amount,paidOn,clock.instant());if(!full)prepayment.strategy(strategy);prepayments.saveAndFlush(prepayment);
-  FinancialTransaction transaction=FinancialTransaction.loanPrepayment(access.household(),selectedAccount,access.membership().getUser(),member(loan,h),category(loan,h),amount,paidOn,prepayment.getId(),clock.instant());
+  LoanPrepayment prepayment=prepayAuthorized(access,loan,selectedAccount,amount,paidOn,full?null:strategy,replacement,key);
+  requests.record(h,key,digest,prepayment.getId()); return LoanPrepaymentResponse.from(prepayment,loan,totals.read(loan,true));
+ }
+ /** Internal principal-only event. The caller owns authorization, the locked loan and the whole receipt. */
+ @Transactional(propagation=Propagation.MANDATORY)
+ public LoanPrepayment prepayAuthorized(FamilyMutationAuthorization.LockedFamilyAccess access,Loan loan,FinancialAccount selectedAccount,
+         long amount,LocalDate paidOn,PrepaymentStrategy strategy,List<InstallmentDraft> replacement,String key){
+  long h=access.context().householdId();long loanId=loan.getId();
+  if(loan.getHousehold().getId()!=h||selectedAccount.getHousehold().getId()!=h||amount<=0)throw new IllegalArgumentException("invalid authorized prepayment");
+  LoanPrepayment prepayment=new LoanPrepayment(loan,key,amount,paidOn,clock.instant());prepayment.strategy(strategy);prepayments.saveAndFlush(prepayment);
+  FinancialTransaction transaction=FinancialTransaction.loanPrepayment(access.household(),selectedAccount,access.membership().getUser(),settlement.member(loan,true),settlement.category(loan),amount,paidOn,prepayment.getId(),clock.instant());
   transaction.loanSplit(amount,0);transactions.saveAndFlush(transaction);
-  accounting.pay(loan,transaction,amount,0,key);
+  accounting.pay(loan,transaction,DecimalMoney.fromCents(amount),DecimalMoney.fromCents(0),key);
   prepayment.attach(transaction);
   var currentSchedule=installments.findAllLockedByLoanIdAndHouseholdIdOrderByInstallmentNo(loanId,h);
   int nextNo=currentSchedule.stream().mapToInt(LoanInstallment::getInstallmentNo).max().orElse(0)+1;
   loan.applyPrincipalPayment(amount,clock.instant());accounting.requireBalance(loan);
   for(var row:currentSchedule)if(row.getStatus()==LoanInstallmentStatus.PENDING){row.cancel(prepayment.getId());notifications.resolveReference(h,"LOAN_INSTALLMENT",row.getId());}
   installments.saveAll(replacement.stream().map(d->new LoanInstallment(loan,d.renumber(nextNo+d.installmentNo()-1))).toList());
-  loans.flush(); requests.record(h,key,digest,prepayment.getId()); return LoanPrepaymentResponse.from(prepayment,loan,totals.read(loan,true));
+  loans.flush();return prepayment;
  }
  private String token(Loan loan,List<LoanPlanToken.Period> periods,long amount,LocalDate day,long account,PrepaymentStrategy strategy,boolean current){return plans.token(loan,periods,"PARTIAL_PREPAYMENT",day,account,0,"principalCents="+amount+";strategy="+strategy.name()+";rounding="+plans.roundingContext(loan.getHousehold().getId(),loan.getId(),current));}
  private List<InstallmentDraft> drafts(Loan loan,List<LoanPlanToken.Period> periods){long remaining=loan.getCurrentPrincipalCents();List<InstallmentDraft> rows=new ArrayList<>();for(var p:periods){remaining=Math.subtractExact(remaining,p.principalCents());rows.add(p.draft(remaining));}if(remaining!=0)throw new ResourceConflictException("LOAN_PLAN_INVALID","待还计划本金与剩余本金不一致，请核对计划");return rows;}

@@ -32,7 +32,7 @@ class LoanPrecisionMigrationTest {
     "insert into ledger_sources(household_id,source_type,source_id,revision,current_journal_id) values(1,'LOAN_OPENING',1,1,1)"))s.executeUpdate(sql);
    var queries=List.of("select id,principal_cents,current_principal_cents,status,start_on,annual_rate from loans order by id","select id,loan_id,installment_no,due_on,principal_cents,interest_cents,status from loan_installments order by id","select id,loan_id,request_key,amount_cents,interest_cents,paid_on,operation_kind from loan_prepayments order by id","select * from ledger_journals order by id","select * from ledger_entries order by id","select * from ledger_sources order by household_id,source_type,source_id");
    var snapshots=new ArrayList<List<List<String>>>();for(var q:queries)snapshots.add(rows(c,q));
-   var latest=Flyway.configure().dataSource(url,user,password).locations("classpath:db/migration-mysql").load();latest.migrate();
+   var latest=Flyway.configure().dataSource(url,user,password).locations("classpath:db/migration-mysql").target("23").load();latest.migrate();
    assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("23");
    for(int i=0;i<queries.size();i++)assertThat(rows(c,queries.get(i))).isEqualTo(snapshots.get(i));
    assertThat(rows(c,"select principal_amount,current_principal_amount from loans where id=1")).containsExactly(List.of("100.00","90.00"));
@@ -50,7 +50,7 @@ class LoanPrecisionMigrationTest {
   before.executeUpdate("insert into loan_prepayments(id,household_id,loan_id,request_key,amount_cents,paid_on,created_at) values(1,1,1,'original-key',1000,'2026-01-02',current_timestamp)");
   var queries=List.of("select id,principal_cents,current_principal_cents,status,start_on,annual_rate from loans order by id","select id,loan_id,installment_no,due_on,principal_cents,interest_cents,status,confirmed_transaction_id from loan_installments order by id","select id,loan_id,request_key,amount_cents,interest_cents,paid_on,transaction_id,operation_kind from loan_prepayments order by id","select * from financial_transactions order by id","select * from ledger_journals order by id","select * from ledger_sources order by household_id,source_type,source_id");
   var snapshot=new ArrayList<List<List<String>>>();for(var q:queries)snapshot.add(rows(before.databaseUrl(),q));
-  var after=MigrationTestSupport.migrateExistingDatabase(file);
+  var after=MigrationTestSupport.migrateExistingDatabaseTo(file,"23");
   assertThat(after.version()).isEqualTo("23");
   for(int i=0;i<queries.size();i++)assertThat(rows(after.databaseUrl(),queries.get(i))).isEqualTo(snapshot.get(i));
   assertThat(after.queryString("select principal_amount from loans where id=1")).isEqualTo("100.00");

@@ -16,8 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class LoanInstallmentConfirmationService {
  private final LoanInstallmentRepository installments; private final FinancialTransactionRepository transactions; private final FinancialAccountRepository accounts; private final CategoryRepository categories; private final FamilyMemberRepository members; private final FamilyMutationAuthorization authorization; private final FamilyPermissionService permissions; private final NotificationService notifications; private final Clock clock;
- private final LoanAccountingService accounting; private final AccountingRequests requests; private final LoanRepository loans;
- LoanInstallmentConfirmationService(LoanInstallmentRepository installments, FinancialTransactionRepository transactions, FinancialAccountRepository accounts, CategoryRepository categories, FamilyMemberRepository members, FamilyMutationAuthorization authorization, FamilyPermissionService permissions, NotificationService notifications, Clock clock,LoanAccountingService accounting,AccountingRequests requests,LoanRepository loans) {this.installments=installments;this.transactions=transactions;this.accounts=accounts;this.categories=categories;this.members=members;this.authorization=authorization;this.permissions=permissions;this.notifications=notifications;this.clock=clock;this.accounting=accounting;this.requests=requests;this.loans=loans;}
+ private final LoanAccountingService accounting; private final AccountingRequests requests; private final LoanRepository loans; private final LoanInstallmentSettlement settlement;
+ LoanInstallmentConfirmationService(LoanInstallmentRepository installments, FinancialTransactionRepository transactions, FinancialAccountRepository accounts, CategoryRepository categories, FamilyMemberRepository members, FamilyMutationAuthorization authorization, FamilyPermissionService permissions, NotificationService notifications, Clock clock,LoanAccountingService accounting,AccountingRequests requests,LoanRepository loans,LoanInstallmentSettlement settlement) {this.installments=installments;this.transactions=transactions;this.accounts=accounts;this.categories=categories;this.members=members;this.authorization=authorization;this.permissions=permissions;this.notifications=notifications;this.clock=clock;this.accounting=accounting;this.requests=requests;this.loans=loans;this.settlement=settlement;}
  @Transactional public LoanInstallmentResponse confirm(Authentication authentication,long installmentId) {
   return confirm(authentication,installmentId,new LoanPaymentRequest(null),LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))),AccountingRequests.key(null));
  }
@@ -50,10 +50,7 @@ public class LoanInstallmentConfirmationService {
   LocalDate paidOn=request==null||request.paidOn()==null?defaultPaidOn:request.paidOn();
   accounting.requirePaymentDate(loan,paidOn);
   if(paidOn.isBefore(installment.getDueOn()))throw new ResourceConflictException("INSTALLMENT_NOT_DUE","实际还款日期不能早于本期到期日；提前还本请使用提前还款");
-  FinancialTransaction transaction=FinancialTransaction.loanPayment(access.household(),account(loan,householdId,request==null?null:request.paymentAccountId()),access.membership().getUser(),member(loan,householdId),category(loan,householdId),Math.addExact(installment.getPrincipalCents(),installment.getInterestCents()),paidOn,installmentId,clock.instant());
-  transaction.loanSplit(installment.getPrincipalCents(),installment.getInterestCents());transactions.saveAndFlush(transaction);
-  accounting.pay(loan,transaction,installment.getPrincipalCents(),installment.getInterestCents(),key);
-  installment.confirm(transaction); loan.applyPrincipalPayment(installment.getPrincipalCents(),clock.instant());accounting.requireBalance(loan);notifications.resolveReference(householdId,"LOAN_INSTALLMENT",installmentId); installments.flush();
+  settlement.settleAuthorized(access,loan,installment,account(loan,householdId,request==null?null:request.paymentAccountId()),paidOn,key);
   requests.record(householdId,key,digest,installmentId);return LoanInstallmentResponse.from(installment);
  }
  private FinancialAccount account(Loan loan,long h,Long actual){return accounts.findLockedByIdAndHouseholdId(actual==null?loan.getPaymentAccount().getId():actual,h).orElseThrow(LoanInstallmentConfirmationService::stale);}
