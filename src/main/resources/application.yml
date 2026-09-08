@@ -29,3 +29,13 @@ spring:
 app:
   seed:
     enabled: true
+
+  ai:
+    encryption-key: ${APP_AI_ENCRYPTION_KEY:}
+    allowed-hosts: ${APP_AI_ALLOWED_HOSTS:}
+
+# Never enable HTTP wire/header logging for credential-bearing AI requests.
+logging:
+  level:
+    org.apache.hc.client5.http.wire: OFF
+    org.apache.hc.client5.http.headers: OFF
