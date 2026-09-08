@@ -23,6 +23,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.exc.ValueInstantiationException;
@@ -108,6 +111,20 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest()
                 .body(ApiEnvelope.error(ApiError.of("VALIDATION_ERROR", "请检查输入内容")));
     }
+
+        @ExceptionHandler(MaxUploadSizeExceededException.class)
+        ResponseEntity<ApiEnvelope<Void>> handleMaxUploadSize(MaxUploadSizeExceededException exception) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+            .body(ApiEnvelope.error(new ApiError("VALIDATION_ERROR", "合同文件不能超过 10MB",
+                Map.of("file", "合同文件不能超过 10MB"))));
+        }
+
+        @ExceptionHandler({MissingServletRequestPartException.class, MultipartException.class})
+        ResponseEntity<ApiEnvelope<Void>> handleMultipart(Exception exception) {
+        return ResponseEntity.badRequest()
+            .body(ApiEnvelope.error(new ApiError("VALIDATION_ERROR", "请上传有效的 Word 或 PDF 合同文件",
+                Map.of("file", "合同文件不能为空且必须是 .docx 或 .pdf"))));
+        }
 
     private static boolean hasCause(Throwable exception, Class<? extends Throwable> causeType) {
         Throwable current = exception;

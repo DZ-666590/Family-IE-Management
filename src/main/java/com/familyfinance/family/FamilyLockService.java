@@ -6,8 +6,11 @@ import com.familyfinance.shared.ResourceConflictException;
 import com.familyfinance.shared.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 
+import org.springframework.transaction.annotation.Transactional;
+
 /** Lock order for family mutations: household, membership rows, invite rows. JOIN discovers a token without locking only to identify its household, then follows that order. */
 @Service
+@Transactional
 public class FamilyLockService {
     private final HouseholdRepository households;
     FamilyLockService(HouseholdRepository households) { this.households = households; }
