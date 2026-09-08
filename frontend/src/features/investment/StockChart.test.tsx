@@ -35,10 +35,11 @@ it('loads selected stock candles, hands actual bars to KLineChart, and disposes 
 it('offers bounded history ranges and labels period-specific latest data', async () => {
   show((async () => data) as RequestFn);
   await waitFor(() => expect(chart.setDataLoader).toHaveBeenCalled());
-  expect(screen.getByLabelText('历史范围')).toHaveValue('all');
+  expect(screen.getByLabelText('视窗缩放')).toHaveValue('all');
   expect(screen.getByText(/最多约 2 年/)).toBeInTheDocument();
+  expect(screen.getByText('按所选时间跨度缩放，可拖动查看更早历史。')).toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: '月 K' }));
-  await userEvent.selectOptions(screen.getByLabelText('历史范围'), '1m');
+  await userEvent.selectOptions(screen.getByLabelText('视窗缩放'), '1m');
   await waitFor(() => expect(screen.getByText('查看最近一月数据')).toBeInTheDocument());
   const loader = chart.setDataLoader.mock.calls.at(-1)![0];
   const callback = vi.fn();
@@ -56,7 +57,7 @@ it('keeps full indicator warmup history while a short range changes the viewport
   show((async () => ({ ...data, bars })) as RequestFn);
   await waitFor(() => expect(chart.setBarSpace).toHaveBeenCalled());
   const allSpace = chart.setBarSpace.mock.calls.at(-1)![0];
-  await userEvent.selectOptions(screen.getByLabelText('历史范围'), '1m');
+  await userEvent.selectOptions(screen.getByLabelText('视窗缩放'), '1m');
   await waitFor(() => expect(chart.setBarSpace.mock.calls.at(-1)![0]).toBeGreaterThan(allSpace));
   const loader = chart.setDataLoader.mock.calls.at(-1)![0];
   const callback = vi.fn();

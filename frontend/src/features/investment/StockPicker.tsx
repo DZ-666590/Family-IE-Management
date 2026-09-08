@@ -23,11 +23,11 @@ export function StockPicker({ request, value, onChange, disabled = false }: {
   const [debounced, setDebounced] = useState('');
   useEffect(() => { const timer = setTimeout(() => setDebounced(query.trim()), 250); return () => clearTimeout(timer); }, [query]);
   const catalog = useQuery({ queryKey: ['security-catalog'], queryFn: () => request<CatalogStatus>('/api/securities/catalog-status'), staleTime: 60_000, enabled: !disabled });
-  const catalogReady = catalog.data?.state === 'READY' && catalog.data.count > 0;
-  const search = useQuery({ queryKey: ['securities', 'search-page', debounced], queryFn: () => request<Page<Security>>(`/api/securities/search?q=${encodeURIComponent(debounced)}&page=0&size=20`, { responseType: 'page' }), enabled: !disabled && catalogReady, staleTime: 60_000 });
+  const catalogAvailable = (catalog.data?.count ?? 0) > 0;
+  const search = useQuery({ queryKey: ['securities', 'search-page', debounced], queryFn: () => request<Page<Security>>(`/api/securities/search?q=${encodeURIComponent(debounced)}&page=0&size=20`, { responseType: 'page' }), enabled: !disabled && catalogAvailable, staleTime: 60_000 });
   const options: SecurityReference[] = [...(search.data?.items ?? [])];
   if (value && !options.some(item => item.id === value.id)) options.unshift(value);
-  const waiting = query.trim() !== debounced || search.isFetching || (catalogReady && search.data === undefined && !search.error);
+  const waiting = query.trim() !== debounced || search.isFetching || (catalogAvailable && search.data === undefined && !search.error);
   const retryCatalog = () => { void catalog.refetch(); };
   const updateTime = catalogUpdatedAt(catalog.data?.updatedAt);
   return <div className="stock-picker">
@@ -36,14 +36,17 @@ export function StockPicker({ request, value, onChange, disabled = false }: {
     {!disabled && <div className="stock-picker-status" role="status">
       {catalog.isLoading ? <span>正在读取股票目录状态…</span>
         : catalog.error ? <><span>股票目录状态暂时无法读取</span><button type="button" className="text-action" onClick={retryCatalog}>重试目录状态</button></>
-          : catalog.data?.state === 'ERROR' ? <><span>股票目录同步失败{catalog.data.error ? `：${catalog.data.error}` : ''}</span><button type="button" className="text-action" onClick={retryCatalog}>重试目录状态</button></>
-            : !catalogReady ? <><span>{catalog.data?.state === 'DISABLED' ? '股票目录当前未启用。' : '股票目录正在准备，请稍后重试。'}</span><button type="button" className="text-action" onClick={retryCatalog}>重试目录状态</button></>
-              : waiting ? <span>正在查找股票…</span>
+          : !catalogAvailable ? catalog.data?.state === 'ERROR' ? <><span>股票目录同步失败{catalog.data.error ? `：${catalog.data.error}` : ''}</span><button type="button" className="text-action" onClick={retryCatalog}>重试目录状态</button></>
+            : <><span>{catalog.data?.state === 'DISABLED' ? '股票目录当前未启用。' : '股票目录正在准备，请稍后重试。'}</span><button type="button" className="text-action" onClick={retryCatalog}>重试目录状态</button></>
+            : <>
+              {catalog.data?.state !== 'READY' && <span className="stock-picker-warning">目录刷新失败，正在使用上次成功目录{catalog.data?.error ? `：${catalog.data.error}` : '。'}<button type="button" className="text-action" onClick={retryCatalog}>重试目录更新</button></span>}
+              {waiting ? <span>正在查找股票…</span>
                 : search.error ? <><span>股票搜索暂时不可用</span><button type="button" className="text-action" onClick={() => { void search.refetch(); }}>重试搜索</button></>
                   : !search.data?.items.length ? <span>没有找到匹配股票，请检查代码或名称。</span>
                     : search.data.hasNext ? <span>显示前 20 条，请输入更完整的代码或名称。</span>
                       : <span>选择系统股票目录中的证券，无需自行登记。</span>}
-      {catalogReady && updateTime && <small className="stock-picker-updated">目录更新：{updateTime}</small>}
+            </>}
+      {catalogAvailable && updateTime && <small className="stock-picker-updated">{catalog.data?.state === 'READY' ? '目录更新' : '上次成功更新'}：{updateTime}</small>}
     </div>}
     <label htmlFor={`${id}-selection`}>证券</label>
     <select id={`${id}-selection`} name="securityId" disabled={disabled} required value={value?.id ?? ''} onChange={event => onChange(search.data?.items.find(item => item.id === Number(event.target.value)) ?? null)}>

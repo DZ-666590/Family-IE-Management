@@ -26,3 +26,11 @@ Changed paths: `frontend/src/features/asset/AssetsInvestments.test.tsx`; `fronte
 The first range implementation passed only the selected window to KLineChart. Cloud preview showed that a one-month window left MA30/MA60 unavailable and also shortened MACD warm-up. The final implementation separates calculation data from viewport framing: the loader receives all period-aggregated history, while the post-aggregation selected window controls the latest-detail values and KLineChart bar spacing/right-edge viewport. This retains correct boundary OHLC and indicator context together.
 
 RED: the new StockChart regression failed because the one-month loader contained only the visible candle and no viewport call occurred. GREEN: StockChart 7/7 passed, including full-history loader and changed viewport assertions. Fresh `npm run typecheck` and `npm run build` passed after the correction; Vite's existing main-chunk warning remains (620.63 kB uncompressed, KLineChart lazy chunk 222.35 kB). Per root coordination, the earlier final full frontend result remains 228/228 and was not rerun after this isolated chart-only correction; root owns the next combined full-suite gate.
+
+### Published-catalog fallback and viewport wording
+
+Catalog search availability now follows published catalog count rather than requiring state `READY`. A status response such as `ERROR` with `count > 0` keeps the last successful catalog searchable and selectable, while showing the refresh failure, backend error, last successful `updatedAt`, and retry. A catalog-status request failure with no known count still blocks search, preserving the distinction from a genuine no-results search.
+
+The chart selector is now labelled `视窗缩放`, with the note `按所选时间跨度缩放，可拖动查看更早历史。` This accurately describes the klinecharts 50-pixel bar-spacing cap for short weekly/monthly ranges without discarding older warm-up bars.
+
+RED: focused InvestmentMarket + StockChart reported 3 expected failures for the stale-catalog branch and viewport wording. GREEN: the same focused suites passed 23/23. Fresh `npm run typecheck` and `npm run build` passed; the existing bundle warning remains (621.10 kB main chunk, 222.35 kB lazy KLineChart chunk). Root owns the final full frontend run. Commit: the follow-up commit containing this section (`fix: keep published investment catalog usable`).

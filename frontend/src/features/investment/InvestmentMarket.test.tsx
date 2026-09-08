@@ -66,6 +66,24 @@ it('shows when the ready stock catalog was last updated', async () => {
   expect(await screen.findByText(/目录更新：2026\.09\.08/)).toBeInTheDocument();
 });
 
+it('keeps the last published catalog selectable when a refresh fails', async () => {
+  const request = vi.fn(async (path: string) => path.includes('catalog-status')
+    ? { state: 'ERROR', count: 5558, updatedAt: '2026-09-08T08:30:00Z', error: '目录同步超时' }
+    : page([security]));
+  function Picker() {
+    const [value, setValue] = useState<Security | null>(null);
+    return <StockPicker request={request as RequestFn} value={value} onChange={setValue}/>;
+  }
+  render(wrap(<Picker/>));
+  expect(await screen.findByText(/目录刷新失败，正在使用上次成功目录：目录同步超时/)).toBeInTheDocument();
+  expect(screen.getByText(/上次成功更新：2026\.09\.08/)).toBeInTheDocument();
+  await screen.findByRole('option', { name: '000001.SZ · 平安银行' });
+  await userEvent.selectOptions(screen.getByLabelText('证券'), '5');
+  expect(screen.getByLabelText('证券')).toHaveValue('5');
+  expect(screen.getByRole('button', { name: '重试目录更新' })).toBeInTheDocument();
+  expect(request.mock.calls.some(([path]) => path.includes('/api/securities/search'))).toBe(true);
+});
+
 const account = { id: 3, name: '证券账户', brokerName: '券商', fundingAccountId: 7, currency: 'CNY', status: 'ACTIVE' as const, createdBy: 1, archivedAt: null };
 const cash = { id: 7, name: '资金卡', type: 'BANK' as const, currency: 'CNY', openingBalance: '0.00', balance: '0.00', availableBalance: '0.00', openingConfirmed: true, openingOn: '2026-01-01', archivedAt: null };
 const readyAccounts = (data = [account]) => ({ data, isLoading: false, error: null, refetch: vi.fn() });
