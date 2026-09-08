@@ -48,6 +48,7 @@ public class InvestmentTradeService {
     private final com.familyfinance.accounting.AccountingRequests requests;
     private final InvestmentAccountingService accounting;
     private final jakarta.persistence.EntityManager entities;
+    private final InvestmentSetupService setup;
 
     public InvestmentTradeService(
             InvestmentTradeRepository trades,
@@ -56,7 +57,8 @@ public class InvestmentTradeService {
             CurrentMembership currentMembership,
             FamilyMutationAuthorization mutationAuthorization,
             Clock clock,com.familyfinance.accounting.AccountingRequests requests,
-            InvestmentAccountingService accounting,jakarta.persistence.EntityManager entities) {
+            InvestmentAccountingService accounting,jakarta.persistence.EntityManager entities,
+            InvestmentSetupService setup) {
         this.trades = trades;
         this.accountService = accountService;
         this.securityService = securityService;
@@ -64,7 +66,7 @@ public class InvestmentTradeService {
         this.mutationAuthorization = mutationAuthorization;
         this.calculator = new PositionCalculator();
         this.clock = clock;
-        this.requests=requests;this.accounting=accounting;this.entities=entities;
+        this.requests=requests;this.accounting=accounting;this.entities=entities;this.setup=setup;
     }
 
     public InvestmentTradePage list(
@@ -133,6 +135,7 @@ public class InvestmentTradeService {
             InvestmentPosition position = calculate(history);
             accounting.post(trade,before,position,access.context().userId(),key,false);
             requests.record(householdId,key,digest,trade.getId());
+            setup.recordCompleted(householdId, access.context().userId());
             return mutationResponse(trade, position);
         } catch (DataIntegrityViolationException exception) {
             throw persistenceConflict();

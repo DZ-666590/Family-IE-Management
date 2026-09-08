@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.familyfinance.FamilyFinanceApplication;
 import com.familyfinance.market.DailyQuote;
 import com.familyfinance.market.MarketQuoteProvider;
+import com.familyfinance.investment.Security;
+import com.familyfinance.investment.SecurityRepository;
 import java.math.BigDecimal;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
@@ -87,10 +89,12 @@ class StageTwoAssetInvestmentSmokeTest {
                     {"name":"验收证券账户","brokerName":"本地券商","currency":"CNY","fundingAccountId":%d}
                     """.formatted(cashId)), 201));
             long accountId = account.path("id").asLong();
-            JsonNode security = owner.data(owner.expectStatus(owner.write("POST", "/api/securities/resolve", """
-                    {"tsCode":"600000.SH","name":"浦发银行"}
-                    """), 200));
+            long fixtureSecurityId = first.context().getBean(SecurityRepository.class)
+                    .saveAndFlush(new Security("SH", "600000.SH", "浦发银行")).getId();
+            JsonNode securities = owner.data(owner.get("/api/securities/search?q=600000&page=0&size=20"));
+            JsonNode security = securities.path("items").get(0);
             long securityId = security.path("id").asLong();
+            assertThat(securityId).isEqualTo(fixtureSecurityId);
             JsonNode created = owner.data(owner.expectStatus(owner.write("POST", "/api/investment-trades", """
                     {"accountId":%d,"securityId":%d,"type":"BUY","quantity":"100.0000",
                      "price":"10.00","fee":"1.00","tradedOn":"%s"}

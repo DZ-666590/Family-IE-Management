@@ -11,6 +11,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.familyfinance.family.HouseholdRole;
+import com.familyfinance.market.MarketDirectoryItem;
+import com.familyfinance.market.MarketDirectoryResponse;
+import com.familyfinance.market.SecurityCatalogImporter;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -42,6 +46,66 @@ class InvestmentTradeApiTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired SecurityCatalogImporter catalogImporter;
+
+    @Test
+    void successfulFirstTradePersistsSetupAtomicallyAfterFinalTradeDeletion() throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        long accountId = createAccount(owner, "自动完成初始化账户");
+        long securityId = resolveSecurity(owner, "600000.SH", "浦发银行");
+
+        mvc.perform(post("/api/investment-trades").session(owner).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(tradeBody(accountId, securityId, "SELL", "1.0000", "10.00", "0.00", "2026-01-01")))
+                .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject(
+                "select count(*) from investment_setup where household_id=1", Long.class)).isZero();
+
+        long opening = createTrade(owner,
+                tradeBody(accountId, securityId, "OPENING", "1.0000", "10.00", "0.00", "2026-01-01"));
+        assertThat(jdbc.queryForObject(
+                "select count(*) from investment_setup where household_id=1", Long.class)).isEqualTo(1L);
+        jdbc.update("delete from investment_setup where household_id=1");
+        mvc.perform(post("/api/investment-setup/complete").session(owner).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.completed").value(true))
+                .andExpect(jsonPath("$.data.hasTrades").value(true));
+        mvc.perform(post("/api/investment-setup/complete").session(owner).with(csrf()))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject(
+                "select count(*) from investment_setup where household_id=1", Long.class)).isEqualTo(1L);
+        mvc.perform(delete("/api/investment-trades/{id}", opening).session(owner).with(csrf()))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/investment-setup").session(owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.completed").value(true))
+                .andExpect(jsonPath("$.data.hasTrades").value(false));
+    }
+
+    @Test
+    void catalogRetirementKeepsHeldSecuritySellableButRejectsNewBuy() throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        long accountId = createAccount(owner, "退目录清仓账户");
+        long securityId = resolveSecurity(owner, "600000.SH", "浦发银行");
+        createTrade(owner,
+                tradeBody(accountId, securityId, "OPENING", "2.0000", "10.00", "0.00", "2026-01-01"));
+
+        catalogImporter.publish(new MarketDirectoryResponse(
+                completeDirectoryWithout600000(), Instant.parse("2026-09-08T08:00:00Z"), false));
+        assertThat(jdbc.queryForObject(
+                "select concat(active,'|',catalog_verified) from securities where id=?", String.class, securityId))
+                .isEqualTo("TRUE|FALSE");
+
+        mvc.perform(post("/api/investment-trades").session(owner).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(tradeBody(accountId, securityId, "SELL", "2.0000", "11.00", "0.00", "2026-01-02")))
+                .andExpect(status().isCreated());
+        mvc.perform(post("/api/investment-trades").session(owner).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(tradeBody(accountId, securityId, "BUY", "1.0000", "11.00", "0.00", "2026-01-03")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("SECURITY_NOT_LISTED"));
+    }
 
     @Test
     void unknownSecurityCannotBeRegisteredThroughResolveOrTradeCode() throws Exception {
@@ -502,6 +566,20 @@ class InvestmentTradeApiTest {
                 merge into securities (market,ts_code,name,security_type,active,catalog_verified)
                 key(market,ts_code) values (?, ?, ?, 'STOCK', true, true)
                 """, market, code, rawName.trim());
+    }
+
+    private static List<MarketDirectoryItem> completeDirectoryWithout600000() {
+        List<MarketDirectoryItem> result = new ArrayList<>();
+        for (int code = 600001; code <= 602500; code++) {
+            result.add(new MarketDirectoryItem(code + ".SH", "目录证券" + code, "SH"));
+        }
+        for (int code = 1; code <= 2400; code++) {
+            result.add(new MarketDirectoryItem("%06d.SZ".formatted(code), "目录证券" + code, "SZ"));
+        }
+        for (int code = 900000; code < 900100; code++) {
+            result.add(new MarketDirectoryItem(code + ".BJ", "目录证券" + code, "BJ"));
+        }
+        return result;
     }
 
     private long createTrade(MockHttpSession session, String requestBody) throws Exception {

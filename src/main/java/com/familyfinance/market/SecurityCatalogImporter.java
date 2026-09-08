@@ -51,7 +51,7 @@ public class SecurityCatalogImporter {
                 .filter(security -> !seen.contains(security.getTsCode()))
                 .forEach(Security::retireFromCatalog);
         securities.flush();
-        states.ready(verified.size());
+        states.ready(verified.size(), response.fetchedAt());
     }
 
     private static void invalid() {

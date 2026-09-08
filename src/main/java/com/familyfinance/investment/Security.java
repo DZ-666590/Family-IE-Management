@@ -60,7 +60,6 @@ public class Security {
     }
 
     public void retireFromCatalog() {
-        this.active = false;
         this.catalogVerified = false;
     }
 }

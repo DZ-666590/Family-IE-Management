@@ -41,10 +41,13 @@ class SecurityCatalogImporterTest {
                 String.class)).isEqualTo("浦发银行|TRUE|TRUE");
         assertThat(jdbc.queryForObject(
                 "select concat(active,'|',catalog_verified) from securities where ts_code='920002.BJ'",
-                String.class)).isEqualTo("FALSE|FALSE");
+                String.class)).isEqualTo("TRUE|FALSE");
         assertThat(jdbc.queryForObject(
                 "select concat(state,'|',item_count) from security_catalog_state where id=1", String.class))
                 .isEqualTo("READY|5000");
+        assertThat(jdbc.queryForObject(
+                "select updated_at from security_catalog_state where id=1", java.sql.Timestamp.class).toInstant())
+                .isEqualTo(Instant.parse("2026-09-08T08:00:00Z"));
     }
 
     @Test

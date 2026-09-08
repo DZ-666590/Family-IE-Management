@@ -1,7 +1,6 @@
 package com.familyfinance.market;
 
 import java.sql.Timestamp;
-import java.time.Clock;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -9,17 +8,15 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class SecurityCatalogStateStore {
     private final JdbcTemplate jdbc;
-    private final Clock clock;
 
-    public SecurityCatalogStateStore(JdbcTemplate jdbc, Clock clock) {
+    public SecurityCatalogStateStore(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
-        this.clock = clock;
     }
 
     @Transactional
-    public void ready(int count) {
+    public void ready(int count, java.time.Instant upstreamFetchedAt) {
         jdbc.update("update security_catalog_state set state='READY',item_count=?,updated_at=?,error=null where id=1",
-                count, Timestamp.from(clock.instant()));
+                count, Timestamp.from(upstreamFetchedAt));
     }
 
     @Transactional

@@ -36,19 +36,23 @@ public class InvestmentSetupService {
     public InvestmentSetupStatus complete(Authentication authentication) {
         var access = authorization.requireAdmin(authentication);
         long householdId = access.context().householdId();
-        InvestmentSetupStatus existing = read(householdId);
-        if (existing.completed()) return existing;
+        if (hasPersistedCompletion(householdId)) return read(householdId);
         if (!hasFundedAccount(householdId)) {
             throw new ResourceConflictException(
                     "INVESTMENT_SETUP_ACCOUNT_REQUIRED", "请先创建或选择已关联有效资金账户的投资账户");
         }
+        recordCompleted(householdId, access.context().userId());
+        return read(householdId);
+    }
+
+    @Transactional
+    public void recordCompleted(long householdId, long actorId) {
         jdbc.update("""
                 insert into investment_setup (household_id,completed_at,completed_by)
                 select ?,?,? where not exists (
                     select 1 from investment_setup where household_id=?
                 )
-                """, householdId, Timestamp.from(clock.instant()), access.context().userId(), householdId);
-        return read(householdId);
+                """, householdId, Timestamp.from(clock.instant()), actorId, householdId);
     }
 
     private InvestmentSetupStatus read(long householdId) {
@@ -58,9 +62,12 @@ public class InvestmentSetupService {
                 """, householdId) > 0;
         boolean hasTrades = count(
                 "select count(*) from investment_trades where household_id=?", householdId) > 0;
-        boolean completed = hasTrades || count(
-                "select count(*) from investment_setup where household_id=?", householdId) > 0;
+        boolean completed = hasPersistedCompletion(householdId);
         return new InvestmentSetupStatus(completed, hasAccounts, hasTrades);
+    }
+
+    private boolean hasPersistedCompletion(long householdId) {
+        return count("select count(*) from investment_setup where household_id=?", householdId) > 0;
     }
 
     private boolean hasFundedAccount(long householdId) {

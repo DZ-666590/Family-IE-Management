@@ -26,6 +26,10 @@ public class SecurityCatalogService {
         if (!client.enabled()) return;
         try {
             MarketDirectoryResponse response = client.directory();
+            if (response.stale()) {
+                states.failed("MARKET_DIRECTORY_STALE");
+                return;
+            }
             importer.publish(response);
         } catch (MarketProviderException exception) {
             states.failed(exception.code());
