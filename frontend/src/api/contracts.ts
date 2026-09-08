@@ -59,7 +59,8 @@ export interface Page<T> {
 export type TransactionKind = 'income' | 'expense';
 export type AccountType = 'CASH' | 'BANK' | 'WALLET';
 
-export interface Account { id: number; name: string; type: AccountType; currency: string; openingBalance: string; archivedAt: string | null; openingConfirmed: boolean; openingOn: string | null; balance: string | null; availableBalance: string | null }
+export type WalletProvider = 'ALIPAY' | 'WECHAT' | 'OTHER';
+export interface Account { walletProvider?: WalletProvider | null; bankName?: string | null; cardLastFour?: string | null; id: number; name: string; type: AccountType; currency: string; openingBalance: string; archivedAt: string | null; openingConfirmed: boolean; openingOn: string | null; balance: string | null; availableBalance: string | null }
 export interface Category { id: number; kind: TransactionKind; name: string; color: string; defaultCategory: boolean; createdAt: string; parentId: number | null; level: number; children: Category[] }
 export interface Member { id: number; name: string; roleLabel: string; createdAt: string }
 export interface Transaction { id: number; kind: TransactionKind; amount: string; occurredOn: string; accountId: number; accountName: string; memberId: number; memberName: string; createdByUserId: number; createdByName: string | null; sourceId?: number | null; principalAmount?: string | null; interestAmount?: string | null; sourceType: 'MANUAL' | 'RECURRING' | 'LOAN' | 'LOAN_PAYMENT' | 'LOAN_PREPAYMENT'; categoryId: number; categoryName: string; categoryParentId: number | null; categoryLevel: number; merchant: string | null; location: string | null; note: string | null; createdAt: string; updatedAt: string }

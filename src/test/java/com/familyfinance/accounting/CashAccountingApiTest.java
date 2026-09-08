@@ -44,6 +44,25 @@ class CashAccountingApiTest {
         defaultAccount=jdbc.queryForObject("select id from financial_accounts where household_id=?",Long.class,household);
     }
 
+    @Test void specializingAccountsCannotInitializeOrBypassInsufficientFunds() throws Exception {
+        mvc.perform(patch("/api/accounts/"+defaultAccount).session(session).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON).content("""
+            {"type":"WALLET","walletProvider":"ALIPAY"}
+            """)).andExpect(status().isOk()).andExpect(jsonPath("$.data.openingConfirmed").value(false));
+        writeTransaction(defaultAccount,"INCOME","10.00","still-unconfirmed").andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("ACCOUNTING_NOT_INITIALIZED"));
+        long id=create("specialized","10.00");
+        writeTransaction(id,"EXPENSE","4.00","before-specialization").andExpect(status().isCreated());
+        mvc.perform(patch("/api/accounts/"+id).session(session).with(csrf())
+            .contentType(MediaType.APPLICATION_JSON).content("""
+            {"type":"WALLET","walletProvider":"WECHAT"}
+            """)).andExpect(status().isOk()).andExpect(jsonPath("$.data.balance").value("6.00"));
+        writeTransaction(id,"EXPENSE","6.01","after-specialization").andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("INSUFFICIENT_FUNDS"));
+        mvc.perform(get("/api/accounts/"+id).session(session))
+            .andExpect(jsonPath("$.data.balance").value("6.00"));
+    }
+
     @Test void automaticDefaultRequiresExplicitOpeningEvenForIncome() throws Exception {
         mvc.perform(get("/api/accounts/"+defaultAccount).session(session)).andExpect(status().isOk())
             .andExpect(jsonPath("$.data.openingConfirmed").value(false)).andExpect(jsonPath("$.data.balance").doesNotExist());
