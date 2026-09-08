@@ -149,6 +149,36 @@ it('refreshes and opens the current plan after one combined write', async () => 
  expect(current).toHaveTextContent('当前剩余本金 ¥6,000.00'); expect(scheduleReads).toContain(false); expect(scheduleReads).toContain(true); expect(writes).toBe(1);
 });
 
+it('opens paid history when CLOSED detail has already refreshed before the combined onPaid callback', async () => {
+ let paid = false; let completePost: (value: unknown) => void = () => {}; const scheduleReads: string[] = [];
+ const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+ const closed = { ...loan, status: 'CLOSED', currentPrincipal: '0.00' };
+ const page = (items: unknown[]) => ({ items, page: 0, size: 50, totalPages: items.length ? 1 : 0, totalElements: items.length, hasNext: false });
+ const request: RequestFn = async <T,>(path: string, options?: Parameters<RequestFn>[1]) => {
+  if (options?.method === 'POST') {
+   paid = true;
+   // AuthProvider's awaited write refresh can publish CLOSED before the mutation succeeds.
+   cache.setQueryData(['loans', 'detail', 4], closed);
+   return new Promise(resolve => { completePost = resolve as (value: unknown) => void; });
+  }
+  if (path.includes('/schedule?')) {
+   scheduleReads.push(path); const history = new URLSearchParams(path.split('?')[1]).get('view') === 'HISTORY';
+   return page(paid && history ? [{ id: 10, installmentNo: 1, dueOn: '2026-01-31', principal: '1000.00', interest: '100.00', cashAmount: '1100.00', status: 'PAID', paidOn: '2026-01-31', confirmedTransactionId: 20 }] : []) as T;
+  }
+  return (metadata(path) ?? (path.includes('/repayment-preview?') ? { ...quote(path), availableBalance: '20000.00', balanceAfter: '9900.00' } : path === '/api/loans/4' ? paid ? closed : loan : path.startsWith('/api/loans?') ? page([paid ? closed : loan]) : path.startsWith('/api/accounts?') ? page(accounts) : path === '/api/members' || path.endsWith('/prepayments') || path.endsWith('/repayments') ? [] : page([]))) as T;
+ };
+ const user = userEvent.setup(); render(<QueryClientProvider client={cache}><LoansPage request={request} role="OWNER" /></QueryClientProvider>);
+ await user.click(await screen.findByRole('button', { name: '提前还款' })); enter('9000.00');
+ await user.click(await screen.findByRole('button', { name: '确认还款 ¥10,100.00' }));
+ await waitFor(() => expect(scheduleReads.some(path => path.includes('view=HISTORY'))).toBe(true));
+ expect(screen.getByRole('dialog', { name: '家庭贷款 · 提前还款' })).toHaveTextContent('当前剩余本金 ¥0.00');
+ await act(async () => { completePost({ batchId: 8, status: 'CLOSED', remainingPrincipal: '0.00' }); });
+ const history = await screen.findByRole('dialog', { name: '家庭贷款 · 还款计划' });
+ expect(within(history).getByLabelText('计划范围')).toHaveValue('HISTORY');
+ expect(await within(history).findByText('已记录还款')).toBeInTheDocument();
+ expect(scheduleReads.at(-1)).toContain('view=HISTORY'); expect(scheduleReads.at(-1)).toContain('page=0');
+});
+
 it.each([[401, false], [403, false], [401, true]] as const)('keeps real client recovery through status %s and honors explicit session reset=%s', async (failureStatus, resetSession) => {
  let expired = false; let recovered = false; let endSession = () => {}; let csrfReads = 0; const bodies: string[] = []; const headers: string[] = [];
  let completeSlow: (response: Response) => void = () => {};
