@@ -41,8 +41,10 @@ class DeployTest(unittest.TestCase):
     def run_deploy(self, checksum=None, commit=SHA, run_id=100):
         from test_release_bundle import bundle
         compressed, digest = bundle(commit=commit)
+        with zipfile.ZipFile(io.BytesIO(gzip.decompress(compressed))) as release:
+            uploaded_jar = release.read("app.jar")
         self.runner.deploy(SHA, checksum or digest, run_id, io.BytesIO(compressed))
-        return artifact(commit)[0]
+        return uploaded_jar
 
     def test_success_installs_exact_bytes_and_keeps_backup(self):
         with patch.object(self.runner, "restart"), patch.object(self.runner, "wait_ready"):
@@ -50,6 +52,17 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(self.jar.read_bytes(), raw)
         self.assertEqual(next((self.root / "state/backups").glob("*.jar")).read_bytes(), b"old jar")
         self.assertEqual(json.loads((self.root / "state/current.json").read_text())["commit"], SHA)
+
+    def test_exact_bytes_check_survives_zip_timestamp_change(self):
+        # A deploy can cross ZIP's two-second timestamp boundary. Compare the
+        # installed JAR with the uploaded JAR, not a newly generated fixture.
+        with patch("zipfile.time.localtime", return_value=(2026, 9, 8, 12, 0, 0, 1, 251, 0)) as clock:
+            def advance_clock():
+                clock.return_value = (2026, 9, 8, 12, 0, 2, 1, 251, 0)
+
+            with patch.object(self.runner, "restart", side_effect=advance_clock), patch.object(self.runner, "wait_ready"):
+                raw = self.run_deploy()
+        self.assertEqual(self.jar.read_bytes(), raw)
 
     def test_bad_checksum_leaves_current_jar_untouched(self):
         with self.assertRaisesRegex(ValueError, "checksum"):
