@@ -226,8 +226,10 @@ class OverseasMarketService:
                 self._directory_cache[market] = (finished_at, items)
                 self._directory_errors[market] = None
         except Exception:
+            failed_at = self._now()
             with self._lock:
                 self._directory_errors[market] = "directory temporarily unavailable"
+                self._directory_attempt[market] = failed_at
         finally:
             with self._lock:
                 self._directory_refreshing[market] = False
@@ -315,31 +317,35 @@ class OverseasMarketService:
 
         if future is None:
             if not self._candle_slots.acquire(timeout=self._candle_admission_timeout):
-                raise UpstreamUnavailable("overseas candle adapter busy")
-            with self._lock:
-                future = self._candle_futures.get(key)
+                with self._lock:
+                    future = self._candle_futures.get(key)
                 if future is None:
-                    future = self._candle_executor.submit(self._load_candles, instrument)
-                    self._candle_futures[key] = future
+                    raise UpstreamUnavailable("overseas candle adapter busy")
+            else:
+                with self._lock:
+                    future = self._candle_futures.get(key)
+                    if future is None:
+                        future = self._candle_executor.submit(self._load_candles, instrument)
+                        self._candle_futures[key] = future
 
-                    def complete(done, cache_key=key):
-                        try:
-                            result = done.result()
-                        except Exception:
-                            result = None
-                        with self._lock:
-                            if result is not None:
-                                completed_at = self._now()
-                                self._candle_cache[cache_key] = (completed_at, result)
-                                self._candle_cache.move_to_end(cache_key)
-                                while len(self._candle_cache) > self._max_candles:
-                                    self._candle_cache.popitem(last=False)
-                            self._candle_futures.pop(cache_key, None)
+                        def complete(done, cache_key=key):
+                            try:
+                                result = done.result()
+                            except Exception:
+                                result = None
+                            with self._lock:
+                                if result is not None:
+                                    completed_at = self._now()
+                                    self._candle_cache[cache_key] = (completed_at, result)
+                                    self._candle_cache.move_to_end(cache_key)
+                                    while len(self._candle_cache) > self._max_candles:
+                                        self._candle_cache.popitem(last=False)
+                                self._candle_futures.pop(cache_key, None)
+                            self._candle_slots.release()
+
+                        future.add_done_callback(complete)
+                    else:
                         self._candle_slots.release()
-
-                    future.add_done_callback(complete)
-                else:
-                    self._candle_slots.release()
         try:
             result = future.result(timeout=self._candle_wait_timeout)
             return dict(result)

@@ -1,7 +1,7 @@
 import threading
 import time
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import overseas_sources
 from overseas import (
@@ -51,6 +51,24 @@ def wait_for_state(service, market, wanted="READY"):
 
 
 class DirectorySourceTest(unittest.TestCase):
+    def test_workbook_uses_third_physical_row_after_two_preamble_rows_as_headers(self):
+        parse_values = getattr(overseas_sources, "workbook_values_to_rows", lambda values, required: [])
+        values = [
+            ("List of Securities", None, None, None),
+            ("Last Updated: 8 September 2026", None, None, None),
+            ("Stock Code", "Name of Securities", "Category", "Trading Currency"),
+            (700, "TENCENT HOLDINGS", "Equity", "HKD"),
+        ]
+        self.assertEqual(
+            [{
+                "Stock Code": 700,
+                "Name of Securities": "TENCENT HOLDINGS",
+                "Category": "Equity",
+                "Trading Currency": "HKD",
+            }],
+            parse_values(values, ("Stock Code", "Name of Securities", "Category", "Trading Currency")),
+        )
+
     def test_hk_english_rows_define_identity_and_currency_with_optional_chinese_name(self):
         result = build_hk_directory(
             [
@@ -92,6 +110,48 @@ class DirectorySourceTest(unittest.TestCase):
         item = parse_nasdaq_file(other, listed=False)[0]
         self.assertEqual("IBM", item["symbol"])
         self.assertEqual("NYSE", item["exchange"])
+
+    def test_otherlisted_excludes_declared_preferred_before_validating_decorated_symbol(self):
+        other = (
+            "ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol\n"
+            "ABR$D|Arbor Realty Trust 6.375% Series D Cumulative Redeemable Preferred Stock|N|ABR$D|N|100|N|ABR-D\n"
+            "BAC$E|Bank of America Corporation Depositary Sh repstg 1/1000th Perp Pfd Ser E|N|BAC$E|N|100|N|BAC-E\n"
+            "DBRG$H|DigitalBridge Group, Inc. 7.125% Series H|N|DBRG$H|N|100|N|DBRG-H\n"
+            "SCE$L|SCE TRUST VI|N|SCE$L|N|100|N|SCE-L\n"
+            "IBM|International Business Machines Common Stock|N|IBM|N|100|N|IBM\n"
+            "File Creation Time: 0908202607:00\n"
+        ).encode("ascii")
+        try:
+            symbols = [item["symbol"] for item in parse_nasdaq_file(other, listed=False)]
+        except ValueError as exception:
+            symbols = [str(exception)]
+        self.assertEqual(["IBM"], symbols)
+
+    def test_otherlisted_still_rejects_malformed_retained_common_equity_symbol(self):
+        other = (
+            "ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol\n"
+            "BAD$|Example Common Stock|N|BAD$|N|100|N|BAD$\n"
+            "File Creation Time: 0908202607:00\n"
+        ).encode("ascii")
+        with self.assertRaisesRegex(ValueError, "invalid US symbol"):
+            parse_nasdaq_file(other, listed=False)
+
+    def test_us_raw_loader_uses_current_unadjusted_staticdata_endpoint(self):
+        load_us = getattr(overseas_sources, "load_us_sina_rows", lambda symbol, download, decode: [])
+        requested = []
+
+        def download(url):
+            requested.append(url)
+            return b'var data="encoded";'
+
+        decoded = [{
+            "date": "2026-09-04", "open": 328.305, "high": 330,
+            "low": 318, "close": 319.97, "volume": 100, "amount": 999,
+        }]
+        rows = load_us("AAPL", download=download, decode=lambda encoded: decoded)
+        self.assertEqual(["https://finance.sina.com.cn/staticdata/us/AAPL"], requested)
+        self.assertEqual(328.305, rows[0]["open"] if rows else None)
+        self.assertIsNone(rows[0]["turnover"] if rows else "missing")
 
     def test_us_decoder_amount_is_not_exposed_as_verified_turnover(self):
         normalize = getattr(overseas_sources, "normalize_sina_records", lambda records, market: [])
@@ -165,6 +225,28 @@ class OverseasDirectoryTest(unittest.TestCase):
         self.assertEqual("READY", stale["state"])
         self.assertTrue(stale["stale"])
         self.assertEqual([US], stale["items"])
+
+    def test_failure_retry_delay_starts_when_slow_refresh_finishes(self):
+        clock = MutableClock(datetime(2026, 3, 1, tzinfo=timezone.utc))
+        failed = threading.Event()
+        calls = 0
+
+        def loader(market):
+            nonlocal calls
+            calls += 1
+            clock.value += timedelta(seconds=61)
+            failed.set()
+            raise RuntimeError("network down")
+
+        service = self.service(loader=loader, clock=clock)
+        self.assertEqual("SYNCING", service.search("US", "")["state"])
+        self.assertTrue(failed.wait(1))
+        deadline = time.monotonic() + 1
+        while service._directory_refreshing["US"] and time.monotonic() < deadline:
+            time.sleep(0.005)
+        second = service.search("US", "")
+        self.assertEqual("ERROR", second["state"])
+        self.assertEqual(1, calls)
 
 
 class OverseasCandleTest(unittest.TestCase):
@@ -264,6 +346,61 @@ class OverseasCandleTest(unittest.TestCase):
             service.candles("US", "MSFT")
         release.set()
         first.join(1)
+
+    def test_concurrent_same_symbol_callers_share_work_even_when_admission_is_full(self):
+        entered = threading.Event()
+        release = threading.Event()
+        calls = 0
+
+        def loader(market, symbol):
+            nonlocal calls
+            calls += 1
+            entered.set()
+            release.wait(1)
+            return []
+
+        service = OverseasMarketService(
+            directory_loader=lambda market: [US],
+            candle_loader=loader,
+            min_directory_items={"HK": 1, "US": 1},
+            max_candle_workers=1,
+            candle_admission_timeout_seconds=0.02,
+        )
+        wait_for_state(service, "US")
+
+        class RacingSemaphore:
+            def __init__(self):
+                self._barrier = threading.Barrier(2)
+                self._actual = threading.BoundedSemaphore(1)
+
+            def acquire(self, timeout=None):
+                self._barrier.wait(1)
+                return self._actual.acquire(timeout=timeout)
+
+            def release(self):
+                self._actual.release()
+
+        service._candle_slots = RacingSemaphore()
+        results = []
+        errors = []
+
+        def request():
+            try:
+                results.append(service.candles("US", "AAPL"))
+            except Exception as exception:
+                errors.append(exception)
+
+        callers = [threading.Thread(target=request) for _ in range(2)]
+        for caller in callers:
+            caller.start()
+        self.assertTrue(entered.wait(1))
+        time.sleep(0.05)
+        release.set()
+        for caller in callers:
+            caller.join(1)
+        self.assertEqual([], errors)
+        self.assertEqual(2, len(results))
+        self.assertEqual(1, calls)
 
 
 class OverseasRouteTest(unittest.TestCase):

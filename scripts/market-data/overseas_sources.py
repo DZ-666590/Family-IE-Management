@@ -24,8 +24,9 @@ MAX_DIRECTORY_ITEMS = 30_000
 
 HK_CODE = re.compile(r"^[0-9]{1,5}$")
 US_CODE = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")
+US_PREFERRED_CODE = re.compile(r"^[A-Z][A-Z0-9.-]{0,8}\$[A-Z]$")
 US_NON_EQUITY_NAME = re.compile(
-    r"\b(?:warrants?|units?|rights?|preferred|preference|notes?|bonds?|debentures?|debt)\b",
+    r"\b(?:warrants?|units?|rights?|preferred|preference|pfd|notes?|bonds?|debentures?|debt)\b",
     re.IGNORECASE,
 )
 OTHER_EXCHANGES = {
@@ -63,21 +64,26 @@ def _workbook_rows(payload, required_headers):
     workbook = load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
     try:
         sheet = workbook.active
-        iterator = sheet.iter_rows(values_only=True)
-        next(iterator, None)
-        raw_headers = next(iterator, None)
-        if raw_headers is None:
-            raise ValueError("workbook is missing header row 2")
-        headers = ["" if value is None else str(value).strip() for value in raw_headers]
-        if not set(required_headers).issubset(headers):
-            raise ValueError("workbook has unexpected headers")
-        return [
-            {header: value for header, value in zip(headers, values) if header}
-            for values in iterator
-            if any(value is not None for value in values)
-        ]
+        return workbook_values_to_rows(sheet.iter_rows(values_only=True), required_headers)
     finally:
         workbook.close()
+
+
+def workbook_values_to_rows(values, required_headers):
+    iterator = iter(values)
+    next(iterator, None)  # title
+    next(iterator, None)  # update timestamp
+    raw_headers = next(iterator, None)
+    if raw_headers is None:
+        raise ValueError("workbook is missing header row 3")
+    headers = ["" if value is None else str(value).strip() for value in raw_headers]
+    if not set(required_headers).issubset(headers):
+        raise ValueError("workbook has unexpected headers")
+    return [
+        {header: value for header, value in zip(headers, row_values) if header}
+        for row_values in iterator
+        if any(value is not None for value in row_values)
+    ]
 
 
 def _hk_symbol(raw):
@@ -180,10 +186,10 @@ def parse_nasdaq_file(payload, listed):
             continue
         symbol = row["Symbol" if listed else "ACT Symbol"].strip().upper()
         name = row["Security Name"].strip()
+        if not _is_named_equity(name) or US_PREFERRED_CODE.fullmatch(symbol):
+            continue
         if not US_CODE.fullmatch(symbol):
             raise ValueError("invalid US symbol")
-        if not _is_named_equity(name):
-            continue
         if listed:
             if row["Market Category"] not in {"Q", "G", "S"}:
                 raise ValueError("invalid Nasdaq market category")
@@ -265,30 +271,39 @@ def normalize_sina_records(records, market):
     return rows
 
 
+def load_us_sina_rows(symbol, download=_download_bytes, decode=None):
+    symbol = str(symbol).strip().upper()
+    if not US_CODE.fullmatch(symbol):
+        raise ValueError("invalid US symbol")
+    payload = download(f"https://finance.sina.com.cn/staticdata/us/{symbol}")
+    text = payload.decode("utf-8")
+    if "=" not in text or ";" not in text:
+        raise ValueError("SINA history has unexpected framing")
+    encoded = text.split("=", 1)[1].split(";", 1)[0].strip().strip('"')
+    if not encoded or len(encoded) > MAX_WORKER_OUTPUT_BYTES:
+        raise ValueError("SINA history payload is invalid")
+    if decode is None:
+        MiniRacer = _set_safe_v8_flags()
+        from akshare.stock.cons import zh_js_decode
+
+        context = MiniRacer()
+        context.eval(zh_js_decode)  # Installed AKShare decoder constant, never remote source.
+
+        def decode(value):
+            return context.call("d", value)
+    return normalize_sina_records(decode(encoded), "US")
+
+
 def load_sina_rows(market, symbol):
-    MiniRacer = _set_safe_v8_flags()
     if market == "HK":
+        _set_safe_v8_flags()
         import akshare as ak
 
         # Raw adjustment is the only stock_hk_daily branch that does not fetch/eval factors.
         frame = ak.stock_hk_daily(symbol=symbol, adjust="")
         return normalize_sina_records(frame.to_dict("records"), market)
     if market == "US":
-        import pandas as pd
-
-        from akshare.stock.cons import us_sina_stock_hist_url, zh_js_decode
-
-        payload = _download_bytes(us_sina_stock_hist_url.format(symbol), max_bytes=MAX_WORKER_OUTPUT_BYTES)
-        text = payload.decode("utf-8")
-        if "=" not in text or ";" not in text:
-            raise ValueError("SINA history has unexpected framing")
-        encoded = text.split("=", 1)[1].split(";", 1)[0].strip().strip('"')
-        if not encoded or len(encoded) > MAX_WORKER_OUTPUT_BYTES:
-            raise ValueError("SINA history payload is invalid")
-        context = MiniRacer()
-        context.eval(zh_js_decode)  # Installed AKShare decoder constant, never remote source.
-        decoded = context.call("d", encoded)
-        return normalize_sina_records(pd.DataFrame(decoded).to_dict("records"), market)
+        return load_us_sina_rows(symbol)
     raise ValueError("market must be HK or US")
 
 
