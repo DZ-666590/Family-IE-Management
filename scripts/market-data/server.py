@@ -14,6 +14,12 @@ from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from overseas import (
+    InstrumentNotFound,
+    OverseasMarketService,
+    UpstreamUnavailable as OverseasUpstreamUnavailable,
+)
+
 
 SYMBOL = re.compile(r"^[0-9]{6}\.(SH|SZ|BJ)$")
 ADJUSTMENTS = {"none", "qfq"}
@@ -299,6 +305,7 @@ class MarketDataService:
 
 class Handler(BaseHTTPRequestHandler):
     service = None
+    overseas_service = None
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -312,10 +319,24 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("invalid query")
                 self._json(200, self.service.candles(query["symbol"][0], query["adjust"][0]))
                 return
+            if parsed.path == "/overseas/search":
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                if set(query) - {"market", "q"} or len(query.get("market", [])) != 1 or len(query.get("q", [])) != 1:
+                    raise ValueError("invalid query")
+                self._json(200, self.overseas_service.search(query["market"][0], query["q"][0]))
+                return
+            if parsed.path == "/overseas/candles":
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                if set(query) - {"market", "symbol"} or len(query.get("market", [])) != 1 or len(query.get("symbol", [])) != 1:
+                    raise ValueError("invalid query")
+                self._json(200, self.overseas_service.candles(query["market"][0], query["symbol"][0]))
+                return
             self._json(404, {"error": "not found"})
         except ValueError as exception:
             self._json(400, {"error": str(exception)})
-        except UpstreamUnavailable:
+        except InstrumentNotFound as exception:
+            self._json(404, {"error": str(exception)})
+        except (UpstreamUnavailable, OverseasUpstreamUnavailable):
             self._json(503, {"error": "market data temporarily unavailable"})
 
     def log_message(self, format_string, *args):
@@ -372,6 +393,7 @@ def main():
         print(json.dumps(_candles_worker(symbol, adjustment), ensure_ascii=False, separators=(",", ":")))
         return
     Handler.service = MarketDataService()
+    Handler.overseas_service = OverseasMarketService()
     BoundedThreadingHTTPServer(("127.0.0.1", 8091), Handler).serve_forever()
 
 
