@@ -43,6 +43,16 @@ public class FinancialAccount {
     @Column(nullable = false, length = 16)
     private AccountType type;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "wallet_provider", length = 16)
+    private WalletProvider walletProvider;
+
+    @Column(name = "bank_name", length = 80)
+    private String bankName;
+
+    @Column(name = "card_last_four", length = 4)
+    private String cardLastFour;
+
     @Column(nullable = false, length = 3)
     private String currency;
 
@@ -89,6 +99,16 @@ public class FinancialAccount {
 
     public AccountType getType() {
         return type;
+    }
+
+    public WalletProvider getWalletProvider() { return walletProvider; }
+    public String getBankName() { return bankName; }
+    public String getCardLastFour() { return cardLastFour; }
+
+    void updateDetails(WalletProvider walletProvider, String bankName, String cardLastFour) {
+        this.walletProvider = walletProvider;
+        this.bankName = bankName;
+        this.cardLastFour = cardLastFour;
     }
 
     public String getCurrency() {

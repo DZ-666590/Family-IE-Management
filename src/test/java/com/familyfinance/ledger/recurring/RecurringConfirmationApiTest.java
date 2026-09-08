@@ -186,6 +186,41 @@ class RecurringConfirmationApiTest {
                 .andExpect(header().string("X-Total-Elements", "2"));
     }
 
+    @Test
+    void batchConfirmationAndSkipCurrentOccurrenceAreSupported() throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        MockHttpSession memberSession = join(owner, "recurring-batch-member@example.com");
+        AppUser memberUser = users.findByEmail("recurring-batch-member@example.com").orElseThrow();
+        Fixture fixture = fixture(memberUser);
+        long firstRule = createRule(owner, fixture, "21.00");
+        long secondRule = createRule(owner, fixture, "22.00");
+        recurringService.generateDueOccurrences();
+        long firstOccurrence = occurrences.findByRuleIdOrderByDueOnAscIdAsc(firstRule).get(0).getId();
+        long secondOccurrence = occurrences.findByRuleIdOrderByDueOnAscIdAsc(secondRule).get(0).getId();
+
+        mvc.perform(post("/api/recurring-occurrences/confirm").session(memberSession).with(csrf())
+                        .contentType("application/json")
+                        .content("{\"occurrenceIds\":[%d,%d,%d]}".formatted(firstOccurrence, secondOccurrence, firstOccurrence)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requested").value(3))
+                .andExpect(jsonPath("$.data.confirmed").value(2));
+        assertThat(transactions.countBySourceTypeAndSourceId(TransactionSourceType.RECURRING, firstOccurrence))
+                .isEqualTo(1);
+        assertThat(transactions.countBySourceTypeAndSourceId(TransactionSourceType.RECURRING, secondOccurrence))
+                .isEqualTo(1);
+
+        long skippedRule = createRule(owner, fixture, "23.00");
+        recurringService.generateDueOccurrences();
+        long skippedOccurrence = occurrences.findByRuleIdOrderByDueOnAscIdAsc(skippedRule).get(0).getId();
+        mvc.perform(post("/api/recurring-occurrences/{id}/cancel", skippedOccurrence)
+                        .session(memberSession).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+        confirm(memberSession, skippedOccurrence)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("OCCURRENCE_CANCELLED"));
+    }
+
     private org.springframework.test.web.servlet.ResultActions confirm(MockHttpSession session, long id)
             throws Exception {
         return mvc.perform(post("/api/recurring-occurrences/{id}/confirm", id).session(session).with(csrf()));

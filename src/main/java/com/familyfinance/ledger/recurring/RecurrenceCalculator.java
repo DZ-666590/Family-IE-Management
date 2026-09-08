@@ -9,11 +9,11 @@ final class RecurrenceCalculator {
 
     static LocalDate firstDue(
             RecurringScheduleType type, Integer dayOfMonth, DayOfWeek dayOfWeek, LocalDate start) {
-        if (type == RecurringScheduleType.MONTHLY) {
+        if (type != RecurringScheduleType.WEEKLY) {
             YearMonth month = YearMonth.from(start);
             LocalDate candidate = month.atDay(Math.min(dayOfMonth, month.lengthOfMonth()));
             if (candidate.isBefore(start)) {
-                month = month.plusMonths(1);
+                month = month.plusMonths(monthsPerInterval(type, 1));
                 candidate = month.atDay(Math.min(dayOfMonth, month.lengthOfMonth()));
             }
             return candidate;
@@ -23,11 +23,24 @@ final class RecurrenceCalculator {
     }
 
     static LocalDate nextDue(RecurringRule rule, LocalDate current) {
-        if (rule.getScheduleType() == RecurringScheduleType.WEEKLY) {
-            return current.plusWeeks(rule.getIntervalValue());
-        }
-        YearMonth target = YearMonth.from(current).plusMonths(rule.getIntervalValue());
-        return target.atDay(Math.min(rule.getDayOfMonth(), target.lengthOfMonth()));
+        return nextDue(rule.getScheduleType(), rule.getIntervalValue(), rule.getDayOfMonth(), current);
+    }
+
+    static LocalDate nextDue(
+            RecurringScheduleType type, int interval, Integer dayOfMonth, LocalDate current) {
+        if (type == RecurringScheduleType.WEEKLY) return current.plusWeeks(interval);
+        YearMonth target = type == RecurringScheduleType.YEARLY
+                ? YearMonth.from(current).plusYears(interval)
+                : YearMonth.from(current).plusMonths(monthsPerInterval(type, interval));
+        return target.atDay(Math.min(dayOfMonth, target.lengthOfMonth()));
+    }
+
+    private static int monthsPerInterval(RecurringScheduleType type, int interval) {
+        return switch (type) {
+            case QUARTERLY -> Math.multiplyExact(interval, 3);
+            case YEARLY -> Math.multiplyExact(interval, 12);
+            default -> interval;
+        };
     }
 
     static LocalDate withinEnd(LocalDate due, LocalDate end) {

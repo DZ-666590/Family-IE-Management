@@ -3,6 +3,8 @@
 
 import argparse
 import contextlib
+import hashlib
+from pathlib import Path
 import json
 import re
 import subprocess
@@ -13,6 +15,12 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+
+from overseas import (
+    InstrumentNotFound,
+    OverseasMarketService,
+    UpstreamUnavailable as OverseasUpstreamUnavailable,
+)
 
 
 SYMBOL = re.compile(r"^[0-9]{6}\.(SH|SZ|BJ)$")
@@ -297,12 +305,34 @@ class MarketDataService:
         return [by_code[key] for key in sorted(by_code)]
 
 
+def release_health(directory):
+    directory = Path(directory)
+    try:
+        marker = json.loads((directory / 'deployment.json').read_text())
+        required = {'server.py', 'overseas.py', 'overseas_sources.py', 'requirements.txt'}
+        if (marker.get('schema') != 1 or not re.fullmatch('[0-9a-f]{40}', marker.get('commit', ''))
+                or set(marker.get('files', {})) != required):
+            raise ValueError('Invalid release manifest')
+        for name, digest in marker['files'].items():
+            if hashlib.sha256((directory / name).read_bytes()).hexdigest() != digest:
+                raise ValueError('Adapter integrity check failed')
+        return {'status': 'ready', 'commit': marker['commit'], 'capabilities': ['HK', 'US']}
+    except (OSError, ValueError, TypeError):
+        return {'status': 'unversioned', 'commit': None, 'capabilities': []}
+
+
 class Handler(BaseHTTPRequestHandler):
     service = None
+    overseas_service = None
+    release = None
 
     def do_GET(self):
         parsed = urlparse(self.path)
         try:
+            if parsed.path == '/health' and not parsed.query:
+                payload = self.release or {'status': 'unversioned', 'commit': None}
+                self._json(200 if payload['status'] == 'ready' else 503, payload)
+                return
             if parsed.path == "/directory" and not parsed.query:
                 self._json(200, self.service.directory())
                 return
@@ -312,10 +342,24 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("invalid query")
                 self._json(200, self.service.candles(query["symbol"][0], query["adjust"][0]))
                 return
+            if parsed.path == "/overseas/search":
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                if set(query) - {"market", "q"} or len(query.get("market", [])) != 1 or len(query.get("q", [])) != 1:
+                    raise ValueError("invalid query")
+                self._json(200, self.overseas_service.search(query["market"][0], query["q"][0]))
+                return
+            if parsed.path == "/overseas/candles":
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                if set(query) - {"market", "symbol"} or len(query.get("market", [])) != 1 or len(query.get("symbol", [])) != 1:
+                    raise ValueError("invalid query")
+                self._json(200, self.overseas_service.candles(query["market"][0], query["symbol"][0]))
+                return
             self._json(404, {"error": "not found"})
         except ValueError as exception:
             self._json(400, {"error": str(exception)})
-        except UpstreamUnavailable:
+        except InstrumentNotFound as exception:
+            self._json(404, {"error": str(exception)})
+        except (UpstreamUnavailable, OverseasUpstreamUnavailable):
             self._json(503, {"error": "market data temporarily unavailable"})
 
     def log_message(self, format_string, *args):
@@ -371,7 +415,9 @@ def main():
         adjustment = validate_adjust(arguments.worker_args[1])
         print(json.dumps(_candles_worker(symbol, adjustment), ensure_ascii=False, separators=(",", ":")))
         return
+    Handler.release = release_health(Path(__file__).resolve().parent)
     Handler.service = MarketDataService()
+    Handler.overseas_service = OverseasMarketService()
     BoundedThreadingHTTPServer(("127.0.0.1", 8091), Handler).serve_forever()
 
 

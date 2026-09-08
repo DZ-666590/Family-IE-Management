@@ -47,11 +47,8 @@ jobs:
         run: ./mvnw -B -Dskip.npm=true -Dskip.installnodenpm=true verify
       - name: Prepare release artifact
         run: |
-          mkdir -p release
-          cp target/family-finance-0.0.1-SNAPSHOT.jar release/app.jar
-          cd release
-          sha256sum app.jar > app.jar.sha256
-          gzip -n app.jar
+          python3 scripts/build_release.py --jar target/family-finance-0.0.1-SNAPSHOT.jar \
+            --adapter scripts/market-data --output release --commit "${{ github.sha }}"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: release-${{ github.sha }}
@@ -117,12 +114,12 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$keydir/key"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$keydir/known_hosts"
           unset DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS
-          checksum=$(cut -d ' ' -f 1 release/app.jar.sha256)
+          checksum=$(cut -d ' ' -f 1 release/release.zip.sha256)
           ssh -T -i "$keydir/key" -p "$DEPLOY_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$keydir/known_hosts" -o ConnectTimeout=20 \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
-            "$DEPLOY_USER@$DEPLOY_HOST" "deploy $COMMIT $checksum $RUN_ID" < release/app.jar.gz
+            "$DEPLOY_USER@$DEPLOY_HOST" "deploy $COMMIT $checksum $RUN_ID" < release/release.zip.gz
           curl --fail --silent --show-error --max-time 20 --retry 3 \
             "$DEPLOY_URL/deployment.json?run=$RUN_ID" | jq -e --arg commit "$COMMIT" '.commit == $commit'
           curl --fail --silent --show-error --max-time 20 --retry 3 \

@@ -64,12 +64,15 @@ it('shows a catalog-status failure instead of reporting that no stocks match', a
   expect(request.mock.calls.some(([path]) => path.includes('/api/securities/search'))).toBe(false);
 });
 
-it('shows when the ready stock catalog was last updated', async () => {
+it('does not keep routine catalog helper copy visible after a ready stock search', async () => {
   const request = vi.fn(async (path: string) => path.includes('catalog-status')
     ? { state: 'READY', count: 5558, updatedAt: '2026-09-08T08:30:00Z' }
     : page([security]));
   render(wrap(<StockPicker request={request as RequestFn} value={null} onChange={() => {}}/>));
-  expect(await screen.findByText(/目录更新：2026\.09\.08/)).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.queryByText(/目录更新：2026\.09\.08/)).not.toBeInTheDocument();
+    expect(screen.queryByText('选择系统股票目录中的证券，无需自行登记。')).not.toBeInTheDocument();
+  });
 });
 
 it('keeps the last published catalog selectable when a refresh fails', async () => {
