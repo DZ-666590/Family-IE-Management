@@ -1,5 +1,5 @@
 server:
-  address: 0.0.0.0
+  address: 127.0.0.1
   port: 8080
   servlet:
     session:
@@ -13,8 +13,8 @@ spring:
       api-key: ${ZHIPUAI_API_KEY}
       chat:
         options:
-          model: glm-4-plus # 推荐使用 GLM-4 增强版，适合复杂的推理和信息提取
-          temperature: 0.2  # 提取合同信息需要高精准度，建议将温度调低
+          model: glm-4-plus
+          temperature: 0.2
   application:
     name: family-finance
   datasource:
@@ -40,6 +40,17 @@ spring:
 app:
   seed:
     enabled: true
+
+  ai:
+    encryption-key: ${APP_AI_ENCRYPTION_KEY:}
+    allowed-hosts: ${APP_AI_ALLOWED_HOSTS:}
+
   plugins:
     loan-contract-extractor:
       enabled: true
+
+# Never enable HTTP wire/header logging for credential-bearing AI requests.
+logging:
+  level:
+    org.apache.hc.client5.http.wire: OFF
+    org.apache.hc.client5.http.headers: OFF
