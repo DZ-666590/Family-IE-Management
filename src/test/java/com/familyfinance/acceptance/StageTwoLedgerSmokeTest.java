@@ -114,12 +114,14 @@ class StageTwoLedgerSmokeTest {
                      "categoryId":%d,"assignedUserId":%d,"paused":false}
                     """.formatted(accountId, memberId, childCategoryId, userId)), 201));
             long ruleId = createdRule.path("id").asLong();
-            assertRule(createdRule, ruleId, accountId, memberId, childCategoryId, userId, "2026-09-03");
+            assertRule(createdRule, ruleId, accountId, memberId, childCategoryId, userId, "2026-10-03");
             assertBudgetUsage(owner, budgetId, "0.00", "1000.00");
+            assertThat(owner.data(owner.get(
+                    "/api/recurring-occurrences?status=PENDING&from=2026-09-03&to=2026-09-03"))).hasSize(1);
 
             HttpResponse<String> generation = owner.write("POST", "/api/__acceptance/recurring-generation", "{}");
             assertThat(generation.statusCode()).isEqualTo(200);
-            assertThat(owner.data(generation).path("created").asInt()).isEqualTo(1);
+            assertThat(owner.data(generation).path("created").asInt()).isZero();
 
             JsonNode pending = owner.data(owner.get(
                     "/api/recurring-occurrences?status=PENDING&from=2026-09-03&to=2026-09-03"));
