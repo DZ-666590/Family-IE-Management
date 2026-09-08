@@ -1,5 +1,7 @@
 # 第二阶段：身份与家庭基础验收清单
 
+> 2026-09-08 更新：以下本地启动部分保留为历史验收记录。项目已转为服务器使用，独立 Windows/Unix 启动 CI 已停止，不再作为当前发布要求；现行范围见 [自动部署说明](../operations/github-auto-deploy.md)。业务及应用级集成测试继续保留。
+
 | 验收条件 | 可重复证据 |
 | --- | --- |
 | 第一阶段数据可原地升级 | `StageTwoFoundationSmokeTest` 从第一阶段 H2 副本迁移后验证 `demo@local.family`、`OWNER` 与家庭身份流程；`FlywayStageOneUpgradeTest` 验证原有 12 条账目在迁移后仍保留。 |
