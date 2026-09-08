@@ -94,6 +94,18 @@ class LoanTermOptionsApiTest {
   mvc.perform(get("/api/loans/"+loan+"/prepayment-preview").session(session).param("amount","0.49").param("paidOn","2026-01-01")).andExpect(status().isOk()).andExpect(jsonPath("$.data.after.schedule[0].preciseInterestAmount").value("0.005000000000"));
   options(loan,"0.49","2026-01-01").andExpect(status().isOk()).andExpect(jsonPath("$.data.options[1].allowed").value(true)).andExpect(jsonPath("$.data.options[1].roundingPolicy").value("CUSTOM_REALLOCATION_V1"));
  }
+ @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(ints={1,2})
+ void oversizedCustomPrincipalReturnsValidationWithoutCreatingFinancialState(int periods)throws Exception{
+  var before=new LinkedHashMap<String,List<Map<String,Object>>>();
+  for(String table:List.of("loans","loan_installments","loan_prepayments","assets","ledger_journals","ledger_entries","ledger_accounts","ledger_sources","accounting_commands","financial_transactions"))
+   before.put(table,jdbc.queryForList("select * from "+table+" where household_id=? order by 1,2,3",household));
+  String rows=periods==1
+    ?"[{\"dueOn\":\"2026-01-31\",\"principal\":\"92233720368547758.07\",\"interest\":\"0.01\"}]"
+    :"[{\"dueOn\":\"2026-01-31\",\"principal\":\"92233720368547758.07\",\"interest\":\"0\"},{\"dueOn\":\"2026-02-28\",\"principal\":\"0.01\",\"interest\":\"0\"}]";
+  String body="{\"name\":\"Oversized custom purchase\",\"type\":\"OTHER\",\"memberId\":"+member+",\"assignedUserId\":"+user+",\"paymentAccountId\":"+account+",\"paymentCategoryId\":"+category+",\"principal\":\"1.00\",\"annualRate\":0,\"termMonths\":"+periods+",\"repaymentMethod\":\"CUSTOM\",\"startOn\":\"2025-12-31\",\"fundingMode\":\"FINANCED_PURCHASE\",\"createPurchasedAsset\":true,\"accountingOn\":\"2026-01-01\",\"customSchedule\":"+rows+"}";
+  mvc.perform(post("/api/loans").session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR")).andExpect(jsonPath("$.error.fields.customSchedule").exists());
+  for(var entry:before.entrySet())assertThat(jdbc.queryForList("select * from "+entry.getKey()+" where household_id=? order by 1,2,3",household)).as(entry.getKey()).isEqualTo(entry.getValue());
+ }
  private ResultActions options(long loan,String amount,String day)throws Exception{return mvc.perform(get("/api/loans/"+loan+"/term-options").session(session).param("additionalPrincipal",amount).param("paidOn",day).param("paymentAccountId",String.valueOf(account)));}
  private long create(String principal,String rate,int term)throws Exception{
   String body="{\"name\":\"Precision\",\"type\":\"OTHER\",\"memberId\":"+member+",\"assignedUserId\":"+user+",\"paymentAccountId\":"+account+",\"paymentCategoryId\":"+category+",\"principal\":\""+principal+"\",\"annualRate\":"+rate+",\"termMonths\":"+term+",\"repaymentMethod\":\"EQUAL_PAYMENT\",\"startOn\":\"2025-12-31\",\"fundingMode\":\"OPENING\",\"accountingOn\":\"2026-01-01\"}";
