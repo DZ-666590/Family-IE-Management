@@ -1,0 +1,9 @@
+.account-settings-page { display: grid; gap: 20px; }
+.account-settings-page > .settings-card { min-height: auto; }
+.ai-settings-card .ai-field-help { margin: 0; color: var(--ledger-muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.ai-connection-check { border-top: 1px solid var(--ledger-border); padding-top: 20px; max-width: 600px; }
+.ai-connection-check h3 { margin: 0 0 8px; }
+.ai-connection-check p { color: var(--ledger-muted); font-size: 13px; line-height: 1.7; }
+.ai-consent { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.7; }
+.ai-consent input { flex: 0 0 auto; margin-top: 5px; }
+.ai-settings-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
