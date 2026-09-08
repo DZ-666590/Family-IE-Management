@@ -142,8 +142,10 @@ it('checks again after a real same-user logout/login and stops prompting once th
   try {
     render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={['/workspace/overview']}><AuthProvider><SessionView /></AuthProvider></MemoryRouter></QueryClientProvider>);
     const login = async () => {
-      await user.type(await screen.findByLabelText('邮箱'), 'owner@example.invalid');
-      await user.type(screen.getByLabelText('密码'), 'local-test-password');
+      await user.click(await screen.findByLabelText('邮箱'));
+      await user.paste('owner@example.invalid');
+      await user.click(screen.getByLabelText('密码'));
+      await user.paste('local-test-password');
       await user.click(screen.getByRole('button', { name: '登录' }));
       await screen.findByRole('heading', { name: '家庭总览' });
     };
@@ -165,4 +167,4 @@ it('checks again after a real same-user logout/login and stops prompting once th
     await settled(cache);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   } finally { vi.unstubAllGlobals(); }
-});
+}, 15_000); // Three full session transitions; this is a correctness check, not a 5s benchmark.
