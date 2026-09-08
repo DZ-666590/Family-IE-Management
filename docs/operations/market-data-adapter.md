@@ -1,58 +1,16 @@
 # 行情适配器运维说明
 
-该适配器提供公开 A 股目录、A 股只读日线，以及独立缓存的港股/美股只读目录和未复权日线；不接收家庭、账户、交易或凭据，也不写入证券、交易、报价快照或现金账本。进程固定监听 `127.0.0.1:8091`，北交所 K 线返回 `supported=false`。当前应用发布流水线只交付 JAR，不会自动安装或更新此 Python sidecar。
+该适配器提供公开 A 股目录、A 股只读日线，以及独立缓存的港股/美股只读目录和未复权日线；不接收家庭、账户、交易或凭据，也不写入证券、交易、报价快照或现金账本。进程固定监听 `127.0.0.1:8091`，北交所 K 线返回 `supported=false`。本版流水线将 JAR 与 Python sidecar 作为同一发布包交付；首次服务器引导仍由运维另行执行。
 
-## 首次安装
+## 安装、更新与回滚
 
-以下路径是通用部署约定，不包含真实服务器连接参数。以具备 sudo 权限的运维账号执行：
+本版使用 root 所有的不可变 `releases/<commit>-<run>-<id>` 目录、`current` 符号链接与按 requirements SHA-256 标识的独立 venv。完整的首次安装、旧目录引导、依赖准备、发布和恢复命令见 [版本化发布操作说明](versioned-market-release.md)。不要继续单独复制 server.py 或只更新 JAR。
 
-操作系统需预先提供 Python 3.10 及对应的 `python3.10-venv` 包；本次交付不会自动安装系统软件包。
+新 unit 通过 `current/.venv/bin/python current/server.py` 启动，保留原低权限用户及全部 systemd 加固项。进程仍只监听 loopback，不新增反向代理路由或放开防火墙。
 
-```bash
-sudo useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin family-finance-market
-sudo install -d -o family-finance-market -g family-finance-market /opt/family-finance/market-data
-sudo install -o family-finance-market -g family-finance-market -m 0755 scripts/market-data/server.py /opt/family-finance/market-data/server.py
-sudo install -o family-finance-market -g family-finance-market -m 0644 scripts/market-data/overseas.py /opt/family-finance/market-data/overseas.py
-sudo install -o family-finance-market -g family-finance-market -m 0755 scripts/market-data/overseas_sources.py /opt/family-finance/market-data/overseas_sources.py
-sudo install -o family-finance-market -g family-finance-market -m 0644 scripts/market-data/requirements.txt /opt/family-finance/market-data/requirements.txt
-sudo -u family-finance-market python3.10 -m venv /opt/family-finance/market-data/.venv
-sudo -u family-finance-market /opt/family-finance/market-data/.venv/bin/python -m pip install -r /opt/family-finance/market-data/requirements.txt
-sudo install -m 0644 docs/operations/market-data-adapter.service /etc/systemd/system/family-finance-market.service
-sudo systemctl daemon-reload
-```
+依赖必须在隔离 venv 中准备。当前 requirements 固定 AKShare 1.18.88 与 BaoStock 0.9.3；海外功能还使用 requests、openpyxl、pandas、py-mini-racer。完整传递依赖及包哈希由运维在受控 Linux 环境锁定并归档；接收器不会运行 pip 或任何上传的安装脚本。已投入使用的 runtime 不得原地升级。依赖变化应提交新的 requirements，并预备新的 runtime。
 
-依赖必须安装在隔离 venv 中，禁止全局 pip 安装。`requirements.txt` 固定 AKShare 1.18.88 与 BaoStock 0.9.3；海外目录解析和 SINA 解码直接使用其固定依赖 `requests`、`openpyxl`、`pandas` 以及 Linux 上的 `py-mini-racer`。不得单独升级这些传递依赖；生产安装前应在受控构建环境生成并归档完整 lock/hash 清单，并确认锁定结果包含上述四项。
-
-安装完成后服务仍保持未启用状态。先做一次前台验证：
-
-```bash
-sudo -u family-finance-market /opt/family-finance/market-data/.venv/bin/python /opt/family-finance/market-data/server.py
-curl --fail --max-time 60 http://127.0.0.1:8091/directory
-curl --fail --max-time 30 'http://127.0.0.1:8091/candles?symbol=600000.SH&adjust=none'
-curl --fail --max-time 5 'http://127.0.0.1:8091/overseas/search?market=HK&q=00700'
-curl --fail --max-time 5 'http://127.0.0.1:8091/overseas/search?market=US&q=AAPL'
-```
-
-海外目录首次请求是非阻塞的，正常会先返回 `state=SYNCING`；等待后台完整校验后再探测，只有 `state=READY` 且结果包含正确 `currency`、`exchange`、`timezone` 时才能继续 K 线探针：
-
-```bash
-curl --fail --max-time 30 'http://127.0.0.1:8091/overseas/candles?market=HK&symbol=00700'
-curl --fail --max-time 30 'http://127.0.0.1:8091/overseas/candles?market=US&symbol=AAPL'
-```
-
-确认响应后由运维人员单独决定是否执行 `systemctl enable --now family-finance-market`，并为 Spring Boot 明确配置 `MARKET_DATA_URL=http://127.0.0.1:8091` 后再重启业务服务。未配置时目录状态为 `DISABLED`，不会调用 sidecar。
-
-## 可重复更新与回滚
-
-更新时先在临时目录建立新 venv、运行仓库内 Python 单元测试和只读 HTTP 探针，再将 `server.py`、`overseas.py`、`overseas_sources.py`、`requirements.txt` 与 `.venv` 作为同一版本原子替换。随后执行：
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart family-finance-market
-sudo systemctl status --no-pager family-finance-market
-```
-
-保留上一版目录和 venv；失败时恢复上一版文件并重启 sidecar。业务数据库目录同步是增量发布：相同 `tsCode` 更新名称和验证标记但保留证券 ID，完整目录失败不会覆盖上一版引用。
+`/health` 返回启动时校验的提交号与文件完整性状态。未版本化的本地脚本返回 503；这不影响原目录或日线接口，但不能通过新版发布门禁。目录首次请求可能为 SYNCING，发布门禁会重试，只有 HK/US 搜索 READY 且两者日线非空才接受。
 
 ## 运行边界
 
