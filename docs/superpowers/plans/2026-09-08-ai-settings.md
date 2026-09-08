@@ -11,7 +11,7 @@ Tech Stack: Java 17 / Spring Boot 4.1.1 / React / Apache HttpClient 5 (Boot 管�
 - 自定义域名需精确运维允许名单；仅 HTTPS/443；禁止凭据、query、fragment、IP、编码路径、点路径；实际 DNS 建连地址全部为公网，禁止跳转、代理与自动重试。
 - 保存不会联网。测试需明确确认，仅 GET models；不请求推理。不自动发送账目、调用工具或写财务数据。
 - AES-256-GCM，随机 12 字节 nonce，用户 ID 绑定 AAD。服务器密钥为空/无效时 AI 功能不可用，其他业务可运行。删除仍允许。
-- V26 为本分支暂定迁移号，合入 stage2 前统一协调；测试 H2 与 MySQL 独立脚本。
+- 统一集成后使用 V28；保留周期账单 V26，账户资料使用 V27。测试 H2 与 MySQL 独立脚本。
 
 ## 执行与验证
 - [x] 配置 API：先 MockMVC 证明当前接口不存在；GET/PUT/DELETE，身份从会话获取，隔离同家庭用户，读取脱敏，替换地址必须重新输入密钥，HTTP 与未配置加密密钥拒绝。

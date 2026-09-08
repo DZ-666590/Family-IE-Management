@@ -39,6 +39,8 @@ sudo install -o root -g root -m 0644 scripts/market-data/requirements.txt "$runt
 
 确认完整锁中的 AKShare/BaoStock 版本与仓库要求一致；requirements 文件摘要是运维预备环境的标识，不是对整个 venv 内容的密码学证明。保留 lock、wheel 哈希和安装记录。新建目录若安装失败，先人工检查，不能补一个 requirements 标记绕过检查。
 
+已有经过验证且由 root 独占维护的 venv，也可在依赖声明完全一致时复制为独立、不可原地更新的 runtime 快照，避免部署现场升级依赖。必须保留原环境供 legacy 回退，归档完整包版本、原安装来源/哈希报告及新快照的逐文件 SHA-256；用新快照再次执行 pip check、指定版本检查与低权限/jitless/MemoryDenyWriteExecute 导入验证，最后才写入 requirements 完成标记。此方式记录已验证安装物，不等于新生成了可重建 wheelhouse；后续依赖变更仍需前述受控锁定流程。使用严格 umask 时，应显式核对 runtime 和 legacy 目录均为 root:root 0755，保证服务用户可读而不可写。
+
 3. 旧目录迁移：保留正在使用的代码和 venv，创建 legacy 目录。不要用本次新源文件冒充旧版，也不要给缺文件旧版伪造 deployment.json。下面适用于旧布局在根目录有 server.py 和 .venv：
 
 ```bash

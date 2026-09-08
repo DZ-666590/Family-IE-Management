@@ -56,7 +56,7 @@ Apache HttpClient 使用专用 DnsResolver；所有 DNS 回答都必须是公网
 
 ## 迁移与合入协调
 
-`V26__personal_ai_settings.sql` 是本分支暂定编号（H2 测试/MySQL 各一份），在 `app_users` 之上增加 `user_ai_settings`；主键兼外键为 user_id。无需财务数据回填，也不依赖其他模块迁移。
+统一集成编号为 `V28__personal_ai_settings.sql`（H2 测试/MySQL 各一份），在 `app_users` 之上增加 `user_ai_settings`；主键兼外键为 user_id。保留已发布的周期账单 V26，账户资料扩展为 V27。无需财务数据回填。
 
 合入 stage2 前必须统筹编号/顺序，并同步 7 个旧迁移测试文件的最新版本断言。本分支不会假定其他模块已部署；不得修改已部署 Flyway 脚本。新增表的 MySQL 脚本尚未在真实 MySQL 上执行验证，需在独立 MySQL 测试库验收后部署。
 

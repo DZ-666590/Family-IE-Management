@@ -1,4 +1,4 @@
--- Branch-local V26: coordinate version/order before integrating into stage2.
+-- Integrated V27: follows the published recurring-billing V26 migration.
 -- Existing account types, identifiers, balances and relationships are unchanged.
 ALTER TABLE financial_accounts ADD COLUMN wallet_provider VARCHAR(16);
 ALTER TABLE financial_accounts ADD COLUMN bank_name VARCHAR(80);
