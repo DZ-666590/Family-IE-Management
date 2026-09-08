@@ -20,6 +20,25 @@ async function setup(handler: (path: string, options?: RequestInit) => Promise<R
 }
 afterEach(() => vi.unstubAllGlobals());
 
+it.each(['release', 'logout', 'another login'])('retains the same session cache during unresolved recovery, then %s restores the session boundary', async end => {
+ const old = deferred<Response>();
+ const cache = await setup(async path => path === '/api/session' ? response(session) : path === '/api/slow-parent' ? old.promise : path === '/api/auth/login' ? response({ ...session, userId: 8, householdId: 2, displayName: 'B' }) : path === '/api/auth/logout' ? response(null) : response(null, 401));
+ cache.setQueryData(['loans', 'detail', 4], { id: 4, name: 'A private loan' });
+ const pending = auth.request('/api/slow-parent').catch(error => error);
+ const release = auth.request.beginRecoverableOperation!();
+ await act(async () => { old.resolve(response(null, 401)); await pending; });
+ expect(await pending).toMatchObject({ status: 401, sessionExpired: false });
+ expect(auth.session?.userId).toBe(7); expect(cache.getQueryData(['loans', 'detail', 4])).toEqual({ id: 4, name: 'A private loan' });
+ if (end === 'release') release();
+ else if (end === 'logout') await act(async () => { await auth.logout(); });
+ else await act(async () => { await auth.login('b@test.local', 'password'); });
+ if (end !== 'release') expect(cache.getQueryData(['loans', 'detail', 4])).toBeUndefined();
+ if (end === 'another login') expect(auth.session?.householdId).toBe(2);
+ await act(async () => { await auth.request('/api/expired').catch(() => {}); });
+ expect(auth.status).toBe('anonymous'); expect(cache.getQueryCache().getAll()).toHaveLength(0);
+ release();
+});
+
 it.each(['/api/transactions/1', '/api/budgets/1', '/api/accounts/1', '/api/assets/1/valuations', '/api/investment-trades/1', '/api/loans/1/prepay', '/api/loan-installments/1/confirm', '/api/recurring-occurrences/1/confirm'])('refreshes inactive previously viewed totals before %s write returns', async path => {
   let saved = false;
   const cache = await setup(async url => url === '/api/session' ? response(session) : (saved = true, response({ id: 1 })));

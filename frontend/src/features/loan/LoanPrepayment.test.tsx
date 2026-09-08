@@ -16,19 +16,21 @@ it('opens prepayment without secure-context randomUUID and reuses the key on ret
   // Ordinary HTTP exposes getRandomValues but not randomUUID.
   const getRandomValues = crypto.getRandomValues.bind(crypto);
   vi.stubGlobal('crypto', { getRandomValues });
-  const writes: Array<{ amount: string; paidOn: string; idempotencyKey: string }> = [];
+  const writes: Array<{ additionalPrincipal: string; paidOn: string; idempotencyKey: string }> = [];
   const request: RequestFn = async <T,>(path: string, options?: Parameters<RequestFn>[1]) => {
     if (options?.method === 'POST') {
-      if (path !== '/api/loans/4/prepay') throw new Error(`Wrong repayment endpoint: ${path}`);
+      if (path !== '/api/loans/4/repayment') throw new Error(`Wrong repayment endpoint: ${path}`);
       writes.push(options.body as typeof writes[number]);
       if (writes.length === 1) throw new ApiError('临时失败，请重试', { status: 503 });
       return { id: 1, transactionId: 1, amount: '100.00', remainingPrincipal: '19900.00', status: 'ACTIVE' } as T;
     }
+    if (path.endsWith('/repayment-policy')) return { minimumInstallmentAmount: null, sourceNote: null, revision: 0 } as T;
+    if (path.includes('/term-options?')) return { remainingPrincipal: '20000.00', duePrincipal: '0.00', dueInterest: '0.00', options: [], policy: { minimumInstallmentAmount: null, sourceNote: null, revision: 0 } } as T;
     if (path === '/api/loans/4') return loan as T;
-    if (path.includes('/prepayment-preview?')) {
+    if (path.includes('/repayment-preview?')) {
       const params = new URLSearchParams(path.split('?')[1]);
       const summary = { principalAmount: '19900.00', periodCount: 360, maturityOn: '2056-09-05', nextPaymentOn: '2026-10-05', nextPaymentAmount: '100.00', totalInterest: '0.00', repaymentTotal: '19900.00', schedule: [] };
-      return { strategy: params.get('strategy'), principalAmount: params.get('amount'), cashAmount: params.get('amount'), paymentAccountId: 1, paidOn: params.get('paidOn'), availableBalance: '20000.00', planToken: 'prepay-token', before: summary, after: summary } as T;
+      return { dueInstallments: [], duePrincipalAmount: '0.00', dueInterestAmount: '0.00', additionalPrincipal: params.get('additionalPrincipal'), totalPrincipalAmount: params.get('additionalPrincipal'), totalInterestAmount: '0.00', totalCashAmount: params.get('additionalPrincipal'), balanceAfter: '19900.00', policy: { minimumInstallmentAmount: null, sourceNote: null, revision: 0 }, termOptions: [], targetPeriods: null, strategy: params.get('strategy'), paymentAccountId: 1, paidOn: params.get('paidOn'), availableBalance: '20000.00', planToken: 'prepay-token', before: summary, after: summary } as T;
     }
     return (path.startsWith('/api/loans?') ? page([loan]) : path === '/api/members' ? [] : path.startsWith('/api/accounts?') ? page([{ id: 1, name: '还款账户', openingConfirmed: true, availableBalance: '20000.00' }]) : page([])) as T;
   };
@@ -37,13 +39,13 @@ it('opens prepayment without secure-context randomUUID and reuses the key on ret
     await user.click(await screen.findByRole('button', { name: '提前还款' }));
     const drawer = await screen.findByRole('dialog', { name: '提前还款测试 · 提前还款' });
     expect(screen.queryByRole('dialog', { name: /还款计划/ })).not.toBeInTheDocument();
-    await user.type(within(drawer).getByLabelText('提前还款金额'), '100.00');
-    await user.click(within(drawer).getByRole('button', { name: '确认提前还款' }));
+    await user.type(within(drawer).getByLabelText('额外提前偿还本金'), '100.00');
+    await user.click(within(drawer).getByRole('button', { name: '确认还款 ¥100.00' }));
     await screen.findByText('临时失败，请重试');
-    await user.click(within(drawer).getByRole('button', { name: '核对本次提前还款结果' }));
+    await user.click(within(drawer).getByRole('button', { name: '核对本次还款结果' }));
     await screen.findByRole('dialog', { name: '提前还款测试 · 还款计划' });
     expect(writes).toHaveLength(2);
-    expect(writes[0].amount).toBe('100.00');
+    expect(writes[0].additionalPrincipal).toBe('100.00');
     expect(writes[0].idempotencyKey).toMatch(/^[0-9a-f]{32}$/);
     expect(writes[1].idempotencyKey).toBe(writes[0].idempotencyKey);
   } finally { vi.unstubAllGlobals(); }

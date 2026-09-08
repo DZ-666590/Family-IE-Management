@@ -1,6 +1,21 @@
 /* Clarity: the numbers lead, the controls stay quiet. */
 .loan-prepayment-form { min-width: 0; }
 .loan-prepayment-form fieldset { min-width: 0; }
+.loan-prepayment-form > *, .loan-prepayment-form label { min-width: 0; }
+.loan-prepayment-form .semi-button { max-width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; }
+.loan-repayment-bill { padding: 16px; border: 1px solid var(--ledger-border); border-radius: 8px; font-variant-numeric: tabular-nums; }
+.loan-repayment-bill > p { margin-top: 0; color: var(--ledger-muted); font-size: 12px; }
+.loan-repayment-bill dl { margin: 0; }
+.loan-repayment-bill dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; padding-block: 7px; }
+.loan-repayment-bill dd { margin: 0; font-weight: 600; }
+.loan-repayment-bill__extra { border-top: 1px solid var(--ledger-border); }
+.loan-repayment-bill .loan-repayment-bill__total { margin-block: 6px; border-block: 1px solid var(--ledger-border); padding-block: 12px; color: var(--ledger-primary); font-size: 18px; font-weight: 650; }
+.loan-repayment-bill .loan-repayment-closure { color: var(--ledger-success); font-weight: 600; }
+.loan-repayment-bill details, .loan-repayment-policy { font-size: 12px; overflow-wrap: anywhere; }
+.loan-repayment-bill summary, .loan-repayment-policy summary { cursor: pointer; padding-block: 12px; }
+.loan-strategy-options .loan-target-periods { display: grid; }
+.loan-repayment-policy textarea { max-width: 100%; min-height: 70px; }
+.loan-rounding-note p { color: var(--ledger-muted); font-size: 12px; line-height: 1.7; }
 .loan-prepayment-form .form-footer { flex-wrap: wrap; min-width: 0; }
 .loan-prepayment-form .form-footer .semi-button { max-width: 100%; min-width: 0; height: auto; white-space: normal; }
 @media (max-width: 480px) { .loan-prepayment-form .form-footer .semi-button { flex: 1 1 100%; } }

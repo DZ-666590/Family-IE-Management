@@ -34,6 +34,12 @@ export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   responseType?: 'json' | 'blob' | 'text' | 'page';
 }
 
+export interface ApiRequest {
+  <T>(path: string, options?: ApiRequestOptions): Promise<T>;
+  /** Retain an unresolved command in memory; explicit session changes still win. */
+  beginRecoverableOperation?: () => () => void;
+}
+
 interface ApiClientOptions {
   fetchImpl?: typeof fetch;
   onSessionExpired?: (message: string) => void;
@@ -105,6 +111,12 @@ export function createApiClient({
   let csrfPromise: Promise<CsrfToken> | null = null;
   let expiryHandled = false;
   let sessionGeneration = 0;
+  const recoverableOperations = new Set<symbol>();
+  function beginRecoverableOperation() {
+    const operation = Symbol('recoverable-operation');
+    recoverableOperations.add(operation);
+    return () => { recoverableOperations.delete(operation); };
+  }
 
   async function loadCsrf(): Promise<CsrfToken> {
     csrfPromise ??= (async () => {
@@ -173,11 +185,15 @@ export function createApiClient({
         fields: failure?.fields,
         requestId: requestIdFrom(response)
       });
+      // Recoverable forms retain their original command. Renew CSRF only for
+      // the next explicit action; never replay a financial POST automatically.
+      const retainUnresolvedOperation = recoverableOperations.size > 0;
+      if ((!handleUnauthorized || retainUnresolvedOperation) && (response.status === 401 || response.status === 403)) csrfPromise = null;
       // Login credential failures also use HTTP 401, but they do not mean that
       // an existing browser session expired. Keep the server's actionable
       // LOGIN_FAILED response on the login form instead of redirecting the
       // user into the session-expired flow.
-      if (response.status === 401 && handleUnauthorized && failure?.code !== 'LOGIN_FAILED') {
+      if (response.status === 401 && handleUnauthorized && !retainUnresolvedOperation && failure?.code !== 'LOGIN_FAILED') {
         error.sessionExpired = true;
         if (!expiryHandled) {
           expiryHandled = true;
@@ -201,8 +217,10 @@ export function createApiClient({
   }
 
   return {
-    api,
+    api: Object.assign(api, { beginRecoverableOperation }),
+    beginRecoverableOperation,
     resetSessionScope() {
+      recoverableOperations.clear();
       sessionGeneration += 1;
       csrfPromise = null;
       expiryHandled = false;

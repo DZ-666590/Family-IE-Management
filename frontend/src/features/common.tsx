@@ -3,11 +3,11 @@ import { createPortal } from 'react-dom';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import { X, Plus, CircleAlert, LoaderCircle } from 'lucide-react';
 import { EmptyIllustration } from './visuals';
-import { ApiError, type ApiRequestOptions } from '../api/client';
+import { ApiError, type ApiRequest } from '../api/client';
 import type { HouseholdRole } from '../api/contracts';
 import { useDraftProtection } from '../shared/draft-guard';
 
-export type RequestFn = <T>(path: string, options?: ApiRequestOptions) => Promise<T>;
+export type RequestFn = ApiRequest;
 
 export function money(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === '') return '—';

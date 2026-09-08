@@ -6,6 +6,19 @@ const jsonResponse = (status: number, body: unknown, headers?: Record<string, st
     headers: { 'Content-Type': 'application/json', ...headers }
   });
 
+it('allows an explicit receipt retry to reload CSRF after a failed CSRF read without posting automatically', async () => {
+ let reads = 0; let posts = 0;
+ const client = createApiClient({ fetchImpl: async input => {
+  if (input === '/api/csrf') { reads++; return reads === 1 ? jsonResponse(401, { error: { code: 'AUTH_REQUIRED', message: '请登录' } }) : jsonResponse(200, { data: { headerName: 'X-CSRF', token: 'restored-token' } }); }
+  posts++; return jsonResponse(200, { data: { batchId: 8 } });
+ } });
+ const body = { additionalPrincipal: '3000.00', planToken: 'original', idempotencyKey: 'original-key' };
+ await expect(client.api('/api/loans/4/repayment', { method: 'POST', body, handleUnauthorized: false })).rejects.toMatchObject({ status: 401 });
+ expect(posts).toBe(0);
+ await expect(client.api('/api/loans/4/repayment', { method: 'POST', body, handleUnauthorized: false })).resolves.toEqual({ batchId: 8 });
+ expect(posts).toBe(1); expect(reads).toBe(2);
+});
+
 it('shares one CSRF load across concurrent writes and sends the returned header', async () => {
   let csrfLoads = 0;
   const requests: Array<[RequestInfo | URL, RequestInit | undefined]> = [];

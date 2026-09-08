@@ -17,7 +17,7 @@ const authValue = (overrides: Partial<AuthContextValue> = {}): AuthContextValue 
   register: vi.fn(),
   logout: vi.fn(),
   changePassword: vi.fn(),
-  request: vi.fn(),
+  request: vi.fn() as AuthContextValue['request'],
   ...overrides
 });
 

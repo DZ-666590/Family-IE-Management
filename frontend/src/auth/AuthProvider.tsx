@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createApiClient } from '../api/client';
-import type { ApiRequestOptions } from '../api/client';
+import type { ApiRequest, ApiRequestOptions } from '../api/client';
 import type { ChangePasswordRequest, RegisterRequest, RegisterResponse, Session } from '../api/contracts';
 import { refreshAfterWrite } from '../shared/write-refresh';
 import { useDraftRegistry } from '../shared/draft-guard';
@@ -16,7 +16,7 @@ export interface AuthContextValue {
   register: (request: RegisterRequest) => Promise<void>;
   logout: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
-  request: <T>(path: string, options?: ApiRequestOptions) => Promise<T>;
+  request: ApiRequest;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -106,14 +106,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [client, queryClient, beginSessionTransition, drafts]);
 
-  const request = useCallback(async <T,>(path: string, options?: ApiRequestOptions): Promise<T> => {
+  const request: ApiRequest = useMemo(() => Object.assign(async <T,>(path: string, options?: ApiRequestOptions): Promise<T> => {
     const scope = generation.current;
     const result = await client.api<T>(path, options);
     assertCurrent(scope);
     await refreshAfterWrite(queryClient, path, options, () => scope === generation.current);
     assertCurrent(scope);
     return result;
-  }, [client, queryClient, assertCurrent]);
+  }, { beginRecoverableOperation: client.beginRecoverableOperation }), [client, queryClient, assertCurrent]);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     const scope = generation.current;
