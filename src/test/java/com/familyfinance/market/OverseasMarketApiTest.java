@@ -9,8 +9,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.familyfinance.shared.ResourceNotFoundException;
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -43,15 +48,26 @@ class OverseasMarketApiTest {
     }
 
     @Test
-    void returnsExactSearchMetadataWithoutCreatingAccountingRows() throws Exception {
+    void overseasSearchAndCandlesNeverCreateAccountingRows() throws Exception {
         MockHttpSession owner = login();
         OverseasInstrument instrument = new OverseasInstrument(
                 "00700", "腾讯控股", "HK", "USD", "HKEX", "Asia/Hong_Kong");
         when(client.overseasSearch("HK", "00700")).thenReturn(new OverseasSearchResponse(
                 List.of(instrument), false, Instant.parse("2026-09-08T01:02:03Z"), false,
                 "READY", null));
-        int securitiesBefore = count("securities");
-        int tradesBefore = count("investment_trades");
+        long timestamp = LocalDate.of(2026, 9, 7).atStartOfDay(ZoneId.of("Asia/Hong_Kong"))
+                .toInstant().toEpochMilli();
+        when(client.overseasCandles("HK", "00700")).thenReturn(new OverseasCandleResponse(
+                instrument, "00700", "SINA", "none", LocalDate.of(2026, 9, 7),
+                Instant.parse("2026-09-08T01:02:03Z"), false, true,
+                List.of(new CandleBar(timestamp, BigDecimal.ONE, BigDecimal.ONE,
+                        BigDecimal.ONE, BigDecimal.ONE, 10, null))));
+        String[] protectedTables = {
+                "securities", "investment_trades", "market_price_snapshots", "ledger_accounts",
+                "ledger_journals", "ledger_entries", "ledger_sources", "accounting_commands"
+        };
+        Map<String, Integer> countsBefore = new LinkedHashMap<>();
+        for (String table : protectedTables) countsBefore.put(table, count(table));
 
         mvc.perform(get("/api/overseas-market/search").session(owner)
                         .param("market", "hk").param("q", " 00700 "))
@@ -61,9 +77,16 @@ class OverseasMarketApiTest {
                 .andExpect(jsonPath("$.data.items[0].timezone").value("Asia/Hong_Kong"))
                 .andExpect(jsonPath("$.data.updatedAt").value("2026-09-08T01:02:03Z"))
                 .andExpect(jsonPath("$.data.state").value("READY"));
+        mvc.perform(get("/api/overseas-market/candles").session(owner)
+                        .param("market", "HK").param("symbol", "00700"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.symbol").value("00700"))
+                .andExpect(jsonPath("$.data.bars[0].turnover").doesNotExist());
 
-        org.assertj.core.api.Assertions.assertThat(count("securities")).isEqualTo(securitiesBefore);
-        org.assertj.core.api.Assertions.assertThat(count("investment_trades")).isEqualTo(tradesBefore);
+        for (var entry : countsBefore.entrySet()) {
+            org.assertj.core.api.Assertions.assertThat(count(entry.getKey()))
+                    .as(entry.getKey()).isEqualTo(entry.getValue());
+        }
     }
 
     @Test

@@ -10,9 +10,11 @@ import static org.mockito.Mockito.when;
 import com.familyfinance.investment.SecurityService;
 import com.familyfinance.shared.ResourceNotFoundException;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
@@ -26,10 +28,13 @@ import org.springframework.security.core.Authentication;
 
 class OverseasMarketServiceTest {
 
+    private static final Instant NOW = Instant.parse("2026-09-08T12:00:00Z");
+
     private final SecurityService security = mock(SecurityService.class);
     private final MarketDataClient client = mock(MarketDataClient.class);
     private final Authentication authentication = mock(Authentication.class);
-    private final OverseasMarketService service = new OverseasMarketService(security, client);
+    private final OverseasMarketService service = new OverseasMarketService(
+            security, client, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void rejectsMalformedRequestBeforeCallingProvider() {
@@ -63,15 +68,54 @@ class OverseasMarketServiceTest {
         when(client.overseasSearch("HK", "80700")).thenReturn(search);
         long timestamp = ZonedDateTime.of(2026, 9, 7, 0, 0, 0, 0, ZoneId.of("Asia/Hong_Kong"))
                 .toInstant().toEpochMilli();
+        CandleBar rawBar = new CandleBar(
+                timestamp, new BigDecimal("801.25"), new BigDecimal("805.50"),
+                new BigDecimal("798.00"), new BigDecimal("803.00"), 1234,
+                new BigDecimal("991234.56"));
         OverseasCandleResponse candles = new OverseasCandleResponse(
                 raw, "80700", "SINA", "none", LocalDate.of(2026, 9, 7),
                 Instant.parse("2026-09-08T01:02:03Z"), false, true,
-                List.of(new CandleBar(timestamp, BigDecimal.ONE, BigDecimal.ONE,
-                        BigDecimal.ONE, BigDecimal.ONE, 0, null)));
+                List.of(rawBar));
         when(client.overseasCandles("HK", "80700")).thenReturn(candles);
 
         assertThat(service.search(authentication, "HK", "80700").items().get(0).currency()).isEqualTo("CNY");
-        assertThat(service.candles(authentication, "HK", "80700").instrument().currency()).isEqualTo("CNY");
+        OverseasCandleResponse normalized = service.candles(authentication, "HK", "80700");
+        assertThat(normalized.instrument().currency()).isEqualTo("CNY");
+        assertThat(normalized.bars().get(0).open()).isEqualByComparingTo("801.25");
+        assertThat(normalized.bars().get(0).high()).isEqualByComparingTo("805.50");
+        assertThat(normalized.bars().get(0).low()).isEqualByComparingTo("798.00");
+        assertThat(normalized.bars().get(0).close()).isEqualByComparingTo("803.00");
+        assertThat(normalized.bars().get(0).turnover()).isEqualByComparingTo("991234.56");
+    }
+
+    @ParameterizedTest(name = "rejects {0} candle relative to provider fetch day")
+    @MethodSource("unfinishedCandleDates")
+    void rejectsCurrentAndFutureMarketDayCandles(String reason, LocalDate candleDate) {
+        ZoneId zone = ZoneId.of("America/New_York");
+        long timestamp = candleDate.atStartOfDay(zone).toInstant().toEpochMilli();
+        OverseasCandleResponse response = new OverseasCandleResponse(
+                instrument("US", "AAPL", "USD", "America/New_York"), "AAPL", "SINA", "none",
+                candleDate, NOW, false, true,
+                List.of(new CandleBar(timestamp, BigDecimal.ONE, BigDecimal.ONE,
+                        BigDecimal.ONE, BigDecimal.ONE, 1, null)));
+        when(client.overseasCandles("US", "AAPL")).thenReturn(response);
+
+        assertThatThrownBy(() -> service.candles(authentication, "US", "AAPL"))
+                .isInstanceOf(MarketProviderException.class)
+                .hasMessage("MARKET_UPSTREAM_INVALID");
+    }
+
+    @Test
+    void rejectsProviderFetchTimestampBeyondClockSkewAllowance() {
+        OverseasCandleResponse valid = validCandles();
+        OverseasCandleResponse futureFetched = new OverseasCandleResponse(
+                valid.instrument(), valid.symbol(), valid.source(), valid.adjustment(), valid.asOf(),
+                NOW.plusSeconds(301), valid.stale(), valid.supported(), valid.bars());
+        when(client.overseasCandles("US", "AAPL")).thenReturn(futureFetched);
+
+        assertThatThrownBy(() -> service.candles(authentication, "US", "AAPL"))
+                .isInstanceOf(MarketProviderException.class)
+                .hasMessage("MARKET_UPSTREAM_INVALID");
     }
 
     @ParameterizedTest(name = "rejects malformed provider candles: {0}")
@@ -157,6 +201,12 @@ class OverseasMarketServiceTest {
                         response.asOf(), response.fetchedAt(), response.stale(), false, response.bars()))));
     }
 
+    private static Stream<Arguments> unfinishedCandleDates() {
+        return Stream.of(
+                Arguments.of("current-day", LocalDate.of(2026, 9, 8)),
+                Arguments.of("future-day", LocalDate.of(2099, 1, 2)));
+    }
+
     private static OverseasCandleResponse mutate(
             OverseasCandleResponse response, UnaryOperator<OverseasCandleResponse> mutation) {
         return mutation.apply(response);
@@ -168,7 +218,7 @@ class OverseasMarketServiceTest {
         long second = ZonedDateTime.of(2026, 3, 9, 0, 0, 0, 0, zone).toInstant().toEpochMilli();
         return new OverseasCandleResponse(
                 instrument("US", "AAPL", "USD", "America/New_York"), "AAPL", "SINA", "none",
-                LocalDate.of(2026, 3, 9), Instant.parse("2026-03-10T01:00:00Z"), false, true,
+                LocalDate.of(2026, 3, 9), Instant.parse("2026-03-10T14:00:00Z"), false, true,
                 List.of(
                         new CandleBar(first, new BigDecimal("9"), new BigDecimal("12"),
                                 new BigDecimal("8"), new BigDecimal("11"), 10, null),

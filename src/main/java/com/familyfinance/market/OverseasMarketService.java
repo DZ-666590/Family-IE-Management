@@ -2,7 +2,10 @@ package com.familyfinance.market;
 
 import com.familyfinance.investment.SecurityService;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.HashSet;
@@ -11,6 +14,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +23,7 @@ public class OverseasMarketService {
     private static final int MAX_QUERY_LENGTH = 80;
     private static final int MAX_SEARCH_ITEMS = 20;
     private static final int MAX_CANDLE_BARS = 600;
+    private static final Duration MAX_CLOCK_SKEW = Duration.ofMinutes(5);
     private static final Pattern HK_SYMBOL = Pattern.compile("^[0-9]{5}$");
     private static final Pattern US_SYMBOL = Pattern.compile("^[A-Z][A-Z0-9.-]{0,9}$");
     private static final Pattern ISO_CURRENCY = Pattern.compile("^[A-Z]{3}$");
@@ -29,10 +34,17 @@ public class OverseasMarketService {
 
     private final SecurityService security;
     private final MarketDataClient client;
+    private final Clock clock;
 
+    @Autowired
     public OverseasMarketService(SecurityService security, MarketDataClient client) {
+        this(security, client, Clock.systemUTC());
+    }
+
+    OverseasMarketService(SecurityService security, MarketDataClient client, Clock clock) {
         this.security = security;
         this.client = client;
+        this.clock = clock;
     }
 
     public OverseasSearchResponse search(Authentication authentication, String rawMarket, String rawQuery) {
@@ -53,7 +65,7 @@ public class OverseasMarketService {
         String market = normalizeMarket(rawMarket);
         String symbol = normalizeSymbol(market, rawSymbol);
         OverseasCandleResponse response = normalize(client.overseasCandles(market, symbol));
-        validateCandles(response, market, symbol);
+        validateCandles(response, market, symbol, clock.instant());
         return response;
     }
 
@@ -92,17 +104,20 @@ public class OverseasMarketService {
         }
     }
 
-    private static void validateCandles(OverseasCandleResponse response, String market, String symbol) {
+    private static void validateCandles(
+            OverseasCandleResponse response, String market, String symbol, Instant now) {
         if (response == null || response.bars() == null || response.bars().size() > MAX_CANDLE_BARS
                 || !symbol.equals(response.symbol()) || !"SINA".equals(response.source())
                 || !"none".equals(response.adjustment()) || !response.supported()
-                || response.fetchedAt() == null) {
+                || response.fetchedAt() == null
+                || response.fetchedAt().isAfter(now.plus(MAX_CLOCK_SKEW))) {
             throw invalid();
         }
         validateInstrument(response.instrument(), market, symbol);
         ZoneId zone = ZoneId.of(expectedTimezone(market));
+        LocalDate fetchedDay = response.fetchedAt().atZone(zone).toLocalDate();
         Instant previous = null;
-        java.time.LocalDate finalDate = null;
+        LocalDate finalDate = null;
         for (CandleBar bar : response.bars()) {
             if (bar == null || bar.timestamp() <= 0 || invalidPrice(bar.open()) || invalidPrice(bar.high())
                     || invalidPrice(bar.low()) || invalidPrice(bar.close()) || bar.volume() < 0
@@ -115,6 +130,7 @@ public class OverseasMarketService {
             Instant timestamp = Instant.ofEpochMilli(bar.timestamp());
             var local = timestamp.atZone(zone);
             if (!local.toLocalTime().equals(LocalTime.MIDNIGHT)
+                    || !local.toLocalDate().isBefore(fetchedDay)
                     || (previous != null && !timestamp.isAfter(previous))) {
                 throw invalid();
             }
