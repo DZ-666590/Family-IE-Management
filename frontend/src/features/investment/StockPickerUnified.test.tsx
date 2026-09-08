@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StockPicker } from './StockPicker';
 import type { Security } from '../../api/contracts';
@@ -18,7 +18,7 @@ it('searches and picks in one combobox without a second selection field', async 
   await waitFor(() => expect(control).not.toHaveAttribute('aria-disabled', 'true'));
   await user.click(control);
   await user.type(screen.getByRole('textbox'), '深科技');
-  await screen.findByText('选择系统股票目录中的证券，无需自行登记。');
+  await waitFor(() => expect(screen.queryByText('选择系统股票目录中的证券，无需自行登记。')).not.toBeInTheDocument());
   await user.click(await screen.findByRole('option',{name:/000021.SZ · 深科技/}));
   expect(await screen.findByText('5',{selector:'output'})).toBeInTheDocument();
   expect(screen.getAllByRole('combobox')).toHaveLength(1);
@@ -35,4 +35,55 @@ it('associates server security errors with the searchable control and restores f
   expect(control).toHaveAttribute('aria-invalid','true');
   expect(control).toHaveAccessibleDescription('请重新选择有效股票');
   expect(control===document.activeElement || control.contains(document.activeElement)).toBe(true);
+});
+
+it('anchors the search menu to the picker and keeps the menu the same width as the control', async () => {
+  const request: RequestFn = async <T,>(path: string) => (path.includes('catalog-status')
+    ? { state: 'READY', count: 5558 }
+    : { items: [stock], page: 0, size: 20, totalElements: 1, totalPages: 1, hasNext: false }) as T;
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <StockPicker request={request} value={null} onChange={() => {}} />
+  </QueryClientProvider>);
+  const control = screen.getByRole('combobox', { name: '证券' });
+  const picker = control.closest('.stock-picker');
+  expect(picker).toHaveStyle({ position: 'relative' });
+
+  await userEvent.click(control);
+  const listbox = await screen.findByRole('listbox');
+  const dropdown = listbox.closest<HTMLElement>('.stock-picker-dropdown');
+  expect(dropdown).toBeInTheDocument();
+  expect(dropdown).toHaveStyle({ width: '100%' });
+  expect(picker).toContainElement(dropdown);
+});
+
+it('renders a stock name first with code and exchange metadata while preserving the legacy option name', async () => {
+  const request: RequestFn = async <T,>(path: string) => (path.includes('catalog-status')
+    ? { state: 'READY', count: 5558 }
+    : { items: [stock], page: 0, size: 20, totalElements: 1, totalPages: 1, hasNext: false }) as T;
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <StockPicker request={request} value={null} onChange={() => {}} />
+  </QueryClientProvider>);
+  await userEvent.click(screen.getByRole('combobox', { name: '证券' }));
+  const option = await screen.findByRole('option', { name: /000021.SZ · 深科技/ });
+  expect(within(option).getByText('深科技')).toHaveClass('stock-picker-option-name');
+  expect(within(option).getByText('000021')).toHaveClass('stock-picker-option-code');
+  expect(within(option).getByText('SZ')).toHaveClass('stock-picker-option-exchange');
+});
+
+it('closes the picker menu on Escape without closing a containing editor', async () => {
+  const request: RequestFn = async <T,>(path: string) => (path.includes('catalog-status')
+    ? { state: 'READY', count: 5558 }
+    : { items: [stock], page: 0, size: 20, totalElements: 1, totalPages: 1, hasNext: false }) as T;
+  let editorEscapes = 0;
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <div onKeyDown={() => { editorEscapes += 1; }}>
+      <StockPicker request={request} value={null} onChange={() => {}} />
+    </div>
+  </QueryClientProvider>);
+  const control = screen.getByRole('combobox', { name: '证券' });
+  await userEvent.click(control);
+  expect(control).toHaveAttribute('aria-expanded', 'true');
+  await userEvent.keyboard('{Escape}');
+  expect(control).toHaveAttribute('aria-expanded', 'false');
+  expect(editorEscapes).toBe(0);
 });
