@@ -75,7 +75,7 @@ class MarketScheduleTest {
         when(securities.findAll()).thenReturn(List.of(security));
         AtomicBoolean holidaySnapshotSaved = new AtomicBoolean();
         LocalDate previousTradingDay = LocalDate.of(2026, 9, 1);
-        when(snapshots.findBySecurityIdAndTradeDate(7L, previousTradingDay))
+        when(snapshots.findBySecurityIdAndTradeDateAndSource(7L, previousTradingDay, "TUSHARE"))
                 .thenAnswer(invocation -> holidaySnapshotSaved.get() ? Optional.of(mock(MarketPriceSnapshot.class)) : Optional.empty());
         org.mockito.Mockito.doAnswer(invocation -> {
             holidaySnapshotSaved.set(true);

@@ -30,7 +30,19 @@ public class Security {
     @Column(nullable = false)
     private boolean active;
 
+    @Column(name = "catalog_verified", nullable = false)
+    private boolean catalogVerified;
+
     protected Security() {
+    }
+
+    public Security(String market, String tsCode, String name) {
+        this.market = market;
+        this.tsCode = tsCode;
+        this.name = name;
+        this.securityType = "STOCK";
+        this.active = true;
+        this.catalogVerified = true;
     }
 
     public Long getId() { return id; }
@@ -39,4 +51,16 @@ public class Security {
     public String getName() { return name; }
     public String getSecurityType() { return securityType; }
     public boolean isActive() { return active; }
+    public boolean isCatalogVerified() { return catalogVerified; }
+
+    public void publishCatalog(String catalogName) {
+        this.name = catalogName;
+        this.active = true;
+        this.catalogVerified = true;
+    }
+
+    public void retireFromCatalog() {
+        this.active = false;
+        this.catalogVerified = false;
+    }
 }

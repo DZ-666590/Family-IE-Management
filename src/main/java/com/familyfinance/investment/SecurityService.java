@@ -7,10 +7,8 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,17 +25,14 @@ public class SecurityService {
     private final SecurityRepository securities;
     private final CurrentMembership currentMembership;
     private final FamilyMutationAuthorization mutationAuthorization;
-    private final JdbcTemplate jdbc;
 
     public SecurityService(
             SecurityRepository securities,
             CurrentMembership currentMembership,
-            FamilyMutationAuthorization mutationAuthorization,
-            JdbcTemplate jdbc) {
+            FamilyMutationAuthorization mutationAuthorization) {
         this.securities = securities;
         this.currentMembership = currentMembership;
         this.mutationAuthorization = mutationAuthorization;
-        this.jdbc = jdbc;
     }
 
     public SecurityPage search(Authentication authentication, String rawQuery, int page, int size) {
@@ -49,6 +44,10 @@ public class SecurityService {
         return new SecurityPage(
                 result.getContent().stream().map(SecurityResponse::from).toList(), safePage, safeSize,
                 result.getTotalElements(), result.getTotalPages(), result.hasNext());
+    }
+
+    public void requireMembership(Authentication authentication) {
+        currentMembership.require(authentication);
     }
 
     @Transactional
@@ -63,22 +62,14 @@ public class SecurityService {
 
     Security resolve(String rawCode, String rawName, Map<String, String> fields) {
         String code = normalizeCode(rawCode, fields);
-        String name = normalizeName(rawName, fields);
+        normalizeName(rawName, fields);
         if (!fields.isEmpty()) return null;
         Security existing = securities.findByTsCode(code).orElse(null);
-        if (existing != null) return requireActive(existing);
-        String market = code.substring(7);
-        try {
-            jdbc.update("""
-                    insert into securities (market,ts_code,name,security_type,active)
-                    values (?,?,?,'STOCK',true)
-                    """, market, code, name);
-        } catch (DataIntegrityViolationException exception) {
-            if (!isNaturalKeyDuplicate(exception)) throw exception;
-            // A concurrent household registered the same shared reference row first.
+        if (existing != null && !existing.isActive()) return requireActive(existing);
+        if (existing == null || !existing.isCatalogVerified()) {
+            throw new ResourceConflictException("SECURITY_NOT_LISTED", "请从股票搜索结果中选择证券");
         }
-        return requireActive(securities.findByTsCode(code)
-                .orElseThrow(() -> new IllegalStateException("证券代码创建后无法读取")));
+        return existing;
     }
 
     Security findActive(long id, Map<String, String> fields) {
@@ -108,19 +99,6 @@ public class SecurityService {
             throw new ResourceConflictException("SECURITY_INACTIVE", "证券当前不可用");
         }
         return security;
-    }
-
-    private static boolean isNaturalKeyDuplicate(DataIntegrityViolationException exception) {
-        Throwable current = exception;
-        while (current != null) {
-            String message = current.getMessage();
-            if (message != null && message.toUpperCase(Locale.ROOT)
-                    .contains("UK_SECURITIES_MARKET_CODE")) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
     }
 
     static void throwIfInvalid(Map<String, String> fields) {

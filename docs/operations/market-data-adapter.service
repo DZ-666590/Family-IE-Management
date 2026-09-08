@@ -1,0 +1,32 @@
+[Unit]
+Description=Family Finance loopback market data adapter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=family-finance-market
+Group=family-finance-market
+WorkingDirectory=/opt/family-finance/market-data
+ExecStart=/opt/family-finance/market-data/.venv/bin/python /opt/family-finance/market-data/server.py
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

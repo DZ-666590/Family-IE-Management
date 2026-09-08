@@ -138,7 +138,7 @@ public class QuoteRefreshService {
         var manual=overrides.findFirstByHouseholdIdAndSecurityIdAndEffectiveOnLessThanEqualOrderByEffectiveOnDescIdDesc(householdId,security.getId(),day);
         if(manual.isPresent())return MarketPriceResponse.manual(security,manual.get(),manual.get().getEffectiveOn().isBefore(day));
         return snapshots.findFirstBySecurityIdAndTradeDateLessThanEqualOrderByTradeDateDescFetchedAtDescIdDesc(security.getId(),day)
-            .map(value->MarketPriceResponse.tushare(security,value,value.getTradeDate().isBefore(day)))
+            .map(value->MarketPriceResponse.provider(security,value,value.getTradeDate().isBefore(day)))
             .orElseGet(()->MarketPriceResponse.noQuote(security,"NO_QUOTE"));
     }
 
@@ -189,7 +189,8 @@ public class QuoteRefreshService {
         for (DailyQuote quote : quotes) {
             Security security = byCode.get(quote.symbol());
             if (security == null || !security.isActive()) continue;
-            if (snapshots.findBySecurityIdAndTradeDate(security.getId(), quote.tradeDate()).isPresent()) continue;
+            if (snapshots.findBySecurityIdAndTradeDateAndSource(
+                    security.getId(), quote.tradeDate(), quote.source().name()).isPresent()) continue;
             try { snapshots.saveAndFlush(new MarketPriceSnapshot(security, quote, now)); saved++; }
             catch (DataIntegrityViolationException ignored) { }
         }
@@ -214,7 +215,8 @@ public class QuoteRefreshService {
     private boolean hasToday(List<Security> held, LocalDate today) {
         if (held.isEmpty()) return true;
         Set<Long> ids = held.stream().map(Security::getId).collect(java.util.stream.Collectors.toSet());
-        return snapshots.findBySecurityIdInAndTradeDate(ids, today).stream().map(snapshot -> snapshot.getSecurity().getId())
+        return snapshots.findBySecurityIdInAndTradeDateAndSource(ids, today, provider.source().name()).stream()
+                .map(snapshot -> snapshot.getSecurity().getId())
                 .collect(java.util.stream.Collectors.toSet()).containsAll(ids);
     }
 
@@ -227,7 +229,7 @@ public class QuoteRefreshService {
             if (manual.isPresent()) result.add(MarketPriceResponse.manual(security, manual.get(), manual.get().getEffectiveOn().isBefore(today)));
             else {
                 var quote = snapshots.findFirstBySecurityIdOrderByTradeDateDescFetchedAtDescIdDesc(security.getId());
-                result.add(quote.map(value -> MarketPriceResponse.tushare(security, value, value.getTradeDate().isBefore(today)))
+                result.add(quote.map(value -> MarketPriceResponse.provider(security, value, value.getTradeDate().isBefore(today)))
                         .orElseGet(() -> MarketPriceResponse.noQuote(security, "NO_QUOTE")));
             }
         }

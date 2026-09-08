@@ -37,6 +37,9 @@ class WealthAccountingApiTest {
   cash=jdbc.queryForObject("select id from financial_accounts where household_id=?",Long.class,household);
   change("/api/accounts/"+cash,"{\"openingBalance\":\"500000.00\",\"openingOn\":\"2026-01-01\"}","fund").andExpect(status().isOk());
   investment=id(send("/api/investment-accounts","{\"name\":\"Broker\",\"brokerName\":\"Local\",\"currency\":\"CNY\",\"fundingAccountId\":"+cash+"}","broker").andExpect(status().isCreated()));
+  if(jdbc.queryForObject("select count(*) from securities where ts_code='600000.SH'",Long.class)==0)
+   jdbc.update("insert into securities(market,ts_code,name,security_type,active,catalog_verified) values('SH','600000.SH','浦发银行','STOCK',true,true)");
+  else jdbc.update("update securities set active=true,catalog_verified=true where ts_code='600000.SH'");
  }
  @Test void paidAssetMovesCashWithoutCreatingWealthAndArchiveCannotEraseIt() throws Exception {
   long a=id(send("/api/assets",asset("PURCHASE","500000.00","500000.00"),"asset").andExpect(status().isCreated()));

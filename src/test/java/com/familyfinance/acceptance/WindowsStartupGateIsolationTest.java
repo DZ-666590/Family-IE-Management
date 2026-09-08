@@ -179,8 +179,8 @@ class WindowsStartupGateIsolationTest {
                 ". (Join-Path $PSScriptRoot 'scripts\\startup-h2-inspection.ps1')",
                 "powershell.exe",
                 "Windows PowerShell 5.1 inspector regression");
-        assertThat(Files.readString(Path.of(".github", "workflows", "windows-startup-smoke.yml")))
-                .contains("- scripts/startup-h2-inspection.ps1", "- scripts/FlywayStateInspector.java");
+        // The local Windows startup workflow was intentionally retired in 5af9571. The reusable
+        // inspector and PowerShell isolation assertions above remain the supported regression gate.
     }
 
     @Test

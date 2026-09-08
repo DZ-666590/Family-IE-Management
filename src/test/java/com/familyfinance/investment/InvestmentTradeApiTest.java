@@ -44,6 +44,91 @@ class InvestmentTradeApiTest {
     @Autowired JdbcTemplate jdbc;
 
     @Test
+    void unknownSecurityCannotBeRegisteredThroughResolveOrTradeCode() throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        long accountId = createAccount(owner, "禁止直录账户");
+
+        mvc.perform(post("/api/securities/resolve").session(owner).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tsCode\":\"600000.SH\",\"name\":\"任意名称\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("SECURITY_NOT_LISTED"));
+        mvc.perform(post("/api/investment-trades").session(owner).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"accountId":%d,"tsCode":"600000.SH","securityName":"任意名称",
+                                 "type":"BUY","quantity":"1.0000","price":"10.00","fee":"0.00",
+                                 "tradedOn":"2026-01-01"}
+                                """.formatted(accountId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("SECURITY_NOT_LISTED"));
+        assertThat(jdbc.queryForObject(
+                "select count(*) from securities where ts_code='600000.SH'", Long.class)).isZero();
+    }
+
+    @Test
+    void verifiedCatalogRowsAreSearchableAndResolvableWithoutRenaming() throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        jdbc.update("""
+                insert into securities (market,ts_code,name,security_type,active,catalog_verified)
+                values ('SZ','000001.SZ','平安银行','STOCK',true,true)
+                """);
+        long id = jdbc.queryForObject(
+                "select id from securities where ts_code='000001.SZ'", Long.class);
+
+        mvc.perform(get("/api/securities/search").session(owner).param("q", "平安"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].id").value(id));
+        mvc.perform(post("/api/securities/resolve").session(owner).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tsCode\":\"000001.sz\",\"name\":\"伪造名称\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(id))
+                .andExpect(jsonPath("$.data.name").value("平安银行"));
+    }
+
+    @Test
+    void investmentSetupIsHouseholdDurableAdminOnlyAndRequiresConfirmedFunding() throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        MockHttpSession member = join(owner, uniqueEmail("setup-member"), HouseholdRole.MEMBER);
+
+        mvc.perform(get("/api/investment-setup").session(member))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.completed").value(false))
+                .andExpect(jsonPath("$.data.hasAccounts").value(false))
+                .andExpect(jsonPath("$.data.hasTrades").value(false));
+        mvc.perform(post("/api/investment-setup/complete").session(member).with(csrf()))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/investment-setup/complete").session(owner).with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVESTMENT_SETUP_ACCOUNT_REQUIRED"));
+
+        long funding = jdbc.queryForObject(
+                "select id from financial_accounts where household_id=1 and archived_at is null order by id limit 1",
+                Long.class);
+        jdbc.update("update financial_accounts set opening_confirmed=true where id=?", funding);
+        long user = currentUserId("demo@local.family");
+        jdbc.update("""
+                insert into investment_accounts
+                    (household_id,name,broker_name,currency,archived_at,created_by,funding_account_id)
+                values (1,'初始化账户','测试券商','CNY',null,?,?)
+                """, user, funding);
+
+        mvc.perform(post("/api/investment-setup/complete").session(owner).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.completed").value(true))
+                .andExpect(jsonPath("$.data.hasAccounts").value(true));
+        mvc.perform(post("/api/investment-setup/complete").session(owner).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.completed").value(true));
+        mvc.perform(get("/api/investment-setup").session(member))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.completed").value(true));
+        assertThat(jdbc.queryForObject(
+                "select count(*) from investment_setup where household_id=1", Long.class)).isEqualTo(1L);
+    }
+
+    @Test
     void investmentAccountCrudArchiveAndPagingAreHouseholdScopedAndAdminOnly() throws Exception {
         MockHttpSession owner = login("demo", "demo1234");
         MockHttpSession admin = join(owner, uniqueEmail("invest-admin"), HouseholdRole.ADMIN);
@@ -112,7 +197,7 @@ class InvestmentTradeApiTest {
     }
 
     @Test
-    void localSecurityResolveNormalizesValidAShareCodesAndConcurrentDuplicatesConverge() throws Exception {
+    void catalogSecurityResolveNormalizesValidAShareCodesAndConcurrentSelectionsConverge() throws Exception {
         MockHttpSession owner = login("demo", "demo1234");
         MockHttpSession member = join(owner, uniqueEmail("security-member"), HouseholdRole.MEMBER);
         registerCreate("security-other@example.com", "证券二号家庭");
@@ -130,8 +215,8 @@ class InvestmentTradeApiTest {
         for (int index = 0; index < 25; index++) {
             String code = "%06d.SH".formatted(700000 + index);
             jdbc.update("""
-                    insert into securities (market,ts_code,name,security_type,active)
-                    values ('SH',?,?,'STOCK',true)
+                    insert into securities (market,ts_code,name,security_type,active,catalog_verified)
+                    values ('SH',?,?,'STOCK',true,true)
                     """, code, "稳定排序证券-" + index);
         }
         JsonNode searchItems = body(mvc.perform(get("/api/securities/search").session(member)
@@ -156,6 +241,7 @@ class InvestmentTradeApiTest {
                     .andExpect(jsonPath("$.error.fields.tsCode").exists());
         }
 
+        catalogSecurity("000001.SZ", "平安银行");
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
@@ -176,6 +262,7 @@ class InvestmentTradeApiTest {
                 "select count(*) from securities where ts_code='000001.SZ'", Long.class)).isEqualTo(1L);
 
         long accountId = createAccount(owner, "代码直录账户");
+        catalogSecurity("300750.SZ", "宁德时代");
         mvc.perform(post("/api/investment-trades").session(owner).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -400,10 +487,21 @@ class InvestmentTradeApiTest {
     }
 
     private long resolveSecurity(MockHttpSession session, String code, String name) throws Exception {
+        catalogSecurity(code, name);
         return body(mvc.perform(post("/api/securities/resolve").session(session).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"tsCode\":\"" + code + "\",\"name\":\"" + name + "\"}"))
                 .andExpect(status().isOk()).andReturn()).path("data").path("id").asLong();
+    }
+
+    private void catalogSecurity(String rawCode, String rawName) {
+        String code = rawCode.trim().toUpperCase(java.util.Locale.ROOT);
+        String market = code.substring(code.length() - 2);
+        if (jdbc.queryForObject("select count(*) from securities where ts_code=?", Long.class, code) > 0) return;
+        jdbc.update("""
+                merge into securities (market,ts_code,name,security_type,active,catalog_verified)
+                key(market,ts_code) values (?, ?, ?, 'STOCK', true, true)
+                """, market, code, rawName.trim());
     }
 
     private long createTrade(MockHttpSession session, String requestBody) throws Exception {

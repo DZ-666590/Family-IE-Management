@@ -222,6 +222,10 @@ public class InvestmentTradeService {
                 request.securityId(), request.tsCode(), request.securityName(), null, fields);
         InvestmentTradeType type = request.type();
         if (type == null) fields.put("type", "交易类型不能为空");
+        if (security != null && !security.isCatalogVerified()
+                && (type == InvestmentTradeType.BUY || type == InvestmentTradeType.OPENING)) {
+            throw new ResourceConflictException("SECURITY_NOT_LISTED", "请从股票搜索结果中选择证券");
+        }
         BigDecimal quantity = parseQuantity(request.quantity(), type, null, fields);
         Long price = parsePositiveMoney(request.price(), "price", fields);
         Long fee = parseNonNegativeMoney(request.fee(), "fee", 0L, fields);

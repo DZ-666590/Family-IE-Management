@@ -17,9 +17,9 @@ public record MarketPriceResponse(
                 Money.formatCents(override.getPriceCents()), QuoteSource.MANUAL, override.getEffectiveOn(),
                 null, stale, null);
     }
-    static MarketPriceResponse tushare(Security security, MarketPriceSnapshot snapshot, boolean stale) {
+    static MarketPriceResponse provider(Security security, MarketPriceSnapshot snapshot, boolean stale) {
         return new MarketPriceResponse(security.getId(), security.getTsCode(), security.getName(),
-                Money.formatCents(snapshot.getCloseCents()), QuoteSource.TUSHARE, snapshot.getTradeDate(),
+                Money.formatCents(snapshot.getCloseCents()), snapshot.getSource(), snapshot.getTradeDate(),
                 snapshot.getFetchedAt(), stale, null);
     }
 }

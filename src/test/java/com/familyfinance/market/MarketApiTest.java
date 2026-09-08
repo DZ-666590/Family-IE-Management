@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
@@ -29,6 +30,32 @@ import java.time.ZoneId;
 class MarketApiTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper objectMapper;
+    @Autowired JdbcTemplate jdbc;
+
+    @Test
+    void disabledCatalogIsExplicitAndUnsupportedSecuritiesNeverFabricateCandles() throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        jdbc.update("""
+                insert into securities (market,ts_code,name,security_type,active,catalog_verified)
+                values ('BJ','920002.BJ','万达轴承','STOCK',true,true)
+                """);
+        long id = jdbc.queryForObject("select id from securities where ts_code='920002.BJ'", Long.class);
+
+        mvc.perform(get("/api/securities/catalog-status").session(owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("DISABLED"))
+                .andExpect(jsonPath("$.data.count").value(0));
+        mvc.perform(get("/api/securities/{id}/candles", id).session(owner).param("adjust", "qfq"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.symbol").value("920002.BJ"))
+                .andExpect(jsonPath("$.data.source").value("BAOSTOCK"))
+                .andExpect(jsonPath("$.data.adjustment").value("qfq"))
+                .andExpect(jsonPath("$.data.supported").value(false))
+                .andExpect(jsonPath("$.data.bars.length()").value(0));
+        mvc.perform(get("/api/securities/{id}/candles", id).session(owner).param("adjust", "hfq"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.fields.adjust").exists());
+    }
 
     @Test
     void noTokenDoesNotBlockStartupManualPriceWinsAndMembersCannotWrite() throws Exception {
@@ -60,6 +87,10 @@ class MarketApiTest {
     }
 
     private long resolve(MockHttpSession session, String code, String name) throws Exception {
+        jdbc.update("""
+                insert into securities (market,ts_code,name,security_type,active,catalog_verified)
+                values (?, ?, ?, 'STOCK', true, true)
+                """, code.substring(7), code, name);
         return body(mvc.perform(post("/api/securities/resolve").session(session).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"tsCode\":\"" + code + "\",\"name\":\"" + name + "\"}"))
                 .andExpect(status().isOk()).andReturn()).path("data").path("id").asLong();

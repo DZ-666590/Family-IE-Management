@@ -1,6 +1,8 @@
 package com.familyfinance.investment;
 
 import com.familyfinance.shared.ApiEnvelope;
+import com.familyfinance.market.SecurityCatalogService;
+import com.familyfinance.market.SecurityCatalogStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,9 +17,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class SecurityController {
 
     private final SecurityService securities;
+    private final SecurityCatalogService catalog;
 
-    public SecurityController(SecurityService securities) {
+    public SecurityController(SecurityService securities, SecurityCatalogService catalog) {
         this.securities = securities;
+        this.catalog = catalog;
+    }
+
+    @GetMapping("/catalog-status")
+    ApiEnvelope<SecurityCatalogStatus> catalogStatus(Authentication authentication) {
+        securities.requireMembership(authentication);
+        return ApiEnvelope.data(catalog.status());
     }
 
     @GetMapping("/search")

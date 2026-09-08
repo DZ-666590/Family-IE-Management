@@ -11,6 +11,8 @@ public interface SecurityRepository extends JpaRepository<Security, Long> {
 
     Optional<Security> findByTsCodeAndActiveTrue(String tsCode);
 
+    Optional<Security> findByTsCodeAndActiveTrueAndCatalogVerifiedTrue(String tsCode);
+
     Optional<Security> findByTsCode(String tsCode);
 
     Optional<Security> findByIdAndActiveTrue(Long id);
@@ -18,6 +20,7 @@ public interface SecurityRepository extends JpaRepository<Security, Long> {
     @Query("""
             select security from Security security
             where security.active = true
+              and security.catalogVerified = true
               and (upper(security.tsCode) like concat('%', :query, '%')
                    or upper(security.name) like concat('%', :query, '%'))
             """)

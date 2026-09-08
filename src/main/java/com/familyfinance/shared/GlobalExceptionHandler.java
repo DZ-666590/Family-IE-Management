@@ -8,6 +8,7 @@ import com.familyfinance.identity.RegistrationRequestBodyTooLargeException;
 import com.familyfinance.identity.RegistrationRateLimitedException;
 import com.familyfinance.investment.InvestmentValidationException;
 import com.familyfinance.market.MarketValidationException;
+import com.familyfinance.market.MarketProviderException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -69,6 +70,12 @@ public class GlobalExceptionHandler {
     ResponseEntity<ApiEnvelope<Void>> handleMarketValidation(MarketValidationException exception) {
         return ResponseEntity.unprocessableEntity()
                 .body(ApiEnvelope.error(new ApiError("VALIDATION_ERROR", "请检查行情价格", exception.fields())));
+    }
+
+    @ExceptionHandler(MarketProviderException.class)
+    ResponseEntity<ApiEnvelope<Void>> handleMarketProvider(MarketProviderException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiEnvelope.error(ApiError.of(exception.code(), "行情暂时不可用，请稍后重试")));
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)

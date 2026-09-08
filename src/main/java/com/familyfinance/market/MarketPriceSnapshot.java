@@ -33,11 +33,12 @@ public class MarketPriceSnapshot {
         this.security = security; this.tradeDate = quote.tradeDate(); this.openCents = quote.openCents();
         this.highCents = quote.highCents(); this.lowCents = quote.lowCents(); this.closeCents = quote.closeCents();
         this.preCloseCents = quote.preCloseCents(); this.pctChange = quote.pctChange();
-        this.source = QuoteSource.TUSHARE.name(); this.fetchedAt = fetchedAt;
+        this.source = quote.source().name(); this.fetchedAt = fetchedAt;
     }
     public Long getId() { return id; }
     public Security getSecurity() { return security; }
     public LocalDate getTradeDate() { return tradeDate; }
     public long getCloseCents() { return closeCents; }
+    public QuoteSource getSource() { return QuoteSource.valueOf(source); }
     public Instant getFetchedAt() { return fetchedAt; }
 }

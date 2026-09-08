@@ -9,4 +9,8 @@ public interface MarketQuoteProvider {
     default boolean available() {
         return true;
     }
+
+    default QuoteSource source() {
+        return QuoteSource.TUSHARE;
+    }
 }

@@ -47,8 +47,9 @@ class QuoteRefreshServiceTest {
         InvestmentTrade buyTwo = trade(account, security, "2.0000");
         when(trades.findActiveAccountTradesByHouseholdId(1L)).thenReturn(List.of(buyOne, buyTwo));
         when(securities.findAllById(any())).thenReturn(List.of(security));
-        when(snapshots.findBySecurityIdInAndTradeDate(any(), any())).thenReturn(List.of());
-        when(snapshots.findBySecurityIdAndTradeDate(7L, LocalDate.of(2026, 9, 3))).thenReturn(Optional.empty());
+        when(snapshots.findBySecurityIdInAndTradeDateAndSource(any(), any(), any())).thenReturn(List.of());
+        when(snapshots.findBySecurityIdAndTradeDateAndSource(
+                7L, LocalDate.of(2026, 9, 3), "TUSHARE")).thenReturn(Optional.empty());
         when(securities.findAll()).thenReturn(List.of(security));
         when(snapshots.findFirstBySecurityIdOrderByTradeDateDescFetchedAtDescIdDesc(7L)).thenReturn(Optional.empty());
         when(overrides.findFirstByHouseholdIdAndSecurityIdAndEffectiveOnLessThanEqualOrderByEffectiveOnDescIdDesc(

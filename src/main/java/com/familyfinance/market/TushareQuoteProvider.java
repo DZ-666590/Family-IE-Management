@@ -15,13 +15,11 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-@Component
 public class TushareQuoteProvider implements MarketQuoteProvider {
 
     private static final Pattern SYMBOL = Pattern.compile("^[0-9]{6}\\.(SH|SZ|BJ)$");
