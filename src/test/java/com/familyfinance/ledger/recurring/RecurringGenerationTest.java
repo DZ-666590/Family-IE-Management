@@ -59,6 +59,20 @@ class RecurringGenerationTest {
     @Autowired JdbcTemplate jdbc;
 
     @Test
+    void newlyCreatedDueRuleIsImmediatelyVisibleWithoutPostingCash() throws Exception {
+        MockHttpSession owner = login();
+        long before = transactions.count();
+        long journalsBefore = jdbc.queryForObject("select count(*) from ledger_journals", Long.class);
+        long ruleId = createRule(owner, monthlyBody(fixture(), 31, "2026-03-31", null, false)).path("id").asLong();
+        assertThat(occurrences.findByRuleIdOrderByDueOnAscIdAsc(ruleId)).hasSize(1);
+        assertThat(transactions.count()).isEqualTo(before);
+        assertThat(jdbc.queryForObject("select count(*) from ledger_journals", Long.class)).isEqualTo(journalsBefore);
+        recurringService.generateDueOccurrences();
+        assertThat(occurrences.findByRuleIdOrderByDueOnAscIdAsc(ruleId)).hasSize(1);
+        assertThat(transactions.count()).isEqualTo(before);
+    }
+
+    @Test
     void monthlyDayThirtyOneClampsAtMonthEndAndRerunCreatesNoDuplicatesOrTransactions() throws Exception {
         MockHttpSession owner = login();
         Fixture fixture = fixture();
@@ -159,7 +173,7 @@ class RecurringGenerationTest {
                 .path("id").asLong();
         JsonNode ended = createRule(owner, monthlyBody(fixture, 3, "2026-02-01", "2026-02-27", false));
         long endedId = ended.path("id").asLong();
-        assertThat(ended.path("nextDueOn").asText()).isEqualTo("2026-02-03");
+        assertThat(ended.path("nextDueOn").isNull()).isTrue();
 
         recurringService.generateDueOccurrences();
         assertThat(occurrences.findByRuleIdOrderByDueOnAscIdAsc(pausedId)).isEmpty();
@@ -240,10 +254,8 @@ class RecurringGenerationTest {
         long normalRule = createRule(owner, monthlyBody(fixture, 31, "2026-03-31", null, false))
                 .path("id").asLong();
 
-        int firstCreated = recurringService.generateDueOccurrences();
-
         assertThat(RecurringGenerator.MAX_OCCURRENCES_PER_RULE_PER_RUN).isEqualTo(120);
-        assertThat(firstCreated).isEqualTo(RecurringGenerator.MAX_OCCURRENCES_PER_RULE_PER_RUN + 1);
+        // Initial creation is also bounded; another rule is immediately available despite the backlog.
         assertThat(occurrences.findByRuleIdOrderByDueOnAscIdAsc(backlogRule))
                 .hasSize(RecurringGenerator.MAX_OCCURRENCES_PER_RULE_PER_RUN);
         assertThat(occurrences.findByRuleIdOrderByDueOnAscIdAsc(normalRule)).hasSize(1);
@@ -252,6 +264,8 @@ class RecurringGenerationTest {
                 .isEqualTo(java.time.LocalDate.parse("2020-01-01"));
         assertThat(rules.findById(backlogRule).orElseThrow().getNextDueOn())
                 .isEqualTo(java.time.LocalDate.parse("2020-01-01"));
+
+        assertThat(recurringService.generateDueOccurrences()).isEqualTo(75);
 
         for (int invocation = 0; invocation < 10; invocation++) {
             var rule = rules.findById(backlogRule).orElseThrow();

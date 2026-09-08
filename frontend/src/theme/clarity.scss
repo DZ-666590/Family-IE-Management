@@ -262,5 +262,11 @@
 .audit-list td, .audit-list th { padding: 10px 6px; text-align: left; border-bottom: 1px solid #e5e9ee; }
 .audit-list td small { display: block; color: #67727e; }
 .segmented-tabs { flex-wrap: wrap; }
-.data-card .card-actions { flex-wrap: wrap; }
+.data-card { grid-template-columns: 38px minmax(0, 1fr); }
+.data-card > div { min-width: 0; overflow-wrap: anywhere; }
+.data-card .card-actions { grid-column: 2 / -1; flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .data-card .card-actions { grid-column: 1 / -1; gap: 6px; }
+  .data-card .card-actions button { min-height: 40px; font-size: 13px; }
+}
 @media (max-width: 640px) { .payment-preview { padding: 14px; } .audit-list summary span { display: block; margin-left: 0; } }

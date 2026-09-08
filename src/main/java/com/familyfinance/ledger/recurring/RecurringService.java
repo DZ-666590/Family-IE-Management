@@ -138,6 +138,8 @@ public class RecurringService {
                     data.dayOfMonth(), data.dayOfWeek(), data.startOn(), data.endOn(), nextDue,
                     data.account(), data.member(), data.category(), data.assignedUser(), data.paused(),
                     access.membership().getUser()));
+            generator.generateForLockedRule(saved);
+            occurrences.flush();
             return RecurringRuleResponse.from(saved);
         } catch (DataIntegrityViolationException exception) {
             throw staleWrite();

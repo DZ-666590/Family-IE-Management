@@ -50,13 +50,17 @@ export function RecurringPage({ request, role, userId }: { request: RequestFn; r
       method: value.id ? 'PATCH' : 'POST',
       body: { ...value, accountId: Number(value.accountId), memberId: Number(value.memberId), categoryId: Number(value.categoryId), assignedUserId: Number(value.assignedUserId), dayOfMonth: value.scheduleType === 'WEEKLY' ? null : value.dayOfMonth, dayOfWeek: value.scheduleType === 'WEEKLY' ? value.dayOfWeek : null },
     }),
-    onSuccess: () => { setDraft(null); refreshRecurring(); },
+    onSuccess: () => { setDraft(null); setSection('rules'); refreshRecurring(); },
   });
   const archive = useMutation({ mutationFn: (id: number) => request<void>(`/api/recurring-rules/${id}`, { method: 'DELETE' }), onSuccess: refreshRecurring });
   const confirm = useMutation({ mutationFn: (id: number) => request<RecurringOccurrence>(`/api/recurring-occurrences/${id}/confirm`, { method: 'POST' }), onError: fundsError, onSuccess: () => { setPayment(null); refreshRecurring(); } });
   const confirmBatch = useMutation({ mutationFn: (ids: number[]) => request('/api/recurring-occurrences/confirm', { method: 'POST', body: { occurrenceIds: ids } }), onError: fundsError, onSuccess: () => { setSelectedOccurrenceIds([]); refreshRecurring(); } });
   const skip = useMutation({ mutationFn: (id: number) => request<RecurringOccurrence>(`/api/recurring-occurrences/${id}/cancel`, { method: 'POST' }), onSuccess: (_data, id) => { setSelectedOccurrenceIds(ids => ids.filter(item => item !== id)); refreshRecurring(); } });
-  const newRule = (): RuleDraft => ({ kind: 'expense', amount: '', scheduleType: 'MONTHLY', intervalValue: 1, dayOfMonth: 1, dayOfWeek: null, startOn: businessDate(), endOn: null, accountId: '', memberId: '', categoryId: '', assignedUserId: '', paused: false });
+  const newRule = (): RuleDraft => {
+    const eligible = (accounts.data ?? []).filter(account => account.openingConfirmed && account.openingOn && !account.archivedAt && (account.currency ?? 'CNY') === 'CNY');
+    const confirmers = (memberships.data ?? []).filter(member => member.status === 'ACTIVE');
+    return { kind: 'expense', amount: '', scheduleType: 'MONTHLY', intervalValue: 1, dayOfMonth: 1, dayOfWeek: null, startOn: businessDate(), endOn: null, accountId: eligible.length === 1 ? String(eligible[0].id) : '', memberId: members.data?.length === 1 ? String(members.data[0].id) : '', categoryId: '', assignedUserId: confirmers.length === 1 ? String(confirmers[0].userId) : '', paused: false };
+  };
   const editRule = (item: RecurringRule): RuleDraft => ({ id: item.id, kind: item.kind, amount: item.amount, scheduleType: item.scheduleType, intervalValue: item.intervalValue, dayOfMonth: item.dayOfMonth, dayOfWeek: item.dayOfWeek, startOn: item.startOn, endOn: item.endOn, accountId: String(item.accountId), memberId: String(item.memberId), categoryId: String(item.categoryId), assignedUserId: String(item.assignedUserId), paused: item.paused });
   const toggleSelected = (id: number) => setSelectedOccurrenceIds(ids => ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id]);
   const toggleAll = () => setSelectedOccurrenceIds(allSelected ? [] : selectableItems.map(item => item.id));

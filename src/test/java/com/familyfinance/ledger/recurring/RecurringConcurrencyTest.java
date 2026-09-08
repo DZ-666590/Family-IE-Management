@@ -279,11 +279,13 @@ class RecurringConcurrencyTest {
                         .contentType("application/json").content("""
                                 {"kind":"EXPENSE","amount":"%s","scheduleType":"MONTHLY","intervalValue":1,
                                  "dayOfMonth":3,"startOn":"2026-09-03","accountId":%d,"memberId":%d,
-                                 "categoryId":%d,"assignedUserId":%d,"paused":false}
+                                 "categoryId":%d,"assignedUserId":%d,"paused":true}
                                 """.formatted(amount, accountId, memberId, categoryId, ownerUser.getId())))
                 .andExpect(status().isCreated()).andReturn();
         long ruleId = objectMapper.readTree(created.getResponse().getContentAsString())
                 .path("data").path("id").asLong();
+        // Model a rule becoming due after creation so the scheduler (not create) owns the tested insert.
+        jdbc.update("update recurring_rules set paused=false where id=?", ruleId);
         return new PreparedRule(owner, householdId, ruleId);
     }
 

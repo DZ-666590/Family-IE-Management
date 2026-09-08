@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StockChart } from './StockChart';
+import { ReferenceQuote } from './quote-experience';
 import type { RequestFn } from '../common';
 
 const chart = vi.hoisted(() => ({ setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), createIndicator: vi.fn(), setBarSpace: vi.fn(), scrollToRealTime: vi.fn(), resize: vi.fn() }));
@@ -17,6 +18,16 @@ beforeEach(() => {
   init.mockReturnValue(chart);
   dispose.mockClear();
   Object.values(chart).forEach(mock => mock.mockClear());
+});
+it('shares one unadjusted request between reference price and initial chart instead of racing the adapter', async () => {
+  const request = vi.fn(async (path: string) => ({...data, adjustment: path.endsWith('none') ? 'none' : 'qfq'}));
+  render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><ReferenceQuote request={request as RequestFn} security={stock}/><StockChart request={request as RequestFn} security={stock}/></QueryClientProvider>);
+  await waitFor(() => expect(chart.setDataLoader).toHaveBeenCalled());
+  expect(await screen.findByRole('complementary', {name: '参考报价'})).toHaveTextContent('¥15.00');
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(request).toHaveBeenCalledWith('/api/securities/5/candles?adjust=none');
+  await userEvent.selectOptions(screen.getByLabelText('复权方式'), 'qfq');
+  await waitFor(() => expect(request).toHaveBeenCalledWith('/api/securities/5/candles?adjust=qfq'));
 });
 it('loads selected stock candles, hands actual bars to KLineChart, and disposes on close', async () => {
   const request = vi.fn(async () => data);

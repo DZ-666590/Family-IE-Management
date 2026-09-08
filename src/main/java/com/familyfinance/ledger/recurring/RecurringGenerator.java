@@ -33,21 +33,7 @@ public class RecurringGenerator {
         int created = 0;
         for (RecurringRule rule : rules
                 .findByActiveTrueAndPausedFalseAndNextDueOnLessThanEqualOrderByIdAsc(today)) {
-            LocalDate cutoff = rule.getEndOn() == null || rule.getEndOn().isAfter(today)
-                    ? today : rule.getEndOn();
-            int processed = 0;
-            LocalDate due = rule.getNextDueOn();
-            while (due != null
-                    && !due.isAfter(cutoff)
-                    && processed < MAX_OCCURRENCES_PER_RULE_PER_RUN) {
-                if (!occurrences.existsByRuleIdAndDueOn(rule.getId(), due)) {
-                    occurrences.save(new RecurringOccurrence(rule, due));
-                    created++;
-                }
-                processed++;
-                due = RecurrenceCalculator.nextDue(rule, due);
-            }
-            rule.advanceTo(RecurrenceCalculator.withinEnd(due, rule.getEndOn()));
+            created += generateForLockedRule(rule);
         }
         try {
             occurrences.flush();
@@ -55,6 +41,25 @@ public class RecurringGenerator {
         } catch (DataIntegrityViolationException exception) {
             throw new ResourceConflictException("RECURRENCE_RACE", "周期发生项已由另一任务生成，请重试");
         }
+        return created;
+    }
+
+    /** Caller owns this rule's transaction/lock; never locks unrelated households. No cash is posted. */
+    int generateForLockedRule(RecurringRule rule) {
+        if (!rule.isActive() || rule.isPaused()) return 0;
+        LocalDate today = LocalDate.now(clock.withZone(SHANGHAI));
+        LocalDate cutoff = rule.getEndOn() == null || rule.getEndOn().isAfter(today) ? today : rule.getEndOn();
+        int processed = 0, created = 0;
+        LocalDate due = rule.getNextDueOn();
+        while (due != null && !due.isAfter(cutoff) && processed < MAX_OCCURRENCES_PER_RULE_PER_RUN) {
+            if (!occurrences.existsByRuleIdAndDueOn(rule.getId(), due)) {
+                occurrences.save(new RecurringOccurrence(rule, due));
+                created++;
+            }
+            processed++;
+            due = RecurrenceCalculator.nextDue(rule, due);
+        }
+        rule.advanceTo(RecurrenceCalculator.withinEnd(due, rule.getEndOn()));
         return created;
     }
 }

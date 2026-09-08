@@ -73,6 +73,8 @@ it('creates a transaction with selected server account category and member', asy
   await screen.findByText('还没有收支记录');
   await user.click(screen.getByRole('button', { name: '记一笔' }));
   const dialog = screen.getByRole('dialog', { name: '记一笔' });
+  expect(within(dialog).getByLabelText('账户')).toHaveValue('1');
+  expect(within(dialog).getByLabelText('成员')).toHaveValue('3');
   await user.type(within(dialog).getByLabelText('金额'), '68.50');
   await user.selectOptions(within(dialog).getByLabelText('账户'), '1');
   await user.selectOptions(within(dialog).getByLabelText('分类'), '2');
@@ -93,6 +95,19 @@ function transactionItem(id: number, creator = '演示用户') {
     sourceType: 'MANUAL', createdAt: '', updatedAt: ''
   };
 }
+
+it('does not preselect an account whose opening date is missing', async () => {
+  const request = async (path: string) => {
+    if (path.startsWith('/api/accounts')) return pageResult([{id: 1, name: '待核对账户', type: 'CASH', currency: 'CNY', openingConfirmed: true, openingOn: null, availableBalance: '10.00', balance: '10.00', openingBalance: '10.00', archivedAt: null}]);
+    if (path === '/api/members') return [];
+    return pageResult([]);
+  };
+  const user = userEvent.setup();
+  render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><TransactionsPage request={request as RequestFn} role="OWNER" userId={7}/></QueryClientProvider>);
+  await screen.findByText('还没有收支记录');
+  await user.click(screen.getByRole('button', {name: '记一笔'}));
+  expect(within(screen.getByRole('dialog', {name: '记一笔'})).getByRole('combobox', {name: '账户'})).toHaveValue('');
+});
 
 it('shows creator, paginates transactions, and links a complete csv export', async () => {
   const request = vi.fn(async (path: string) => {

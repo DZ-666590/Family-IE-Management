@@ -17,6 +17,10 @@ it('separates existing opening assets from cash purchases and exposes immutable 
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: '新建资产' }));
   expect(screen.getByLabelText('入账方式')).toHaveValue('OPENING');
+  expect(screen.getByLabelText('购入日期')).not.toBeRequired();
+  await user.type(screen.getByLabelText('购入价值'), '100');
+  expect(screen.getByLabelText('购入日期')).toBeRequired();
+  expect(screen.getByText('填写购入价值时，也需填写购入日期；不确定历史信息可将两项都留空。')).toBeInTheDocument();
   await user.selectOptions(screen.getByLabelText('入账方式'), 'PURCHASE');
   expect(screen.getByLabelText('资金账户')).toBeRequired();
   await user.keyboard('{Escape}');

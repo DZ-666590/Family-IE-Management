@@ -24,6 +24,7 @@ it('creates a US investment through the unified picker and previews USD cash wit
  };
  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><InvestmentsPage request={request} role="OWNER"/></QueryClientProvider>);
  const user=userEvent.setup();await user.click(screen.getByRole('button',{name:'记一笔投资'}));const form=within(screen.getByRole('dialog',{name:'记一笔投资'}));
+ expect(await form.findByRole('option',{name:'美元证券 · USD'})).toBeInTheDocument();
  await user.click(form.getByRole('button',{name:'美股'}));await waitFor(()=>expect(form.getByRole('combobox',{name:'证券'})).toHaveAttribute('aria-disabled','false'));
  await user.click(form.getByRole('combobox',{name:'证券'}));await user.click(await screen.findByRole('option',{name:/AAPL.*Apple/}));
  await user.type(form.getByLabelText('数量'),'1000');await user.type(form.getByLabelText('成交单价'),'0.001234');

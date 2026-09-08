@@ -21,11 +21,12 @@ it('previews the actual recurring cash payment before recording today without ch
   expect(request).toHaveBeenCalledWith('/api/recurring-occurrences/3/confirm', { method: 'POST' });
 });
 
-it('allows monthly rules to use the 31st and relies on the server for month-end clamping', async () => {
-  const request = vi.fn(async (path: string) => {
+it('preselects sole eligible options and shows rules after saving while allowing month-end dates', async () => {
+  const request = vi.fn(async (path: string, options?: { method?: string }) => {
+    if (path === '/api/recurring-rules' && options?.method === 'POST') return {id: 9};
     if (path === '/api/recurring-rules?includeInactive=true&page=0&size=50') return { items: [], page: 0, size: 50, totalElements: 0, totalPages: 0, hasNext: false };
     if (path === '/api/recurring-occurrences?status=PENDING&page=0&size=50') return { items: [], page: 0, size: 50, totalElements: 0, totalPages: 0, hasNext: false };
-    if (path.startsWith('/api/accounts')) return { items: [{ id: 1, name: '日常账户', type: 'BANK', currency: 'CNY', openingBalance: '0.00', archivedAt: null }], page: 0, size: 50, totalElements: 1, totalPages: 1, hasNext: false };
+    if (path.startsWith('/api/accounts')) return { items: [{ id: 1, name: '日常账户', type: 'BANK', currency: 'CNY', openingBalance: '0.00', openingConfirmed: true, openingOn: '2026-01-01', availableBalance: '0.00', balance: '0.00', archivedAt: null }], page: 0, size: 50, totalElements: 1, totalPages: 1, hasNext: false };
     if (path.startsWith('/api/categories')) return { items: [{ id: 2, kind: 'expense', name: '餐饮', color: '#3370FF', defaultCategory: false, createdAt: '', parentId: null, level: 1, children: [] }], page: 0, size: 50, totalElements: 1, totalPages: 1, hasNext: false };
     if (path === '/api/members') return [{ id: 3, name: 'Kevin', roleLabel: '本人', createdAt: '' }];
     if (path.startsWith('/api/family/memberships')) return { items: [{ id: 4, userId: 7, email: 'demo@example.com', displayName: '演示用户', role: 'OWNER', status: 'ACTIVE' }], page: 0, size: 50, totalElements: 1, totalPages: 1, hasNext: false };
@@ -36,4 +37,11 @@ it('allows monthly rules to use the 31st and relies on the server for month-end 
   render(<QueryClientProvider client={client}><RecurringPage request={request as RequestFn} role="OWNER" userId={7} /></QueryClientProvider>);
   await user.click(await screen.findByRole('button', { name: '新建周期规则' }));
   expect(screen.getByLabelText('每月日期')).toHaveAttribute('max', '31');
+  expect(screen.getByLabelText('账户')).toHaveValue('1');
+  expect(screen.getByLabelText('归属成员')).toHaveValue('3');
+  expect(screen.getByLabelText('确认人')).toHaveValue('7');
+  await user.type(screen.getByLabelText('金额'), '10');
+  await user.selectOptions(screen.getByLabelText('分类'), '2');
+  await user.click(screen.getByRole('button', {name: '保存周期规则'}));
+  expect(await screen.findByRole('heading', {name: '周期规则'})).toBeInTheDocument();
 });

@@ -49,6 +49,10 @@ export function TransactionsPage({ request, role, userId, requestedSection }: { 
     children: [...(item.children ?? [])].sort((left, right) => left.id - right.id)
   })).sort((left, right) => left.id - right.id), [categories.data]);
   const flatCategories = categoryOptions.data ?? [];
+  function newTransaction() {
+    const eligible = (accountOptions.data ?? []).filter(account => account.openingConfirmed && account.openingOn && !account.archivedAt);
+    setDraft({ ...emptyDraft(), accountId: eligible.length === 1 ? String(eligible[0].id) : '', memberId: members.data?.length === 1 ? String(members.data[0].id) : '' });
+  }
   const parentCategories = flatCategories.filter(item => item.parentId === null);
   const exportHref = `/api/export.csv${filters ? `?${filters}` : ''}`;
   useEffect(() => { setTransactionPage(0); }, [filters]);
@@ -76,7 +80,7 @@ export function TransactionsPage({ request, role, userId, requestedSection }: { 
   const manager = isManager(role);
   const canEdit = (item: Transaction) => manager || item.createdByUserId === userId;
   const canDelete = (item: Transaction) => canEdit(item) && item.sourceType === 'MANUAL';
-  const action = section === 'transactions' ? { label: '记一笔', onClick: () => setDraft(emptyDraft()) } : section === 'accounts' && manager ? { label: '新建账户', onClick: () => setAccountDraft({ name: '', type: 'BANK', walletProvider: '', bankName: '', cardLastFour: '', currency: 'CNY', openingBalance: '0.00', openingOn: businessDate(), mode: 'create', confirmed: false, key: newIdempotencyKey() }) } : section === 'categories' && manager ? { label: '新建分类', onClick: () => setCategoryDraft({ name: '', kind: 'expense', color: '#3370FF', parentId: '' }) } : undefined;
+  const action = section === 'transactions' ? { label: '记一笔', onClick: newTransaction } : section === 'accounts' && manager ? { label: '新建账户', onClick: () => setAccountDraft({ name: '', type: 'BANK', walletProvider: '', bankName: '', cardLastFour: '', currency: 'CNY', openingBalance: '0.00', openingOn: businessDate(), mode: 'create', confirmed: false, key: newIdempotencyKey() }) } : section === 'categories' && manager ? { label: '新建分类', onClick: () => setCategoryDraft({ name: '', kind: 'expense', color: '#3370FF', parentId: '' }) } : undefined;
 
   return <PageScaffold title="收支明细" primaryAction={action}>
     <nav className="segmented-tabs" aria-label="账本模块"><button className={section === 'transactions' ? 'active' : ''} onClick={() => setSection('transactions')}>收支</button><button className={section === 'accounts' ? 'active' : ''} onClick={() => setSection('accounts')}>账户</button><button className={section === 'categories' ? 'active' : ''} onClick={() => setSection('categories')}>分类</button><button className={section === 'transfers' ? 'active' : ''} onClick={() => setSection('transfers')}>账户互转</button><button className={section === 'history' ? 'active' : ''} onClick={() => { setHistorySource(undefined); setSection('history'); }}>账务历史</button></nav>

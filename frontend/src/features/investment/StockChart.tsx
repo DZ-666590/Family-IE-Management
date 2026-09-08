@@ -13,7 +13,9 @@ export function StockChart({ request, security }: { request: RequestFn; security
   const symbol = foreign ? security.symbol??'' : registered?.tsCode??'';
   const timezone = foreign ? security.timezone??'Asia/Shanghai' : 'Asia/Shanghai';
   const formatPrice = (value: string | number | null | undefined) => foreign ? marketMoney(value, currency) : money(value);
-  const [adjustment, setAdjustment] = useState<'none' | 'qfq'>('qfq');
+  // Share the initial request with ReferenceQuote; the adapter serializes provider access.
+  // Adjusted history remains an explicit chart-only choice, never a transaction price.
+  const [adjustment, setAdjustment] = useState<'none' | 'qfq'>('none');
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [range, setRange] = useState<ChartRange>('all');
   const [macd, setMacd] = useState(false);

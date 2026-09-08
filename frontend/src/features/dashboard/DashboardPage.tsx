@@ -5,6 +5,7 @@ import type { Analysis, Dashboard, DebtAnalysis, HouseholdRole, NetWorth, Notifi
 import { localYearMonth } from '../../shared/runtime';
 import { DataPanel, Drawer, PageScaffold, QueryState, StatusTag, dateText, money, type RequestFn } from '../common';
 import { FlowChart, HistoryChart, historyBasisLabel, historyValuationLabel } from '../visuals';
+import { ApiError } from '../../api/client';
 
 export function DashboardPage({ request, role }: { request: RequestFn; role: HouseholdRole }) {
   const [month, setMonth] = useState(localYearMonth());
@@ -17,6 +18,14 @@ export function DashboardPage({ request, role }: { request: RequestFn; role: Hou
   const notifications = useQuery({ queryKey: ['notifications'], queryFn: () => request<NotificationPage>('/api/notifications') });
   const recent = useQuery({ queryKey: ['transactions', 'recent', month], queryFn: () => request<Transaction[]>(`/api/transactions?month=${month}&page=0&size=5`) });
   const analysis = useQuery({ queryKey: ['analysis', month], queryFn: () => request<Analysis>(`/api/analysis?month=${month}&rollupCategories=true`), enabled: detailsOpen });
+  const needsInitialization = [dashboard.error, netWorth.error, portfolio.error].some(error => error instanceof ApiError && error.code === 'ACCOUNTING_NOT_INITIALIZED');
+  if (needsInitialization) return <PageScaffold title="家庭总览">
+    <section className="data-panel" role="alert" aria-label="账户初始化">
+      <h2>先核对账务起点，再查看完整总览</h2>
+      <p>部分期初余额或历史来源尚未确认。先检查现金账户；若已确认，请继续核对历史资产、贷款和投资。不要为补齐报表而重复记账。</p>
+      {role === 'MEMBER' ? <><p>请联系家庭所有者或管理员完成核对。</p><a className="panel-link" href="/workspace/family">查看家庭成员</a></> : <><a className="panel-link" href="/workspace/transactions?section=accounts">去初始化账户<ArrowRight size={16} aria-hidden="true"/></a><details><summary>现金账户已确认，报表仍未完整？</summary><p>检查旧记录的入账方式和来源；无法对应的历史账务请交由管理员核对。</p><ul><li><a href="/workspace/assets">核对资产记录</a></li><li><a href="/workspace/loans">核对贷款记录</a></li><li><a href="/workspace/investments">核对投资记录</a></li><li><a href="/workspace/transactions">核对历史流水</a></li></ul></details></>}
+    </section>
+  </PageScaffold>;
   return <PageScaffold title="家庭总览">
     <div className="overview-topline"><label className="date-control">收支月份<input aria-label="收支月份" type="month" value={month} onChange={e => { if(e.target.value) setMonth(e.target.value); }} /></label></div>
     <div className="overview-hero">
