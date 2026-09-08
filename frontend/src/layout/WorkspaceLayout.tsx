@@ -17,6 +17,7 @@ import { MobileModuleDrawer } from './MobileModuleDrawer';
 import { ModuleSidebar } from './ModuleSidebar';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { PluginPage } from '../extensions/registry';
+import { AccountInitializationGuide } from './AccountInitializationGuide';
 
 export const SIDEBAR_PREFERENCE_KEY = 'family-finance:module-sidebar-collapsed';
 
@@ -30,7 +31,7 @@ function WorkspaceContent({ session }: { session: Session }) {
   const request = auth?.request ?? pendingRequest;
   if (location.pathname.startsWith('/workspace/extensions/')) return <PluginPage path={location.pathname} request={request} />;
   if (location.pathname === '/workspace/overview') return <DashboardPage request={request} role={session.role} />;
-  if (location.pathname === '/workspace/transactions') return <TransactionsPage request={request} role={session.role} userId={session.userId} />;
+  if (location.pathname === '/workspace/transactions') return <TransactionsPage request={request} role={session.role} userId={session.userId} requestedSection={new URLSearchParams(location.search).get('section') === 'accounts' ? 'accounts' : undefined} />;
   if (location.pathname === '/workspace/budgets') return <BudgetsPage request={request} role={session.role} />;
   if (location.pathname === '/workspace/recurring') return <RecurringPage request={request} role={session.role} userId={session.userId} />;
   if (location.pathname === '/workspace/assets') return <AssetsPage request={request} role={session.role} />;
@@ -43,6 +44,7 @@ function WorkspaceContent({ session }: { session: Session }) {
 }
 
 export function WorkspaceLayout({ session, onLogout }: { session: Session; onLogout: () => void }) {
+  const auth = useContext(AuthContext);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem(SIDEBAR_PREFERENCE_KEY) === 'true');
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
@@ -73,6 +75,7 @@ export function WorkspaceLayout({ session, onLogout }: { session: Session; onLog
         <main className="workspace-main"><WorkspaceContent session={session} /></main>
       </div>
       <MobileModuleDrawer open={mobileOpen} onClose={closeMobile} />
+      {auth?.status === 'authenticated' && <AccountInitializationGuide key={`${session.userId}:${session.householdId}`} session={session} request={auth.request} />}
     </div>
   );
 }

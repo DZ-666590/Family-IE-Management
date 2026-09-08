@@ -12,8 +12,9 @@ import { ConfirmDialog, DataPanel, Drawer, FormError, PageScaffold, QueryState, 
 interface TransactionDraft { key: string; generated?: boolean; principalAmount?: string | null; interestAmount?: string | null; id?: number; kind: TransactionKind; amount: string; occurredOn: string; accountId: string; memberId: string; categoryId: string; merchant: string; location: string; note: string }
 const emptyDraft = (): TransactionDraft => ({ key: newIdempotencyKey(), kind: 'expense', amount: '', occurredOn: businessDate(), accountId: '', memberId: '', categoryId: '', merchant: '', location: '', note: '' });
 
-export function TransactionsPage({ request, role, userId }: { request: RequestFn; role: HouseholdRole; userId: number }) {
-  const [section, setSection] = useState<'transactions' | 'accounts' | 'categories' | 'transfers' | 'history'>(() => new URLSearchParams(window.location.search).get('section') === 'accounts' ? 'accounts' : 'transactions');
+export function TransactionsPage({ request, role, userId, requestedSection }: { request: RequestFn; role: HouseholdRole; userId: number; requestedSection?: 'accounts' }) {
+  const [section, setSection] = useState<'transactions' | 'accounts' | 'categories' | 'transfers' | 'history'>(() => requestedSection === 'accounts' || new URLSearchParams(window.location.search).get('section') === 'accounts' ? 'accounts' : 'transactions');
+  useEffect(() => { if (requestedSection === 'accounts') setSection('accounts'); }, [requestedSection]);
   const [month, setMonth] = useState(localYearMonth());
   const [kind, setKind] = useState('');
   const [q, setQ] = useState('');

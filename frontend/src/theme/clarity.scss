@@ -144,6 +144,9 @@
 .feature-form > .semi-button:last-child { margin-top: 5px; }
 .confirm-dialog { border-radius: 16px; padding: 26px; }
 .confirmation-symbol { color: #b26954; margin-bottom: 12px; }
+.account-setup-guide { display: grid; gap: 12px; overflow-wrap: anywhere; }
+.account-setup-guide p, .account-setup-guide ul { margin: 0; }
+.account-setup-guide ul { padding-left: 20px; color: var(--ledger-text); }
 .form-alert { font-size: 12px; line-height: 1.7; border-radius: 8px; }
 .form-alert ul { padding-left: 18px; margin: 6px 0; }
 .form-alert .request-id { margin-top: 6px; }
