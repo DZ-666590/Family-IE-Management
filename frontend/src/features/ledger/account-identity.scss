@@ -1,0 +1,18 @@
+.account-emblem { width:40px; height:40px; flex:0 0 40px; display:inline-flex; align-items:center; justify-content:center; border-radius:12px; color:#637089; background:#eff2f7; }
+.account-emblem svg { width:22px; height:22px; }
+.account-emblem--alipay { color:#1677ff; background:#eaf3ff; }
+.account-emblem--wechat { color:#07a653; background:#e9f7ee; }
+.account-emblem--cash { color:#957440; background:#f7f1e5; }
+.account-identity { display:inline-flex; align-items:center; gap:10px; text-align:left; min-width:0; }
+.account-identity > span:last-child { display:grid; gap:3px; }
+.account-identity small { color:var(--ledger-muted); font-size:12px; font-weight:400; }
+.feature-form .account-type-picker { margin:0; padding:0; border:0; }
+.account-type-picker legend { font-size:14px; margin-bottom:10px; }
+.account-type-picker > div { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; }
+.account-type-picker label { position:relative; cursor:pointer; min-width:0; }
+.account-type-picker input { position:absolute; width:1px; height:1px; opacity:0; }
+.account-type-picker label > span { display:flex; flex-direction:column; align-items:center; gap:8px; border:1px solid var(--ledger-border,#e4e8ee); border-radius:14px; padding:14px 8px; font-size:13px; background:var(--ledger-surface,#fff); }
+.account-type-picker input:checked + span { border-color:#3370ff; box-shadow:0 0 0 1px #3370ff; }
+.account-type-picker input:focus-visible + span { outline:3px solid #a8c2ff; outline-offset:3px; }
+.account-type-picker input:disabled + span { opacity:.55; cursor:default; }
+@media(max-width:380px){ .account-type-picker > div{grid-template-columns:repeat(2,minmax(0,1fr));} }

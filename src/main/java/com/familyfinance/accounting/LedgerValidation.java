@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 import java.util.LinkedHashSet;
 import org.springframework.stereotype.Component;
@@ -38,15 +39,18 @@ class LedgerValidation {
         require(c.effectiveOn()!=null && !c.effectiveOn().isAfter(LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))))
                 && c.effectiveOn().getYear()>=1000,"effectiveOn","业务日期必须在1000年至上海当天之间");
         require(c.entries()!=null && c.entries().size()>=2 && c.entries().size()<=1000,"entries","凭证需包含2至1000条分录");
-        BigDecimal debits=BigDecimal.ZERO,credits=BigDecimal.ZERO;
+        Map<String,BigDecimal> debits=new java.util.HashMap<>(),credits=new java.util.HashMap<>();
         for (var e:c.entries()) {
             require(e!=null && e.kind()!=null,"entries","分录科目不能为空");
             require(e.accountCode()!=null && e.accountCode().length()<=120,"accountCode","科目编码无效");
             require((e.debitAmount().signum()>0 && e.creditAmount().signum()==0)||(e.creditAmount().signum()>0 && e.debitAmount().signum()==0),"entries","分录金额必须为正且仅填写借方或贷方");
-            debits=debits.add(e.debitAmount()); credits=credits.add(e.creditAmount());
+            debits.merge(e.currency(),e.debitAmount(),BigDecimal::add);
+            credits.merge(e.currency(),e.creditAmount(),BigDecimal::add);
         }
-        require(debits.compareTo(credits)==0,"entries","凭证借贷不平衡");
-        require(debits.compareTo(DecimalMoney.MAX_AMOUNT)<=0,"entries","凭证合计金额超出范围");
+        for(String currency:debits.keySet()) {
+            require(debits.get(currency).compareTo(credits.getOrDefault(currency,BigDecimal.ZERO))==0,"entries",currency+" 凭证借贷不平衡");
+            require(debits.get(currency).compareTo(DecimalMoney.MAX_AMOUNT)<=0,"entries","凭证合计金额超出范围");
+        }
     }
 
     void register(LedgerPostingCommand c) {
@@ -63,18 +67,25 @@ class LedgerValidation {
         for (var e:c.entries()) {
             String code=e.accountCode();
             require(code!=null && code.length()<=120,"accountCode","科目编码无效");
-            String[] parts=code.split(":",-1);
-            if (SYSTEM_ACCOUNTS.contains(code)) {
+            // Existing CNY codes remain byte-for-byte stable; foreign shared
+            // accounts have an explicit currency suffix and cannot pool units.
+            String logicalCode=code;
+            if(!e.currency().equals("CNY") && (code.startsWith("EQUITY:")||code.startsWith("INCOME:")||code.startsWith("EXPENSE:"))) {
+                require(code.endsWith(":"+e.currency()),"accountCode","外币公共科目必须带对应币种");
+                logicalCode=code.substring(0,code.length()-4);
+            }
+            String[] parts=logicalCode.split(":",-1);
+            if (SYSTEM_ACCOUNTS.contains(logicalCode)) {
                 require(e.kind().name().equals(parts[0]),"accountCode","科目编码与类型不一致");
             } else {
                 require(parts.length>=2,"accountCode","科目编码无效");
                 long id=parseId(parts[1]);
                 switch(parts[0]) {
-                    case "CASH" -> { match(e,LedgerAccountKind.CASH,parts,2); owned("financial_accounts",id,c.householdId()); }
-                    case "LOAN" -> { match(e,LedgerAccountKind.LOAN,parts,2); owned("loans",id,c.householdId()); }
-                    case "ASSET" -> { match(e,LedgerAccountKind.ASSET,parts,2); owned("assets",id,c.householdId()); }
+                    case "CASH" -> { match(e,LedgerAccountKind.CASH,parts,2); ownedCurrency("financial_accounts",id,c.householdId(),e.currency()); }
+                    case "LOAN" -> { match(e,LedgerAccountKind.LOAN,parts,2); owned("loans",id,c.householdId()); require(e.currency().equals("CNY"),"currency","贷款仅支持人民币"); }
+                    case "ASSET" -> { match(e,LedgerAccountKind.ASSET,parts,2); owned("assets",id,c.householdId()); require(e.currency().equals("CNY"),"currency","实体资产仅支持人民币"); }
                     case "POSITION" -> {
-                        match(e,LedgerAccountKind.ASSET,parts,3); owned("investment_accounts",id,c.householdId());
+                        match(e,LedgerAccountKind.ASSET,parts,3); ownedCurrency("investment_accounts",id,c.householdId(),e.currency());
                         require(currentSecurities.contains(parseId(parts[2])),"accountCode","证券不存在");
                     }
                     case "INCOME","EXPENSE" -> {
@@ -87,10 +98,17 @@ class LedgerValidation {
             }
             if(e.categoryId()!=null) owned("categories",e.categoryId(),c.householdId());
             if(e.memberId()!=null) owned("family_members",e.memberId(),c.householdId());
-            var kinds=store.jdbc.queryForList("select kind from ledger_accounts where household_id=? and account_code=? for update",String.class,c.householdId(),code);
-            if(kinds.isEmpty()) store.jdbc.update("insert into ledger_accounts(household_id,account_code,kind) values (?,?,?)",c.householdId(),code,e.kind().name());
-            else require(kinds.get(0).equals(e.kind().name()),"accountCode","科目类型不可更改");
+            var accounts=store.jdbc.query("select kind,currency from ledger_accounts where household_id=? and account_code=? for update",
+                    (rs,n)->List.of(rs.getString(1),rs.getString(2)),c.householdId(),code);
+            if(accounts.isEmpty()) store.jdbc.update("insert into ledger_accounts(household_id,account_code,kind,currency) values (?,?,?,?)",c.householdId(),code,e.kind().name(),e.currency());
+            else require(accounts.get(0).get(0).equals(e.kind().name()) && accounts.get(0).get(1).equals(e.currency()),"accountCode","科目类型和币种不可更改");
         }
+    }
+
+    private void ownedCurrency(String table,long id,long h,String currency) {
+        owned(table,id,h);
+        require(currency.equals(store.jdbc.queryForObject("select currency from "+table+" where id=? and household_id=? for update",String.class,id,h)),
+                "currency","分录币种与账户币种不一致");
     }
 
     private void owned(String table,long id,long h) {

@@ -101,7 +101,7 @@ public class LedgerPostingService {
 
     private LedgerPostingCommand reversal(long h,String type,long id,String key,long actor,LedgerReceipt original) {
         var entries=store.entries(h,original.journalId()).stream().map(e->new LedgerEntryInput(
-                e.accountCode(),e.kind(),e.creditAmount(),e.debitAmount(),e.categoryId(),e.memberId())).toList();
+                e.accountCode(),e.kind(),e.creditAmount(),e.debitAmount(),e.categoryId(),e.memberId(),e.currency())).toList();
         return new LedgerPostingCommand(h,type,id,key,original.effectiveOn(),actor,entries);
     }
 

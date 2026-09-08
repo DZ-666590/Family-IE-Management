@@ -1,0 +1,11 @@
+.fx-toolbar,.fx-history-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px;}
+.fx-toolbar label,.fx-history-heading label{display:flex;align-items:center;gap:10px;font-size:14px;}
+.fx-toolbar p{margin:0;color:var(--ledger-muted);font-size:14px;}
+.fx-table-wrap{overflow:auto;}
+.fx-table{width:100%;border-collapse:collapse;text-align:left;font-variant-numeric:tabular-nums;}
+.fx-table th{font-size:12px;color:var(--ledger-muted);font-weight:500;padding:0 16px 12px;white-space:nowrap;}
+.fx-table td{padding:20px 16px;border-top:1px solid var(--ledger-border,#e4e8ee);font-size:14px;}
+.fx-table td span{display:block;font-size:12px;color:var(--ledger-muted);margin-top:5px;}
+.fx-table .fx-rate{font-size:24px;letter-spacing:-.6px;font-weight:600;}
+.fx-history-heading{margin-top:36px;margin-bottom:20px;}.fx-history-heading h3{margin:0;font-size:17px;}
+@media(max-width:600px){.fx-table td{padding:16px 10px;}.fx-table .fx-rate{font-size:20px;}.fx-toolbar{align-items:flex-start;}}

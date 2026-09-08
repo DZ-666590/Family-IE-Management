@@ -23,6 +23,11 @@ final class LedgerRequestDigest {
                 out.writeLong(e.debitCents()); out.writeLong(e.creditCents());
                 nullable(out,e.categoryId()); nullable(out,e.memberId());
             }
+            // Do not change already persisted CNY request identities.
+            if(c.entries().stream().anyMatch(e->!e.currency().equals("CNY"))) {
+                out.writeUTF("CURRENCY_V1");
+                for(var e:c.entries()) out.writeUTF(e.currency());
+            }
             out.flush();
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray()));
         } catch(IOException|NoSuchAlgorithmException ex) { throw new IllegalStateException("Cannot hash accounting request",ex); }

@@ -39,8 +39,8 @@ class LedgerBalances {
                 if((account.kind()==LedgerAccountKind.CASH || account.kind()==LedgerAccountKind.LOAN) && running.signum()<0)
                     throw LedgerStore.conflict(account.kind()==LedgerAccountKind.CASH ? "INSUFFICIENT_FUNDS":"INSUFFICIENT_LOAN_PRINCIPAL",
                             (account.kind()==LedgerAccountKind.CASH ? "资金账户「"+store.cashAccountName(h,account.code(),currentRead)+"」" : "贷款本金")
-                            +"在 "+date.getKey()+" 入账后余额不足，该日资金缺口 ¥"+running.negate().toPlainString()
-                            +"；当前账内余额 ¥"+DecimalMoney.format(account.balance())+"。请核对该日期及之前的资金记录。");
+                            +"在 "+date.getKey()+" 入账后余额不足，该日资金缺口 "+unit(account.currency())+running.negate().toPlainString()
+                            +"；当前账内余额 "+unit(account.currency())+DecimalMoney.format(account.balance())+"。请核对该日期及之前的资金记录。");
                 if(running.compareTo(DecimalMoney.MAX_AMOUNT)>0 || running.compareTo(DecimalMoney.MIN_AMOUNT)<0)
                     throw LedgerStore.conflict("ACCOUNTING_AMOUNT_OVERFLOW","科目 "+account.code()+" 的余额超出整数分范围");
             }
@@ -48,6 +48,8 @@ class LedgerBalances {
         }
         return result;
     }
+
+    private static String unit(String currency) { return currency.equals("CNY") ? "¥" : currency+" "; }
 
     void save(long h,Map<String,BigDecimal> balances) {
         balances.forEach((code,amount)->store.jdbc.update("update ledger_accounts set balance_amount=? where household_id=? and account_code=?",amount,h,code));

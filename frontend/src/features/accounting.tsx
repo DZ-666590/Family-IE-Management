@@ -1,8 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../api/client';
 import type { Account } from '../api/contracts';
-import { accountDescription, accountLabel } from './ledger/account-label';
+import { accountLabel } from './ledger/account-label';
 import { money } from './common';
+import { AccountIdentity } from './ledger/AccountIdentity';
 
 /** Decimal input is never converted through binary floating-point yuan. */
 export function cents(raw: string | null | undefined): bigint | null {
@@ -36,7 +37,7 @@ export function PaymentPreview({ account, amount, incoming = false, adjustment =
   const payment = cents(amount);
   const remaining = balance !== null && payment !== null ? balance + (incoming ? payment : -payment) : null;
   return <section className="payment-preview" aria-label="账务金额预览">
-    <div><span>资金账户</span><strong>{account ? <><span>{account.name}</span><small>{accountDescription(account)}</small></> : '请选择资金账户'}</strong></div>
+    <div><span>资金账户</span><strong>{account ? <AccountIdentity account={account}/> : '请选择资金账户'}</strong></div>
     <div><span>账内可用余额</span><strong>{balance === null ? '待核对' : money(decimal(balance))}</strong></div>
     <div><span>{adjustment ? '本次更正金额' : incoming ? '本次现金流入' : '本次现金合计'}</span><strong>{money(amount)}</strong></div>
     {!adjustment && <p className="payment-preview__remaining">预计余额 {remaining === null ? '待核对' : money(decimal(remaining))}</p>}

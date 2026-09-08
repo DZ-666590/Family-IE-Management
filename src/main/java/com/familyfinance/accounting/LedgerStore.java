@@ -58,16 +58,16 @@ class LedgerStore {
     }
     List<LedgerEntryInput> entries(long h,long journalId,boolean current) {
         return jdbc.query("select e.*,a.kind from ledger_entries e join ledger_accounts a on a.household_id=e.household_id and a.account_code=e.account_code where e.household_id=? and e.journal_id=? order by e.line_no"+lockClause(current),
-                (rs,row)->new LedgerEntryInput(rs.getString("account_code"),LedgerAccountKind.valueOf(rs.getString("kind")),rs.getBigDecimal("debit_amount"),rs.getBigDecimal("credit_amount"),rs.getObject("category_id",Long.class),rs.getObject("member_id",Long.class)),h,journalId);
+                (rs,row)->new LedgerEntryInput(rs.getString("account_code"),LedgerAccountKind.valueOf(rs.getString("kind")),rs.getBigDecimal("debit_amount"),rs.getBigDecimal("credit_amount"),rs.getObject("category_id",Long.class),rs.getObject("member_id",Long.class),rs.getString("currency")),h,journalId);
     }
 
-    record Account(String code,LedgerAccountKind kind,BigDecimal balance) {}
+    record Account(String code,LedgerAccountKind kind,BigDecimal balance,String currency) {}
     List<Account> accounts(long h) {
         return accounts(h,true);
     }
     List<Account> accounts(long h,boolean current) {
-        return jdbc.query("select account_code,kind,balance_amount from ledger_accounts where household_id=? order by account_code"+lockClause(current),
-                (rs,row)->new Account(rs.getString(1),LedgerAccountKind.valueOf(rs.getString(2)),rs.getBigDecimal(3)),h);
+        return jdbc.query("select account_code,kind,balance_amount,currency from ledger_accounts where household_id=? order by account_code"+lockClause(current),
+                (rs,row)->new Account(rs.getString(1),LedgerAccountKind.valueOf(rs.getString(2)),rs.getBigDecimal(3),rs.getString(4)),h);
     }
 
     String cashAccountName(long householdId,String code,boolean current) {
@@ -99,8 +99,8 @@ class LedgerStore {
         },keys);
         long id=keys.getKey().longValue();
         int line=0;
-        for (var e:c.entries()) jdbc.update("insert into ledger_entries(household_id,journal_id,line_no,account_code,debit_amount,credit_amount,category_id,member_id) values (?,?,?,?,?,?,?,?)",
-                c.householdId(),id,++line,e.accountCode(),e.debitAmount(),e.creditAmount(),e.categoryId(),e.memberId());
+        for (var e:c.entries()) jdbc.update("insert into ledger_entries(household_id,journal_id,line_no,account_code,debit_amount,credit_amount,category_id,member_id,currency) values (?,?,?,?,?,?,?,?,?)",
+                c.householdId(),id,++line,e.accountCode(),e.debitAmount(),e.creditAmount(),e.categoryId(),e.memberId(),e.currency());
         return new LedgerReceipt(id,c.householdId(),c.sourceType(),c.sourceId(),revision,c.effectiveOn(),reversed);
     }
 

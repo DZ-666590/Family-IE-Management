@@ -28,8 +28,7 @@ describe('account specialization', () => {
     render(<QueryClientProvider client={new QueryClient()}><TransactionsPage request={request as RequestFn} role="OWNER" userId={1} requestedSection="accounts" /></QueryClientProvider>);
     await userEvent.click(await screen.findByRole('button', { name: '编辑' }));
     expect(screen.getByLabelText('银行卡尾号（选填）')).toHaveValue('0123');
-    await userEvent.selectOptions(screen.getByLabelText('账户类型'), 'WALLET');
-    await userEvent.selectOptions(screen.getByLabelText('钱包平台'), 'WECHAT');
+    await userEvent.click(screen.getByRole('radio', { name: '微信' }));
     expect(screen.queryByLabelText('银行卡尾号（选填）')).not.toBeInTheDocument();
     fireEvent.submit(screen.getByLabelText('账户名称').closest('form')!);
     await waitFor(() => expect(request).toHaveBeenCalledWith('/api/accounts/2', expect.objectContaining({
