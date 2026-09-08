@@ -1,7 +1,11 @@
+import itertools
+import sys
 import threading
 import time
+import types
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import overseas_sources
 from overseas import (
@@ -51,6 +55,49 @@ def wait_for_state(service, market, wanted="READY"):
 
 
 class DirectorySourceTest(unittest.TestCase):
+    def test_read_only_workbook_resets_incorrect_declared_dimensions_before_iteration(self):
+        values = [
+            ("List of Securities", None, None, None),
+            ("Last Updated: 8 September 2026", None, None, None),
+            ("Stock Code", "Name of Securities", "Category", "Trading Currency"),
+            (700, "TENCENT HOLDINGS", "Equity", "HKD"),
+            (5, "HSBC HOLDINGS", "Equity", "HKD"),
+        ]
+
+        class WrongDimensionSheet:
+            def __init__(self):
+                self.reset = False
+
+            def reset_dimensions(self):
+                self.reset = True
+
+            def iter_rows(self, values_only):
+                return iter(values if self.reset else values[:4])
+
+        sheet = WrongDimensionSheet()
+        workbook = types.SimpleNamespace(active=sheet, close=lambda: None)
+        fake_openpyxl = types.SimpleNamespace(load_workbook=lambda *args, **kwargs: workbook)
+        with patch.dict(sys.modules, {"openpyxl": fake_openpyxl}):
+            rows = overseas_sources._workbook_rows(
+                b"xlsx",
+                ("Stock Code", "Name of Securities", "Category", "Trading Currency"),
+            )
+        self.assertEqual([700, 5], [row["Stock Code"] for row in rows])
+
+    def test_workbook_rejects_more_than_thirty_thousand_actual_data_rows(self):
+        preamble = [
+            ("List of Securities", None, None, None),
+            ("Last Updated: 8 September 2026", None, None, None),
+            ("Stock Code", "Name of Securities", "Category", "Trading Currency"),
+        ]
+        repeated_row = (700, "TENCENT HOLDINGS", "Equity", "HKD")
+        values = itertools.chain(preamble, itertools.repeat(repeated_row, 30_001))
+        with self.assertRaisesRegex(ValueError, "too many rows"):
+            overseas_sources.workbook_values_to_rows(
+                values,
+                ("Stock Code", "Name of Securities", "Category", "Trading Currency"),
+            )
+
     def test_workbook_uses_third_physical_row_after_two_preamble_rows_as_headers(self):
         parse_values = getattr(overseas_sources, "workbook_values_to_rows", lambda values, required: [])
         values = [
@@ -399,6 +446,55 @@ class OverseasCandleTest(unittest.TestCase):
         for caller in callers:
             caller.join(1)
         self.assertEqual([], errors)
+        self.assertEqual(2, len(results))
+        self.assertEqual(1, calls)
+
+    def test_same_symbol_waiter_uses_fresh_cache_when_first_call_completes_before_admission(self):
+        entered = threading.Event()
+        release = threading.Event()
+        calls = 0
+
+        def loader(market, symbol):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                entered.set()
+                release.wait(1)
+            return []
+
+        service = OverseasMarketService(
+            directory_loader=lambda market: [US],
+            candle_loader=loader,
+            min_directory_items={"HK": 1, "US": 1},
+            max_candle_workers=1,
+            candle_admission_timeout_seconds=1,
+        )
+        wait_for_state(service, "US")
+
+        class CompletionOrderedSemaphore:
+            def __init__(self):
+                self._barrier = threading.Barrier(2)
+                self._actual = threading.BoundedSemaphore(1)
+
+            def acquire(self, timeout=None):
+                self._barrier.wait(1)
+                return self._actual.acquire(timeout=timeout)
+
+            def release(self):
+                self._actual.release()
+
+        service._candle_slots = CompletionOrderedSemaphore()
+        results = []
+        callers = [
+            threading.Thread(target=lambda: results.append(service.candles("US", "AAPL")))
+            for _ in range(2)
+        ]
+        for caller in callers:
+            caller.start()
+        self.assertTrue(entered.wait(1))
+        release.set()
+        for caller in callers:
+            caller.join(1)
         self.assertEqual(2, len(results))
         self.assertEqual(1, calls)
 

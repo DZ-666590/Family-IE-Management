@@ -21,6 +21,7 @@ NASDAQ_OTHER_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
 MAX_DIRECTORY_BYTES = 10_000_000
 MAX_WORKER_OUTPUT_BYTES = 20_000_000
 MAX_DIRECTORY_ITEMS = 30_000
+MAX_WORKBOOK_ROWS = 30_000
 
 HK_CODE = re.compile(r"^[0-9]{1,5}$")
 US_CODE = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")
@@ -64,6 +65,9 @@ def _workbook_rows(payload, required_headers):
     workbook = load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
     try:
         sheet = workbook.active
+        # HKEX currently declares A1:R8 despite containing more than 17k rows.
+        # Read-only openpyxl trusts that stale dimension unless it is reset.
+        sheet.reset_dimensions()
         return workbook_values_to_rows(sheet.iter_rows(values_only=True), required_headers)
     finally:
         workbook.close()
@@ -79,11 +83,13 @@ def workbook_values_to_rows(values, required_headers):
     headers = ["" if value is None else str(value).strip() for value in raw_headers]
     if not set(required_headers).issubset(headers):
         raise ValueError("workbook has unexpected headers")
-    return [
-        {header: value for header, value in zip(headers, row_values) if header}
-        for row_values in iterator
-        if any(value is not None for value in row_values)
-    ]
+    rows = []
+    for row_count, row_values in enumerate(iterator, start=1):
+        if row_count > MAX_WORKBOOK_ROWS:
+            raise ValueError("workbook has too many rows")
+        if any(value is not None for value in row_values):
+            rows.append({header: value for header, value in zip(headers, row_values) if header})
+    return rows
 
 
 def _hk_symbol(raw):

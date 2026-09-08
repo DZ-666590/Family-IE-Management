@@ -302,6 +302,13 @@ class OverseasMarketService:
         rows = self._candle_loader(instrument["market"], instrument["symbol"])
         return normalize_overseas_candles(instrument, rows, self._now())
 
+    def _fresh_candle_locked(self, key, now):
+        cached = self._candle_cache.get(key)
+        if cached is None or (now - cached[0]).total_seconds() >= self._candle_ttl:
+            return None
+        self._candle_cache.move_to_end(key)
+        return dict(cached[1])
+
     def candles(self, raw_market, raw_symbol):
         market = validate_market(raw_market)
         symbol = validate_overseas_symbol(market, raw_symbol)
@@ -309,24 +316,29 @@ class OverseasMarketService:
         key = (market, symbol)
         now = self._now()
         with self._lock:
-            cached = self._candle_cache.get(key)
-            if cached is not None and (now - cached[0]).total_seconds() < self._candle_ttl:
-                self._candle_cache.move_to_end(key)
-                return dict(cached[1])
+            cached_result = self._fresh_candle_locked(key, now)
+            if cached_result is not None:
+                return cached_result
             future = self._candle_futures.get(key)
 
         if future is None:
             if not self._candle_slots.acquire(timeout=self._candle_admission_timeout):
                 with self._lock:
+                    cached_result = self._fresh_candle_locked(key, self._now())
                     future = self._candle_futures.get(key)
+                if cached_result is not None:
+                    return cached_result
                 if future is None:
                     raise UpstreamUnavailable("overseas candle adapter busy")
             else:
+                owns_slot = False
                 with self._lock:
-                    future = self._candle_futures.get(key)
-                    if future is None:
+                    cached_result = self._fresh_candle_locked(key, self._now())
+                    future = None if cached_result is not None else self._candle_futures.get(key)
+                    if cached_result is None and future is None:
                         future = self._candle_executor.submit(self._load_candles, instrument)
                         self._candle_futures[key] = future
+                        owns_slot = True
 
                         def complete(done, cache_key=key):
                             try:
@@ -344,8 +356,11 @@ class OverseasMarketService:
                             self._candle_slots.release()
 
                         future.add_done_callback(complete)
-                    else:
-                        self._candle_slots.release()
+                if cached_result is not None:
+                    self._candle_slots.release()
+                    return cached_result
+                if not owns_slot:
+                    self._candle_slots.release()
         try:
             result = future.result(timeout=self._candle_wait_timeout)
             return dict(result)
