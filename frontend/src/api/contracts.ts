@@ -69,7 +69,8 @@ export interface Budget { id: number; periodMonth: string; scopeType: BudgetScop
 export interface BudgetUsage { budget: Budget; spent: string; remaining: string; percent: number; status: 'ON_TRACK' | 'NEAR_LIMIT' | 'AT_LIMIT' | 'OVER_BUDGET'; rollupCategories: boolean }
 export interface BudgetRevision { id: number; budgetId: number; oldPeriodMonth: string; newPeriodMonth: string; oldAmount: string; newAmount: string; oldActive: boolean; newActive: boolean; changedAt: string }
 
-export interface RecurringRule { id: number; kind: TransactionKind; amount: string; scheduleType: 'MONTHLY' | 'WEEKLY'; intervalValue: number; dayOfMonth: number | null; dayOfWeek: string | null; startOn: string; endOn: string | null; nextDueOn: string | null; accountId: number; accountName: string; memberId: number; memberName: string; categoryId: number; categoryName: string; assignedUserId: number; assignedUserName: string; active: boolean; paused: boolean; createdByUserId: number }
+export type RecurringScheduleType = 'MONTHLY' | 'QUARTERLY' | 'YEARLY' | 'WEEKLY';
+export interface RecurringRule { id: number; kind: TransactionKind; amount: string; scheduleType: RecurringScheduleType; intervalValue: number; dayOfMonth: number | null; dayOfWeek: string | null; startOn: string; endOn: string | null; nextDueOn: string | null; accountId: number; accountName: string; memberId: number; memberName: string; categoryId: number; categoryName: string; assignedUserId: number; assignedUserName: string; active: boolean; paused: boolean; createdByUserId: number }
 export interface RecurringOccurrence { id: number; ruleId: number; dueOn: string; status: 'PENDING' | 'CONFIRMED' | 'CANCELLED'; assignedUserId: number | null; confirmedTransactionId: number | null }
 
 export type AssetType = 'PROPERTY' | 'VEHICLE' | 'OTHER';

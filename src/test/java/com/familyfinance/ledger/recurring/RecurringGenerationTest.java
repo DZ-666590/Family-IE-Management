@@ -81,6 +81,55 @@ class RecurringGenerationTest {
     }
 
     @Test
+    void editingScheduleKeepsExistingOccurrencesAndAdvancesFromTheExistingCursor() throws Exception {
+        MockHttpSession owner = login();
+        Fixture fixture = fixture();
+        long ruleId = createRule(owner, monthlyBody(fixture, 1, "2026-03-01", null, false))
+                .path("id").asLong();
+
+        recurringService.generateDueOccurrences();
+        assertThat(occurrences.findByRuleIdOrderByDueOnAscIdAsc(ruleId)).hasSize(1);
+        assertThat(rules.findById(ruleId).orElseThrow().getNextDueOn())
+                .isEqualTo(java.time.LocalDate.parse("2026-04-01"));
+        mvc.perform(patch("/api/recurring-rules/{id}", ruleId).session(owner).with(csrf())
+                        .contentType("application/json")
+                        .content("{\"dayOfMonth\":10}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nextDueOn").value("2026-03-10"));
+
+        recurringService.generateDueOccurrences();
+        assertThat(occurrences.findByRuleIdOrderByDueOnAscIdAsc(ruleId))
+                .extracting(RecurringOccurrence::getDueOn)
+                .containsExactly(
+                        java.time.LocalDate.parse("2026-03-10"));
+        assertThat(rules.findById(ruleId).orElseThrow().getNextDueOn())
+                .isEqualTo(java.time.LocalDate.parse("2026-04-10"));
+    }
+
+    @Test
+    void quarterlyAndYearlyRulesUseStartMonthAndClampMonthEnd() throws Exception {
+        MockHttpSession owner = login();
+        Fixture fixture = fixture();
+        long quarterlyId = createRule(owner, periodicBody(fixture, "QUARTERLY", 31, "2026-01-31"))
+                .path("id").asLong();
+        long yearlyId = createRule(owner, periodicBody(fixture, "YEARLY", 31, "2026-01-31"))
+                .path("id").asLong();
+
+        recurringService.generateDueOccurrences();
+
+        assertThat(occurrences.findByRuleIdOrderByDueOnAscIdAsc(quarterlyId))
+                .extracting(RecurringOccurrence::getDueOn)
+                .containsExactly(java.time.LocalDate.parse("2026-01-31"));
+        assertThat(rules.findById(quarterlyId).orElseThrow().getNextDueOn())
+                .isEqualTo(java.time.LocalDate.parse("2026-04-30"));
+        assertThat(occurrences.findByRuleIdOrderByDueOnAscIdAsc(yearlyId))
+                .extracting(RecurringOccurrence::getDueOn)
+                .containsExactly(java.time.LocalDate.parse("2026-01-31"));
+        assertThat(rules.findById(yearlyId).orElseThrow().getNextDueOn())
+                .isEqualTo(java.time.LocalDate.parse("2027-01-31"));
+    }
+
+    @Test
     void weeklyIntervalUsesRequestedWeekdayAndAdvancesFromTheLastDueDate() throws Exception {
         MockHttpSession owner = login();
         Fixture fixture = fixture();
@@ -350,6 +399,15 @@ class RecurringGenerationTest {
                 """.formatted(interval, dayOfWeek, startOn,
                 endOn == null ? "" : "\"endOn\":\"" + endOn + "\",",
                 f.accountId(), f.memberId(), f.categoryId(), f.assignedUserId(), paused);
+    }
+
+    private static String periodicBody(Fixture f, String scheduleType, int dayOfMonth, String startOn) {
+        return """
+                {"kind":"EXPENSE","amount":"123.45","scheduleType":"%s","intervalValue":1,
+                 "dayOfMonth":%d,"startOn":"%s","accountId":%d,"memberId":%d,"categoryId":%d,
+                 "assignedUserId":%d,"paused":false}
+                """.formatted(scheduleType, dayOfMonth, startOn,
+                f.accountId(), f.memberId(), f.categoryId(), f.assignedUserId());
     }
 
     record Fixture(long householdId, long accountId, long categoryId, long memberId, long assignedUserId) {}

@@ -16,6 +16,7 @@ import jakarta.persistence.QueryHint;
 public interface RecurringOccurrenceRepository
         extends JpaRepository<RecurringOccurrence, Long>, JpaSpecificationExecutor<RecurringOccurrence> {
     boolean existsByRuleIdAndDueOn(Long ruleId, LocalDate dueOn);
+    Optional<RecurringOccurrence> findTopByRuleIdAndStatusOrderByDueOnDescIdDesc(Long ruleId, RecurringOccurrenceStatus status);
     List<RecurringOccurrence> findByRuleIdOrderByDueOnAscIdAsc(Long ruleId);
     List<RecurringOccurrence> findByHouseholdIdAndStatusAndDueOnLessThanEqualOrderByDueOnAscIdAsc(Long householdId, RecurringOccurrenceStatus status, LocalDate dueOn);
 
@@ -27,6 +28,14 @@ public interface RecurringOccurrenceRepository
               and occurrence.status = com.familyfinance.ledger.recurring.RecurringOccurrenceStatus.PENDING
             """)
     int cancelPendingByRuleId(Long ruleId);
+
+    @Modifying(clearAutomatically = false, flushAutomatically = true)
+    @Query("""
+            delete from RecurringOccurrence occurrence
+            where occurrence.rule.id = :ruleId
+              and occurrence.status = com.familyfinance.ledger.recurring.RecurringOccurrenceStatus.PENDING
+            """)
+    int deletePendingByRuleId(Long ruleId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "1000"))
