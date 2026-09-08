@@ -83,6 +83,9 @@ def normalize_overseas_candles(instrument, rows, fetched_at):
     for row in rows:
         try:
             trading_day = date.fromisoformat(str(row["date"])[:10])
+            # Older/unclosed rows are not part of this requested data window.
+            if not earliest <= trading_day < local_today:
+                continue
             open_price = _decimal(row["open"], "open")
             high = _decimal(row["high"], "high")
             low = _decimal(row["low"], "low")
@@ -96,7 +99,11 @@ def normalize_overseas_candles(instrument, rows, fetched_at):
         if trading_day in seen_dates:
             raise ValueError("duplicate candle date")
         seen_dates.add(trading_day)
-        if low > high or not low <= open_price <= high or not low <= close <= high:
+        # SINA HK close decoding can carry tiny tails (e.g. 477.20001 vs
+        # high 477.2). Preserve all reported prices; do not loosen open/range
+        # bounds, meaningful errors, penny-price errors or other markets.
+        tolerance = min(Decimal("0.00002"), max(abs(high), abs(low), abs(close)) * Decimal("0.0000001")) if market == "HK" else Decimal(0)
+        if low > high or not low <= open_price <= high or not low - tolerance <= close <= high + tolerance:
             raise ValueError("invalid OHLC range")
         if volume != volume.to_integral_value():
             raise ValueError("volume must be whole shares")

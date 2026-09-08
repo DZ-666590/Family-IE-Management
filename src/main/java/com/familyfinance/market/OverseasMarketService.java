@@ -116,6 +116,7 @@ public class OverseasMarketService {
         validateInstrument(response.instrument(), market, symbol);
         ZoneId zone = ZoneId.of(expectedTimezone(market));
         LocalDate fetchedDay = response.fetchedAt().atZone(zone).toLocalDate();
+        LocalDate actualDay = now.atZone(zone).toLocalDate();
         Instant previous = null;
         LocalDate finalDate = null;
         for (CandleBar bar : response.bars()) {
@@ -124,13 +125,14 @@ public class OverseasMarketService {
                     || (bar.turnover() != null && bar.turnover().signum() < 0)
                     || bar.low().compareTo(bar.high()) > 0
                     || bar.open().compareTo(bar.low()) < 0 || bar.open().compareTo(bar.high()) > 0
-                    || bar.close().compareTo(bar.low()) < 0 || bar.close().compareTo(bar.high()) > 0) {
+                    || !validClose(bar, market)) {
                 throw invalid();
             }
             Instant timestamp = Instant.ofEpochMilli(bar.timestamp());
             var local = timestamp.atZone(zone);
             if (!local.toLocalTime().equals(LocalTime.MIDNIGHT)
                     || !local.toLocalDate().isBefore(fetchedDay)
+                    || !local.toLocalDate().isBefore(actualDay)
                     || (previous != null && !timestamp.isAfter(previous))) {
                 throw invalid();
             }
@@ -175,6 +177,17 @@ public class OverseasMarketService {
 
     private static boolean invalidPrice(BigDecimal value) {
         return value == null || value.signum() <= 0;
+    }
+
+    private static boolean validClose(CandleBar bar, String market) {
+        // Match the adapter's bounded SINA HK close-tail tolerance; retain
+        // original OHLC values and keep other markets strictly in-range.
+        BigDecimal tolerance = market.equals("HK")
+                ? bar.high().abs().max(bar.low().abs()).max(bar.close().abs())
+                    .multiply(new BigDecimal("0.0000001")).min(new BigDecimal("0.00002"))
+                : BigDecimal.ZERO;
+        return bar.close().compareTo(bar.low().subtract(tolerance)) >= 0
+                && bar.close().compareTo(bar.high().add(tolerance)) <= 0;
     }
 
     private static OverseasSearchResponse normalize(OverseasSearchResponse response) {
