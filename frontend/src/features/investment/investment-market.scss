@@ -14,6 +14,12 @@
 .investment-setup-actions button:first-child { color: #fff; background: var(--ledger-primary); border-color: var(--ledger-primary); }
 .investment-setup-actions button:disabled { opacity: .5; cursor: wait; }
 .stock-picker { display: grid; gap: 8px; min-width: 0; font-size: 14px; }
+.stock-picker > .semi-select { min-height: 42px; border: 1px solid var(--ledger-border); border-radius: 8px; background: #fff; }
+.stock-picker .semi-select input { min-height: 0; padding: 0; border: 0; border-radius: 0; }
+.reference-quote { padding: 14px 16px; border: 1px solid var(--ledger-border); border-radius: 8px; background: var(--ledger-canvas); font-size: 13px; }
+.reference-quote > div { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; }
+.reference-quote strong { font-size: 21px; color: var(--ledger-text); font-variant-numeric: tabular-nums; }
+.reference-quote p { margin: 5px 0 0; color: var(--ledger-muted); line-height: 1.5; }
 .stock-picker-status { color: var(--ledger-muted); min-height: 23px; font-size: 13px; line-height: 1.6; }
 .stock-picker-updated { display: block; margin-top: 2px; color: var(--ledger-muted); }
 .stock-picker-warning { display: block; color: #a66822; }

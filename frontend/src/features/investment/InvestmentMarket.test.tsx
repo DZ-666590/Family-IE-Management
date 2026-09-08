@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StockPicker } from './StockPicker';
 import { InvestmentSetup } from './InvestmentSetup';
@@ -23,11 +23,14 @@ it('selects a real catalog stock and preserves it while searching another name',
   }
   render(wrap(<Picker/>));
   const user = userEvent.setup();
-  await screen.findByRole('option', { name: '000001.SZ · 平安银行' });
-  await user.selectOptions(screen.getByLabelText('证券'), '5');
-  await user.type(screen.getByLabelText('证券搜索'), 'nothing');
+  const control = screen.getByRole('combobox', { name: '证券' });
+  await user.click(control);
+  await user.click(await screen.findByRole('option', { name: /000001\.SZ · 平安银行/ }));
+  expect(screen.getByRole('combobox', { name: '证券' })).toHaveTextContent('000001.SZ · 平安银行');
+  await user.click(screen.getByRole('combobox', { name: '证券' }));
+  await user.type(screen.getByRole('textbox'), 'nothing');
   await screen.findByText('没有找到匹配股票，请检查代码或名称。');
-  expect(screen.getByLabelText('证券')).toHaveValue('5');
+  expect(screen.getByRole('combobox', { name: '证券' })).toHaveTextContent('000001.SZ · 平安银行');
   expect(screen.queryByRole('button', { name: '登记证券' })).not.toBeInTheDocument();
   expect(request.mock.calls.every(([path]) => !path.includes('/resolve'))).toBe(true);
 });
@@ -43,7 +46,8 @@ it('distinguishes a failed stock search from an empty directory and provides ret
   await screen.findByText('股票搜索暂时不可用');
   failed = false;
   await userEvent.click(screen.getByRole('button', { name: '重试搜索' }));
-  expect(await screen.findByRole('option', { name: '000001.SZ · 平安银行' })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('combobox', { name: '证券' }));
+  expect(await screen.findByRole('option', { name: /000001\.SZ · 平安银行/ })).toBeInTheDocument();
 });
 
 it('shows a catalog-status failure instead of reporting that no stocks match', async () => {
@@ -54,7 +58,9 @@ it('shows a catalog-status failure instead of reporting that no stocks match', a
   render(wrap(<StockPicker request={request as RequestFn} value={security} onChange={() => {}}/>));
   expect(await screen.findByText('股票目录状态暂时无法读取')).toBeInTheDocument();
   expect(screen.queryByText('没有找到匹配股票，请检查代码或名称。')).not.toBeInTheDocument();
-  expect(screen.getByRole('option', { name: '000001.SZ · 平安银行' })).toBeInTheDocument();
+  const control = screen.getByRole('combobox', { name: '证券' });
+  expect(control).toHaveTextContent('000001.SZ · 平安银行');
+  expect(control).toHaveAttribute('aria-disabled', 'true');
   expect(request.mock.calls.some(([path]) => path.includes('/api/securities/search'))).toBe(false);
 });
 
@@ -77,9 +83,9 @@ it('keeps the last published catalog selectable when a refresh fails', async () 
   render(wrap(<Picker/>));
   expect(await screen.findByText(/目录刷新失败，正在使用上次成功目录：目录同步超时/)).toBeInTheDocument();
   expect(screen.getByText(/上次成功更新：2026\.09\.08/)).toBeInTheDocument();
-  await screen.findByRole('option', { name: '000001.SZ · 平安银行' });
-  await userEvent.selectOptions(screen.getByLabelText('证券'), '5');
-  expect(screen.getByLabelText('证券')).toHaveValue('5');
+  await userEvent.click(screen.getByRole('combobox', { name: '证券' }));
+  await userEvent.click(await screen.findByRole('option', { name: /000001\.SZ · 平安银行/ }));
+  expect(screen.getByRole('combobox', { name: '证券' })).toHaveTextContent('000001.SZ · 平安银行');
   expect(screen.getByRole('button', { name: '重试目录更新' })).toBeInTheDocument();
   expect(request.mock.calls.some(([path]) => path.includes('/api/securities/search'))).toBe(true);
 });
@@ -207,9 +213,9 @@ it('starts a locked SELL draft from a historic position without catalog verifica
   const dialog = screen.getByRole('dialog', { name: '记一笔投资' });
   expect(dialog.querySelector('select[name="accountId"]')).toHaveValue('3');
   expect(screen.getByLabelText('业务类型')).toHaveValue('SELL');
-  expect(screen.getByLabelText('证券')).toHaveValue('99');
-  expect(screen.getByRole('option', { name: 'HISTORIC-99 · 历史自定义证券' })).toBeInTheDocument();
-  expect(screen.getByLabelText('证券')).toBeDisabled();
+  const control = within(dialog).getByRole('combobox', { name: '证券' });
+  expect(control).toHaveTextContent('HISTORIC-99 · 历史自定义证券');
+  expect(control).toHaveAttribute('aria-disabled', 'true');
 });
 
 it('does not expose position sale mutations to household members', async () => {

@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import Select from '@douyinfe/semi-ui/lib/es/select';
 import type { Page, Security } from '../../api/contracts';
 import type { RequestFn } from '../common';
 
@@ -31,9 +32,22 @@ export function StockPicker({ request, value, onChange, disabled = false }: {
   const waiting = query.trim() !== debounced || search.isFetching || (catalogAvailable && search.data === undefined && !search.error);
   const retryCatalog = () => { void catalog.refetch(); };
   const updateTime = catalogUpdatedAt(catalog.data?.updatedAt);
-  return <div className="stock-picker">
-    <label htmlFor={`${id}-query`}>证券搜索</label>
-    <input id={`${id}-query`} disabled={disabled} value={query} onChange={event => setQuery(event.target.value)} placeholder="输入股票代码或名称，如 000001 / 平安银行" autoComplete="off"/>
+  return <div className="stock-picker" id={`${id}-picker`}>
+    <span id={`${id}-label`}>证券</span>
+    <Select data-field="securityId" aria-labelledby={`${id}-label`} aria-required filter remote onChangeWithObject
+      disabled={disabled || !catalogAvailable} value={value ? { value: value.id, label: `${value.tsCode} · ${value.name}`, security: value } : undefined}
+      placeholder="搜索股票代码或名称，直接选择"
+      style={{ width: '100%' }} loading={waiting && catalogAvailable}
+      optionList={options.map(item => ({ value: item.id, label: `${item.tsCode} · ${item.name}`, security: item }))}
+      onSearch={setQuery}
+      onSelect={(_next, option) => {
+        const picked = option.security as Security | undefined;
+        if (!picked || picked.id === value?.id) return;
+        onChange(picked);
+      }}
+      getPopupContainer={() => document.getElementById(`${id}-picker`)!}
+      emptyContent={waiting ? '正在查找股票…' : '没有找到匹配股票'}
+    />
     {!disabled && <div className="stock-picker-status" role="status">
       {catalog.isLoading ? <span>正在读取股票目录状态…</span>
         : catalog.error ? <><span>股票目录状态暂时无法读取</span><button type="button" className="text-action" onClick={retryCatalog}>重试目录状态</button></>
@@ -49,10 +63,5 @@ export function StockPicker({ request, value, onChange, disabled = false }: {
             </>}
       {catalogAvailable && updateTime && <small className="stock-picker-updated">{catalog.data?.state === 'READY' ? '目录更新' : '上次成功更新'}：{updateTime}</small>}
     </div>}
-    <label htmlFor={`${id}-selection`}>证券</label>
-    <select id={`${id}-selection`} name="securityId" disabled={disabled} required value={value?.id ?? ''} onChange={event => onChange(search.data?.items.find(item => item.id === Number(event.target.value)) ?? null)}>
-      <option value="">请选择证券</option>
-      {options.map(item => <option key={item.id} value={item.id}>{item.tsCode} · {item.name}</option>)}
-    </select>
   </div>;
 }

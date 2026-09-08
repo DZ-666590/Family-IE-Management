@@ -17,14 +17,16 @@ it('protects a selected catalog stock as an unsaved trade draft', async () => {
     if (path === '/api/market-quotes') return [] as T;
     if (path === '/api/investment-setup') return { completed: true, hasAccounts: true, hasTrades: true } as T;
     if (path === '/api/securities/catalog-status') return { state: 'READY', count: 5558 } as T;
+    if (path.startsWith('/api/securities/5/candles')) return { symbol: '000001.SZ', source: 'BAOSTOCK', adjustment: 'none', asOf: '2026-09-07', fetchedAt: '2026-09-08T00:00:00Z', stale: false, supported: true, bars: [{ timestamp: 1788710400000, open: 10, high: 11, low: 9, close: 10.5, volume: 100, turnover: 1050 }] } as T;
     if (path.startsWith('/api/securities/search')) return page([{ id: 5, tsCode: '000001.SZ', name: '平安银行', market: 'SZ', active: true, securityType: 'STOCK' }]) as T;
     return page([]) as T;
   };
   const user = userEvent.setup(); render(wrap(<InvestmentsPage request={request} role="OWNER" />));
   await user.click(screen.getByRole('button', { name: '记一笔投资' }));
-  await screen.findByRole('option', { name: '000001.SZ · 平安银行' });
-  await user.selectOptions(screen.getByLabelText('证券'), '5');
-  expect(screen.getByLabelText('证券')).toHaveValue('5');
+  const control = screen.getByRole('combobox', { name: '证券' });
+  await user.click(control);
+  await user.click(await screen.findByRole('option', { name: /000001\.SZ · 平安银行/ }));
+  expect(screen.getByRole('combobox', { name: '证券' })).toHaveTextContent('000001.SZ · 平安银行');
   expect(screen.queryByRole('button', { name: '登记证券' })).not.toBeInTheDocument();
   await user.keyboard('{Escape}');
   expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeInTheDocument();
@@ -95,7 +97,7 @@ it('offers catalog search without manual registration when no matches exist', as
   render(wrap(<InvestmentsPage request={request as RequestFn} role="OWNER" />));
 
   await userEvent.click(await screen.findByRole('button', { name: '记一笔投资' }));
-  expect(await screen.findByLabelText('证券搜索')).toBeInTheDocument();
+  expect(await screen.findByRole('combobox', { name: '证券' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: '登记证券' })).not.toBeInTheDocument();
 });
 
@@ -141,8 +143,10 @@ it('records a buy without sending an explicit trade source that the public API r
   await user.click(await screen.findByRole('button', { name: '记一笔投资' }));
   const dialog = screen.getByRole('dialog', { name: '记一笔投资' });
   await user.selectOptions(within(dialog).getByLabelText('投资账户'), '1');
-  expect(await within(dialog).findByRole('option', { name: '000001.SZ · 平安银行' })).toBeInTheDocument();
-  await user.selectOptions(within(dialog).getByLabelText('证券'), '5');
+  const control = within(dialog).getByRole('combobox', { name: '证券' });
+  await user.click(control);
+  await user.click(await within(dialog).findByRole('option', { name: /000001\.SZ · 平安银行/ }));
+  expect(within(dialog).getByRole('combobox', { name: '证券' })).toHaveTextContent('000001.SZ · 平安银行');
   await user.type(within(dialog).getByLabelText('数量'), '100');
   await user.type(within(dialog).getByLabelText('成交单价'), '10.00');
   await user.click(within(dialog).getByRole('button', { name: '保存投资记录' }));
