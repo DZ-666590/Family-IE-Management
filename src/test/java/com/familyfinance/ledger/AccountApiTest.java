@@ -75,6 +75,78 @@ class AccountApiTest {
     EntityManager entityManager;
 
     @Test
+    void specializedCreationAndUpdatesKeepFamilyAuthorization() throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        MockHttpSession member = join(owner, "special-member@example.com", HouseholdRole.MEMBER);
+        var result = mvc.perform(post("/api/accounts").session(owner).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"name":"微信零钱","type":"WALLET","walletProvider":"WECHAT","currency":"CNY",
+                 "openingBalance":"50.00","openingOn":"2026-01-01"}
+                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.walletProvider").value("WECHAT"))
+                .andExpect(jsonPath("$.data.availableBalance").value("50.00")).andReturn();
+        long id = objectMapper.readTree(result.getResponse().getContentAsString()).path("data").path("id").asLong();
+        mvc.perform(patch("/api/accounts/{id}", id).session(member).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"walletProvider":"ALIPAY"}
+                """)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/accounts").session(owner).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"name":"错误类型","type":"CASH","walletProvider":"ALIPAY","currency":"CNY",
+                 "openingBalance":"0.00","openingOn":"2026-01-01"}
+                """)).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void specializationPreservesBalanceAndValidatesMetadata() throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        long id = createAccount(owner, "支付宝历史名称", "WALLET", "CNY", "88.08");
+        mvc.perform(get("/api/accounts/{id}", id).session(owner))
+                .andExpect(jsonPath("$.data.walletProvider").isEmpty());
+        mvc.perform(patch("/api/accounts/{id}", id).session(owner).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"walletProvider":"ALIPAY"}
+                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.walletProvider").value("ALIPAY"))
+                .andExpect(jsonPath("$.data.balance").value("88.08"));
+        mvc.perform(patch("/api/accounts/{id}", id).session(owner).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"type":"BANK","bankName":" 招商银行 ","cardLastFour":"0123"}
+                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(id))
+                .andExpect(jsonPath("$.data.walletProvider").isEmpty())
+                .andExpect(jsonPath("$.data.bankName").value("招商银行"))
+                .andExpect(jsonPath("$.data.cardLastFour").value("0123"))
+                .andExpect(jsonPath("$.data.openingConfirmed").value(true))
+                .andExpect(jsonPath("$.data.balance").value("88.08"));
+        mvc.perform(patch("/api/accounts/{id}", id).session(owner).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"cardLastFour":"1234567890123456"}
+                """)).andExpect(status().isBadRequest());
+        mvc.perform(patch("/api/accounts/{id}", id).session(owner).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"walletProvider":"WECHAT"}
+                """)).andExpect(status().isBadRequest());
+        mvc.perform(patch("/api/accounts/{id}", id).session(owner).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"name":"改名"}
+                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cardLastFour").value("0123"));
+        mvc.perform(patch("/api/accounts/{id}", id).session(owner).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"type":"CASH"}
+                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.bankName").isEmpty())
+                .andExpect(jsonPath("$.data.cardLastFour").isEmpty())
+                .andExpect(jsonPath("$.data.balance").value("88.08"));
+    }
+
+    @Test
     void ownerAndAdminManageAllAccountTypesWhileMemberCanOnlyRead() throws Exception {
         MockHttpSession owner = login("demo", "demo1234");
         MockHttpSession admin = join(owner, "account-admin@example.com", HouseholdRole.ADMIN);

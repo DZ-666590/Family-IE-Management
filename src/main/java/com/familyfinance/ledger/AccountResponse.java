@@ -13,7 +13,10 @@ public record AccountResponse(
         boolean openingConfirmed,
         java.time.LocalDate openingOn,
         String balance,
-        String availableBalance) {
+        String availableBalance,
+        WalletProvider walletProvider,
+        String bankName,
+        String cardLastFour) {
 
     static AccountResponse from(FinancialAccount account, long balance) {
         return new AccountResponse(
@@ -26,6 +29,7 @@ public record AccountResponse(
                 account.isOpeningConfirmed(),
                 account.getOpeningOn(),
                 account.isOpeningConfirmed()?Money.formatCents(balance):null,
-                account.isOpeningConfirmed()?Money.formatCents(balance):null);
+                account.isOpeningConfirmed()?Money.formatCents(balance):null,
+                account.getWalletProvider(), account.getBankName(), account.getCardLastFour());
     }
 }

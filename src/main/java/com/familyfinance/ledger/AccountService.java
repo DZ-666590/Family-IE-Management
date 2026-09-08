@@ -86,12 +86,15 @@ public class AccountService {
         AccountType type = requireType(request == null ? null : request.type(), fields);
         String currency = requireCurrency(request == null ? null : request.currency(), fields);
         Long openingBalance = parseOpeningBalance(request == null ? null : request.openingBalance(), fields);
+        Details details = details(type, request == null ? null : request.walletProvider(),
+                request == null ? null : request.bankName(), request == null ? null : request.cardLastFour(), fields);
         throwIfInvalid(fields);
         LocalDate openingOn=cash.date(request.openingOn(),"openingOn");
         validateUnique(access.context().householdId(), name, null);
         try {
             FinancialAccount account = accounts.saveAndFlush(new FinancialAccount(
                     access.household(), name, type, currency, openingBalance));
+            account.updateDetails(details.walletProvider(), details.bankName(), details.cardLastFour());
             cash.opening(account,openingBalance,openingOn,access.context().userId(),key);
             accounts.flush();
             requests.record(access.context().householdId(),key,digest,account.getId());
@@ -129,6 +132,14 @@ public class AccountService {
         Long openingBalance = request == null || request.openingBalance() == null
                 ? account.getOpeningBalanceCents()
                 : parseOpeningBalance(request.openingBalance(), fields);
+        // Omitted metadata preserves values within a type; type changes discard inapplicable details.
+        Details details = details(type,
+                request != null && request.walletProvider() != null ? request.walletProvider()
+                        : type == AccountType.WALLET ? account.getWalletProvider() : null,
+                request != null && request.bankName() != null ? request.bankName()
+                        : type == AccountType.BANK ? account.getBankName() : null,
+                request != null && request.cardLastFour() != null ? request.cardLastFour()
+                        : type == AccountType.BANK ? account.getCardLastFour() : null, fields);
         throwIfInvalid(fields);
         boolean openingChange=request!=null&&(request.openingBalance()!=null||request.openingOn()!=null);
         LocalDate openingOn=openingChange
@@ -137,6 +148,7 @@ public class AccountService {
         validateUnique(householdId, name, accountId);
         try {
             account.update(name, type, currency, openingBalance);
+            account.updateDetails(details.walletProvider(), details.bankName(), details.cardLastFour());
             if(openingChange) cash.opening(account,openingBalance,openingOn,access.context().userId(),key);
             accounts.flush();
             requests.record(householdId,key,digest,accountId);
@@ -203,6 +215,25 @@ public class AccountService {
             fields.put("type", "账户类型不能为空");
         }
         return type;
+    }
+
+    private record Details(WalletProvider walletProvider, String bankName, String cardLastFour) {}
+
+    private static Details details(AccountType type, WalletProvider provider, String rawBank, String rawTail,
+            Map<String, String> fields) {
+        String bank = rawBank == null || rawBank.isBlank() ? null : rawBank.trim();
+        String tail = rawTail == null || rawTail.isBlank() ? null : rawTail.trim();
+        if (provider != null && type != AccountType.WALLET)
+            fields.put("walletProvider", "只有电子钱包可以选择钱包平台");
+        if (bank != null && type != AccountType.BANK)
+            fields.put("bankName", "只有银行卡可以填写银行名称");
+        if (tail != null && type != AccountType.BANK)
+            fields.put("cardLastFour", "只有银行卡可以填写尾号");
+        if (bank != null && bank.length() > 80)
+            fields.put("bankName", "银行名称不能超过 80 个字符");
+        if (tail != null && !tail.matches("[0-9]{4}"))
+            fields.put("cardLastFour", "请仅填写四位数字尾号，不要填写完整卡号");
+        return new Details(provider, bank, tail);
     }
 
     private static String requireCurrency(String rawCurrency, Map<String, String> fields) {
