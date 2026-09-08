@@ -4,12 +4,20 @@ import userEvent from '@testing-library/user-event';
 import { StockChart } from './StockChart';
 import type { RequestFn } from '../common';
 
-const chart = vi.hoisted(() => ({ setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), createIndicator: vi.fn(), resize: vi.fn() }));
+const chart = vi.hoisted(() => ({ setSymbol: vi.fn(), setPeriod: vi.fn(), setDataLoader: vi.fn(), createIndicator: vi.fn(), setBarSpace: vi.fn(), scrollToRealTime: vi.fn(), resize: vi.fn() }));
 const dispose = vi.hoisted(() => vi.fn());
-vi.mock('klinecharts', () => ({ init: () => chart, dispose }));
+const init = vi.hoisted(() => vi.fn((): typeof chart | null => chart));
+vi.mock('klinecharts', () => ({ init, dispose }));
 const stock = { id: 5, tsCode: '000001.SZ', name: '平安银行' };
 function show(request: RequestFn, symbol = stock) { return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><StockChart request={request} security={symbol}/></QueryClientProvider>); }
-const data = { symbol: '000001.SZ', source: 'BAOSTOCK', adjustment: 'qfq', asOf: '2026-09-07', fetchedAt: '2026-09-08T08:00:00Z', stale: false, supported: true, bars: [{ timestamp: 1788710400000, open: 11.87, close: 11.70, high: 11.88, low: 11.65, volume: 108727552, turnover: 1275606340.01 }] };
+const bar = (date: string, open: number, close: number, high: number, low: number, volume: number) => ({ timestamp: Date.parse(`${date}T00:00:00+08:00`), open, close, high, low, volume, turnover: volume * 10 });
+const data = { symbol: '000001.SZ', source: 'BAOSTOCK', adjustment: 'qfq', asOf: '2026-09-30', fetchedAt: '2026-09-30T08:00:00Z', stale: false, supported: true, bars: [bar('2025-08-01', 9, 10, 11, 8, 50), bar('2026-08-03', 10, 13, 14, 9, 100), bar('2026-08-31', 13, 12, 15, 11, 200), bar('2026-09-01', 12, 14, 16, 12, 300), bar('2026-09-30', 14, 15, 17, 13, 400)] };
+beforeEach(() => {
+  init.mockReset();
+  init.mockReturnValue(chart);
+  dispose.mockClear();
+  Object.values(chart).forEach(mock => mock.mockClear());
+});
 it('loads selected stock candles, hands actual bars to KLineChart, and disposes on close', async () => {
   const request = vi.fn(async () => data);
   const view = show(request as RequestFn);
@@ -24,6 +32,48 @@ it('loads selected stock candles, hands actual bars to KLineChart, and disposes 
   view.unmount();
   expect(dispose).toHaveBeenCalled();
 });
+it('offers bounded history ranges and labels period-specific latest data', async () => {
+  show((async () => data) as RequestFn);
+  await waitFor(() => expect(chart.setDataLoader).toHaveBeenCalled());
+  expect(screen.getByLabelText('历史范围')).toHaveValue('all');
+  expect(screen.getByText(/最多约 2 年/)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: '月 K' }));
+  await userEvent.selectOptions(screen.getByLabelText('历史范围'), '1m');
+  await waitFor(() => expect(screen.getByText('查看最近一月数据')).toBeInTheDocument());
+  const loader = chart.setDataLoader.mock.calls.at(-1)![0];
+  const callback = vi.fn();
+  loader.getBars({ type: 'init', callback });
+  expect(callback).toHaveBeenCalledWith([
+    data.bars[0],
+    { timestamp: Date.parse('2026-08-03T00:00:00+08:00'), open: 10, close: 12, high: 15, low: 9, volume: 300, turnover: 3000 },
+    { timestamp: Date.parse('2026-09-01T00:00:00+08:00'), open: 12, close: 15, high: 17, low: 12, volume: 700, turnover: 7000 }
+  ], false);
+  expect(screen.getByText(/月 K 的首尾周期可能不完整/)).toBeInTheDocument();
+});
+it('keeps full indicator warmup history while a short range changes the viewport', async () => {
+  const start = Date.parse('2026-06-01T00:00:00+08:00');
+  const bars = Array.from({ length: 100 }, (_, index) => ({ timestamp: start + index * 86400_000, open: 10 + index, close: 11 + index, high: 12 + index, low: 9 + index, volume: 100 + index, turnover: (100 + index) * 10 }));
+  show((async () => ({ ...data, bars })) as RequestFn);
+  await waitFor(() => expect(chart.setBarSpace).toHaveBeenCalled());
+  const allSpace = chart.setBarSpace.mock.calls.at(-1)![0];
+  await userEvent.selectOptions(screen.getByLabelText('历史范围'), '1m');
+  await waitFor(() => expect(chart.setBarSpace.mock.calls.at(-1)![0]).toBeGreaterThan(allSpace));
+  const loader = chart.setDataLoader.mock.calls.at(-1)![0];
+  const callback = vi.fn();
+  loader.getBars({ type: 'init', callback });
+  expect(callback).toHaveBeenCalledWith(bars, false);
+  expect(chart.scrollToRealTime).toHaveBeenCalled();
+});
+it('uses red-up and green-down styles for volume and MACD indicators', async () => {
+  show((async () => data) as RequestFn);
+  await waitFor(() => expect(chart.createIndicator).toHaveBeenCalled());
+  await userEvent.click(screen.getByRole('checkbox', { name: 'MACD' }));
+  await waitFor(() => expect(chart.createIndicator.mock.calls.some(([value]) => typeof value === 'object' && value.name === 'MACD')).toBe(true));
+  for (const name of ['VOL', 'MACD']) {
+    const value = chart.createIndicator.mock.calls.map(([item]) => item).find(item => typeof item === 'object' && item.name === name);
+    expect(value).toEqual(expect.objectContaining({ styles: { bars: [{ upColor: '#c74b50', downColor: '#31846a', noChangeColor: '#67727e' }] } }));
+  }
+});
 it('shows explicit unsupported coverage rather than a fake or empty chart', async () => {
   show((async () => ({ ...data, supported: false, bars: [] })) as RequestFn, { id: 8, name: '万达轴承', tsCode: '920002.BJ' });
   expect(await screen.findByText(/暂未覆盖这只股票/)).toBeInTheDocument();
@@ -36,4 +86,10 @@ it('keeps stale history visibly identified and offers retry after failure', asyn
   fail = false;
   await userEvent.click(screen.getByRole('button', { name: '重新加载行情' }));
   expect(await screen.findByText(/缓存行情/)).toBeInTheDocument();
+});
+it('removes the image role when chart initialization fails', async () => {
+  init.mockReturnValue(null);
+  show((async () => data) as RequestFn);
+  expect(await screen.findByRole('alert')).toHaveTextContent('图表暂时无法绘制');
+  expect(screen.queryByRole('img', { name: /K 线图/ })).not.toBeInTheDocument();
 });

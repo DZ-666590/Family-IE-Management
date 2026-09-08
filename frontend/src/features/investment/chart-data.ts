@@ -1,4 +1,5 @@
 export type ChartPeriod = 'day' | 'week' | 'month';
+export type ChartRange = '1m' | '3m' | '1y' | 'all';
 export interface CandleBar { timestamp: number; open: number; high: number; low: number; close: number; volume: number; turnover: number }
 export interface CandleResponse { symbol: string; source: string; adjustment: 'none' | 'qfq'; asOf: string | null; fetchedAt: string | null; stale: boolean; supported: boolean; bars: CandleBar[] }
 
@@ -21,4 +22,22 @@ export function aggregateBars(bars: CandleBar[], period: ChartPeriod): CandleBar
     }
   }
   return [...groups.values()];
+}
+
+function subtractShanghaiCalendar(timestamp: number, months: number): number {
+  const shanghai = new Date(timestamp + 8 * 3600_000);
+  const day = shanghai.getUTCDate();
+  shanghai.setUTCDate(1);
+  shanghai.setUTCMonth(shanghai.getUTCMonth() - months);
+  const daysInTargetMonth = new Date(Date.UTC(shanghai.getUTCFullYear(), shanghai.getUTCMonth() + 1, 0)).getUTCDate();
+  shanghai.setUTCDate(Math.min(day, daysInTargetMonth));
+  return shanghai.getTime() - 8 * 3600_000;
+}
+
+export function selectBarsForRange(bars: CandleBar[], period: ChartPeriod, range: ChartRange): CandleBar[] {
+  const aggregated = aggregateBars(bars, period);
+  if (range === 'all' || aggregated.length === 0) return aggregated;
+  const latest = bars.at(-1)?.timestamp ?? aggregated.at(-1)!.timestamp;
+  const cutoff = range === '1y' ? subtractShanghaiCalendar(latest, 12) : subtractShanghaiCalendar(latest, range === '3m' ? 3 : 1);
+  return aggregated.filter(bar => bar.timestamp >= cutoff);
 }

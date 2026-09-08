@@ -132,6 +132,7 @@ it('records a buy without sending an explicit trade source that the public API r
     if (path.startsWith('/api/investment-trades')) return page([]);
     if (path.startsWith('/api/accounts')) return page([{ id: 2, name: '现金资金', openingConfirmed: true, openingOn: '2026-01-01', balance: '10000.00', availableBalance: '10000.00', archivedAt: null }]);
     if (path === '/api/market-quotes') return [];
+    if (path === '/api/securities/catalog-status') return { state: 'READY', count: 5558 };
     if (path.startsWith('/api/securities/search')) return page([{ id: 5, tsCode: '000001.SZ', name: '平安银行' }]);
     throw new Error(`unexpected ${path}`);
   });
