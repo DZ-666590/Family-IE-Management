@@ -96,8 +96,8 @@ UX-01、02、04、05 均已完成“失败回归→修复→通过”；UX-03 �
 | 收支增改删除、组合筛选、分页、两级分类、CSV | TransactionApiTest、TransactionPaginationApiTest、CategoryHierarchyApiTest、CsvExportApiTest、TransactionsPage.test.tsx | 收入/支出、本人更正、缺款失败及输入保留已验证 |
 | 互转、换汇、更正、冲销、并发与幂等 | CashAccountingApiTest、FxTransferApiTest、LedgerSecurityConcurrencyTest | 换汇双边入账和冲销恢复余额通过 |
 | 预算范围、用量、调整修订、并发冲突 | BudgetApiTest、BudgetUsageServiceTest、BudgetConcurrencyApiTest、BudgetsPage.test.tsx | 家庭预算自动累计费用通过 |
-| 周期频率、生成、暂停归档、确认/跳过/批量 | RecurringGenerationTest、RecurringConfirmationApiTest、RecurringConcurrencyTest、RecurringPage.test.tsx | 当日生成问题修复待上线复验；不自动扣款 |
-| 房产/车辆/其他资产、购入、期初、估值、处置、归档 | AssetApiTest、AssetValuationServiceTest、WealthAccountingApiTest、AssetAccounting.test.tsx | 条件必填问题已复现并修复；完整写入链路待复验 |
+| 周期频率、生成、暂停归档、确认/跳过/批量 | RecurringGenerationTest、RecurringConfirmationApiTest、RecurringConcurrencyTest、RecurringPage.test.tsx | 当日生成和确认后扣款已在修复版通过 |
+| 房产/车辆/其他资产、购入、期初、估值、处置、归档 | AssetApiTest、AssetValuationServiceTest、WealthAccountingApiTest、AssetAccounting.test.tsx | 条件必填复验通过；期初、估值、处置链路通过 |
 | 贷款创建、购买物、计划、单期还款、提前还款、结清、期数范围 | LoanPurchasedAssetApiTest、LoanRepaymentApiTest、LoanCombinedRepaymentApiTest、LoanPayoffApiTest、LoanTermOptionsApiTest、LoanPrecisionTest | 创建→部分提前还款→结清与现金余额通过 |
 | 投资账户、期初、买卖、分红、费用、更正、尾笔撤销 | InvestmentTradeApiTest、OverseasInvestmentApiTest、BasePositionCalculatorTest、OverseasTradeFlow.test.tsx | 美股选股与六位单价入账、原币及本币成本通过 |
 | 股票目录、行情刷新、手工价格、K线、失效/缺价 | MarketApiTest、OverseasMarketApiTest、SecurityCatalogServiceTest、QuoteRefreshServiceTest、OverseasMarket.test.tsx | AAPL 真实报价与K线已看到；过期行情明确标记 |
@@ -106,7 +106,7 @@ UX-01、02、04、05 均已完成“失败回归→修复→通过”；UX-03 �
 | 提醒读取、处理与权限 | NotificationApiTest、NotificationsPage.test.tsx | 空状态与单入口可达 |
 | 年度统计、插件禁用、合同 Word/PDF 提取 | AnnualPluginApiTest、AnnualStatsCalculationTest、DisabledPluginApiTest、LoanContractExtractionServiceTest、ComprehensiveContractExtractionTest | 年度统计及合同上传入口可达；合同解析由自动化合成文档验证，未上传真实合同 |
 | 密码修改、个人AI配置、加密、允许名单和SSRF保护 | RegistrationApiTest、AiSettingsApiTest、AiSafetyTest、PersonalAiGatewayTest | 设置页正确阻止不安全的AI密钥配置；未做外部AI推理 |
-| 草稿保护、手机导航、焦点/关闭、错误恢复 | 前端 Drawer、draft-guard、布局、各业务组件测试 | 草稿离开确认通过；手机持仓无横向溢出；账户卡片排版待修复版验证 |
+| 草稿保护、手机导航、焦点/关闭、错误恢复 | 前端 Drawer、draft-guard、布局、各业务组件测试 | 草稿离开确认通过；手机持仓无横向溢出；账户卡片排版修复版复验通过 |
 
 不执行真实家庭归档、删除真实成员、真实服务商收费调用；这些破坏性或外部场景使用隔离自动化验证，而非拿现有用户数据试验。
 
