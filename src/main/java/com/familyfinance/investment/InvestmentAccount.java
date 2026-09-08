@@ -52,10 +52,13 @@ public class InvestmentAccount {
     }
 
     InvestmentAccount(Household household, String name, String brokerName, AppUser createdBy) {
+        this(household,name,brokerName,createdBy,"CNY");
+    }
+    InvestmentAccount(Household household,String name,String brokerName,AppUser createdBy,String currency) {
         this.household = Objects.requireNonNull(household);
         this.name = Objects.requireNonNull(name);
         this.brokerName = Objects.requireNonNull(brokerName);
-        this.currency = "CNY";
+        this.currency = Objects.requireNonNull(currency);
         this.createdBy = Objects.requireNonNull(createdBy);
     }
 

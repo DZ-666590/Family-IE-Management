@@ -26,22 +26,24 @@ public class InvestmentAccountingService {
     }
     public void post(InvestmentTrade trade,InvestmentPosition before,InvestmentPosition after,long actor,String key,boolean replace) {
         long h=trade.getHousehold().getId();
+        String currency=trade.getAccount().getCurrency();
         if(replace)cash.requireEditableSourceCash(h,"INVESTMENT_TRADE",trade.getId());
         Long cashId=trade.getType()==InvestmentTradeType.OPENING?null:trade.getCashAccountId();
         if(trade.getType()!=InvestmentTradeType.OPENING) {
             if(cashId==null)throw new ResourceConflictException("INVESTMENT_FUNDING_REQUIRED","请先为投资账户选择已确认期初的资金账户");
             var account=accounts.findLockedByIdAndHouseholdId(cashId,h).orElseThrow(()->new ResourceNotFoundException("资金账户不存在"));
             cash.requireConfirmed(account,trade.getTradedOn());
+            if(!currency.equals(account.getCurrency()))throw new ResourceConflictException("CURRENCY_MISMATCH","资金账户与投资账户币种不一致");
         }
         var entries=new ArrayList<LedgerEntryInput>();
         long costDelta=Math.subtractExact(after.costCents(),before.costCents());
         long cashDelta=Math.subtractExact(after.cashImpactCents(),before.cashImpactCents());
         long profit=Math.subtractExact(after.realizedProfitCents(),before.realizedProfitCents());
-        add(entries,"POSITION:"+trade.getAccount().getId()+":"+trade.getSecurity().getId(),ASSET,costDelta);
-        if(cashId!=null)add(entries,"CASH:"+cashId,CASH,cashDelta);
-        if(trade.getType()==InvestmentTradeType.OPENING)add(entries,"EQUITY:OPENING",EQUITY,-costDelta);
-        else if(profit>0)add(entries,"INCOME:INVESTMENT_GAIN",INCOME,-profit);
-        else if(profit<0)add(entries,trade.getType()==InvestmentTradeType.FEE?"EXPENSE:INVESTMENT_FEE":"EXPENSE:INVESTMENT_LOSS",EXPENSE,-profit);
+        add(entries,"POSITION:"+trade.getAccount().getId()+":"+trade.getSecurity().getId(),ASSET,costDelta,currency);
+        if(cashId!=null)add(entries,"CASH:"+cashId,CASH,cashDelta,currency);
+        if(trade.getType()==InvestmentTradeType.OPENING)add(entries,LedgerCodes.inCurrency("EQUITY:OPENING",currency),EQUITY,-costDelta,currency);
+        else if(profit>0)add(entries,LedgerCodes.inCurrency("INCOME:INVESTMENT_GAIN",currency),INCOME,-profit,currency);
+        else if(profit<0)add(entries,LedgerCodes.inCurrency(trade.getType()==InvestmentTradeType.FEE?"EXPENSE:INVESTMENT_FEE":"EXPENSE:INVESTMENT_LOSS",currency),EXPENSE,-profit,currency);
         var command=new LedgerPostingCommand(h,"INVESTMENT_TRADE",trade.getId(),key,trade.getTradedOn(),actor,entries);
         if(replace)posting.replace(command);else posting.post(command);
     }
@@ -50,7 +52,7 @@ public class InvestmentAccountingService {
         cash.requireEditableSourceCash(trade.getHousehold().getId(),"INVESTMENT_TRADE",trade.getId());
         posting.reverse(trade.getHousehold().getId(),"INVESTMENT_TRADE",trade.getId(),key,actor);
     }
-    private static void add(java.util.List<LedgerEntryInput> entries,String code,LedgerAccountKind kind,long debit) {
-        if(debit!=0)entries.add(new LedgerEntryInput(code,kind,debit>0?debit:0,debit<0?Math.negateExact(debit):0,null,null));
+    private static void add(java.util.List<LedgerEntryInput> entries,String code,LedgerAccountKind kind,long debit,String currency) {
+        if(debit!=0)entries.add(new LedgerEntryInput(code,kind,debit>0?debit:0,debit<0?Math.negateExact(debit):0,null,null,currency));
     }
 }

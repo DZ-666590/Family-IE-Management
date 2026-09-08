@@ -55,6 +55,7 @@ public class CashTransferService {
         if(previous!=null) return jdbc.queryForObject("select * from cash_transfers where household_id=? and id=? for update",CashTransferService::row,h,previous);
         FinancialAccount from=account(h,request.fromAccountId()),to=account(h,request.toAccountId());
         if(from.getId().equals(to.getId())) throw new RequestValidationException(Map.of("toAccountId","转出和转入账户必须不同"));
+        if(!from.getCurrency().equals(to.getCurrency()))throw new RequestValidationException(Map.of("toAccountId","不同币种请使用记录换汇，不能直接互转"));
         long amount;
         try { amount=Money.parseCents(request.amount()); } catch(IllegalArgumentException e) { throw new RequestValidationException(Map.of("amount",e.getMessage())); }
         var day=cash.date(request.occurredOn(),"occurredOn");
@@ -66,8 +67,8 @@ public class CashTransferService {
         },holder);
         long id=holder.getKey().longValue();
         posting.post(new LedgerPostingCommand(h,"CASH_TRANSFER",id,key,day,access.context().userId(),List.of(
-            new LedgerEntryInput("CASH:"+from.getId(),CASH,0,amount,null,null),
-            new LedgerEntryInput("CASH:"+to.getId(),CASH,amount,0,null,null))));
+            new LedgerEntryInput("CASH:"+from.getId(),CASH,0,amount,null,null,from.getCurrency()),
+            new LedgerEntryInput("CASH:"+to.getId(),CASH,amount,0,null,null,to.getCurrency()))));
         requests.record(h,key,digest,id);
         return new CashTransferResponse(id,from.getId(),to.getId(),Money.formatCents(amount),day,access.context().userId());
     }

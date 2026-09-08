@@ -123,4 +123,4 @@ export interface DebtAnalysis { liability: string; asset: string; debtRatioPerce
 export interface Analysis { historyStatus: string; insights: Array<{ type: string; title: string; message: string; metric: string }> }
 
 export interface CashTransfer { id: number; fromAccountId: number; toAccountId: number; amount: string; occurredOn: string; actorId: number }
-export interface AccountingJournal { journalId: number; sourceType: string; sourceId: number; revision: number; operation: 'POST' | 'REPLACE' | 'REVERSE'; effectiveOn: string; recordedAt: string; actorId: number; reversesJournalId: number | null; legs: Array<{ accountCode: string; debit: string; credit: string; categoryId: number | null; memberId: number | null }> }
+export interface AccountingJournal { journalId: number; sourceType: string; sourceId: number; revision: number; operation: 'POST' | 'REPLACE' | 'REVERSE'; effectiveOn: string; recordedAt: string; actorId: number; reversesJournalId: number | null; legs: Array<{ currency?: string; accountCode: string; debit: string; credit: string; categoryId: number | null; memberId: number | null }> }

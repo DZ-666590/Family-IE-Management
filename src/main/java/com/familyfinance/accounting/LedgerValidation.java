@@ -18,7 +18,8 @@ class LedgerValidation {
     private final Clock clock;
     private final LedgerSecurityCatalog securityCatalog;
     private static final Set<String> SYSTEM_ACCOUNTS=Set.of("EQUITY:OPENING","INCOME:INVESTMENT_GAIN",
-            "EXPENSE:INVESTMENT_LOSS","INCOME:VALUATION_GAIN","EXPENSE:VALUATION_LOSS","EXPENSE:INVESTMENT_FEE");
+            "EXPENSE:INVESTMENT_LOSS","INCOME:VALUATION_GAIN","EXPENSE:VALUATION_LOSS","EXPENSE:INVESTMENT_FEE",
+            "EQUITY:FX_CLEARING","EXPENSE:FX_FEE");
     LedgerValidation(LedgerStore store,Clock clock,LedgerSecurityCatalog securityCatalog) {
         this.store=store; this.clock=clock; this.securityCatalog=securityCatalog;
     }
@@ -87,6 +88,9 @@ class LedgerValidation {
                     case "POSITION" -> {
                         match(e,LedgerAccountKind.ASSET,parts,3); ownedCurrency("investment_accounts",id,c.householdId(),e.currency());
                         require(currentSecurities.contains(parseId(parts[2])),"accountCode","证券不存在");
+                        String market=store.jdbc.queryForObject("select market from securities where id=?",String.class,parseId(parts[2]));
+                        String currency="HK".equals(market)?"HKD":"US".equals(market)?"USD":"CNY";
+                        require(e.currency().equals(currency),"currency","分录币种与证券币种不一致");
                     }
                     case "INCOME","EXPENSE" -> {
                         match(e,LedgerAccountKind.valueOf(parts[0]),parts,2); owned("categories",id,c.householdId());

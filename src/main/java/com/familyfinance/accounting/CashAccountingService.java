@@ -102,8 +102,8 @@ public class CashAccountingService {
         if(amount==0 && source!=null) { posting.reverse(h,"CASH_OPENING",source,key,actor); source=null; }
         else if(amount>0) {
             var command=new LedgerPostingCommand(h,"CASH_OPENING",source==null?event:source,key,day,actor,List.of(
-                new LedgerEntryInput("CASH:"+account.getId(),CASH,amount,0,null,null),
-                new LedgerEntryInput("EQUITY:OPENING",EQUITY,0,amount,null,null)));
+                new LedgerEntryInput("CASH:"+account.getId(),CASH,amount,0,null,null,account.getCurrency()),
+                new LedgerEntryInput(LedgerCodes.inCurrency("EQUITY:OPENING",account.getCurrency()),EQUITY,0,amount,null,null,account.getCurrency())));
             if(source==null) { posting.post(command); source=event; } else posting.replace(command);
         }
         account.confirmOpening(amount,day,source);
@@ -121,9 +121,12 @@ public class CashAccountingService {
         if(tx.getSourceType()!=com.familyfinance.transaction.TransactionSourceType.MANUAL && tx.getSourceType()!=com.familyfinance.transaction.TransactionSourceType.RECURRING)
             throw new IllegalArgumentException("Loan transactions require their principal/interest adapter");
         boolean income=tx.getKind()==TransactionKind.INCOME;
+        String currency=tx.getAccount().getCurrency();
+        if(tx.getSourceType()==com.familyfinance.transaction.TransactionSourceType.RECURRING&&!currency.equals("CNY"))
+            throw new RequestValidationException(Map.of("accountId","周期账单仅支持人民币账户"));
         long amount=tx.getAmountCents(); long category=tx.getCategory().getId(); long member=tx.getMember().getId();
         return new LedgerPostingCommand(tx.getHousehold().getId(),"TRANSACTION",tx.getId(),key,tx.getOccurredOn(),actorId,List.of(
-            new LedgerEntryInput("CASH:"+tx.getAccount().getId(),CASH,income?amount:0,income?0:amount,null,member),
-            new LedgerEntryInput((income?"INCOME:":"EXPENSE:")+category,income?INCOME:EXPENSE,income?0:amount,income?amount:0,category,member)));
+            new LedgerEntryInput("CASH:"+tx.getAccount().getId(),CASH,income?amount:0,income?0:amount,null,member,currency),
+            new LedgerEntryInput(LedgerCodes.inCurrency((income?"INCOME:":"EXPENSE:")+category,currency),income?INCOME:EXPENSE,income?0:amount,income?amount:0,category,member,currency)));
     }
 }

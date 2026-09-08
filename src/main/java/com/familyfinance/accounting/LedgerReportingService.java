@@ -21,6 +21,10 @@ public class LedgerReportingService {
     public LedgerReportingService(JdbcTemplate jdbc){this.jdbc=jdbc;}
 
     public void requireComplete(long h) {
+        // Deliberate interim fail-closed gate: do not publish CNY totals by
+        // summing native currencies before the reporting adapters are complete.
+        if(count("select count(*) from ledger_accounts where household_id=? and currency<>'CNY'",h)>0)
+            throw new ResourceConflictException("MULTICURRENCY_REPORTING_PENDING","原币账务已保留，多币种汇总尚未启用，暂不提供可能混合币种的总额");
         long missing=missingCount(h);
         if(missing>0)throw new ResourceConflictException("ACCOUNTING_NOT_INITIALIZED","存在 "+missing+" 项未确认的期初或旧资金记录；请先核对期初与来源账务，当前报表不完整");
     }

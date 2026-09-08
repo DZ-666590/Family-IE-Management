@@ -47,6 +47,8 @@ public class Security {
 
     public Long getId() { return id; }
     public String getMarket() { return market; }
+    /** Trading universe: A shares CNY, HKD Hong Kong counters, USD US stocks. */
+    public String getCurrency() { return switch(market) {case "HK"->"HKD";case "US"->"USD";default->"CNY";}; }
     public String getTsCode() { return tsCode; }
     public String getName() { return name; }
     public String getSecurityType() { return securityType; }

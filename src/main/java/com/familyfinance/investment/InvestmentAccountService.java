@@ -31,6 +31,7 @@ public class InvestmentAccountService {
     private final com.familyfinance.accounting.CashAccountingService cash;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final jakarta.persistence.EntityManager entities;
+    private final com.familyfinance.accounting.MultiCurrencyPolicy currencyPolicy;
 
     public InvestmentAccountService(
             InvestmentAccountRepository accounts,
@@ -39,12 +40,13 @@ public class InvestmentAccountService {
             Clock clock, com.familyfinance.accounting.AccountingRequests requests,
             com.familyfinance.ledger.FinancialAccountRepository cashAccounts,
             com.familyfinance.accounting.CashAccountingService cash, org.springframework.jdbc.core.JdbcTemplate jdbc,
-            jakarta.persistence.EntityManager entities) {
+            jakarta.persistence.EntityManager entities,com.familyfinance.accounting.MultiCurrencyPolicy currencyPolicy) {
         this.accounts = accounts;
         this.currentMembership = currentMembership;
         this.mutationAuthorization = mutationAuthorization;
         this.clock = clock;
         this.requests=requests; this.cashAccounts=cashAccounts; this.cash=cash; this.jdbc=jdbc; this.entities=entities;
+        this.currencyPolicy=currencyPolicy;
     }
 
     public InvestmentAccountPage list(
@@ -84,12 +86,12 @@ public class InvestmentAccountService {
         String currency = request == null || request.currency() == null
                 ? ""
                 : request.currency().trim().toUpperCase(java.util.Locale.ROOT);
-        if (!"CNY".equals(currency)) fields.put("currency", "投资账户币种只能是 CNY");
+        currencyPolicy.validate(currency,fields);
         throwIfInvalid(fields);
         ensureUnique(access.context().householdId(), name, null);
         try {
-            InvestmentAccount account=new InvestmentAccount(access.household(), name, broker, access.membership().getUser());
-            if(request.fundingAccountId()!=null) { requireFunding(h,request.fundingAccountId()); account.fundingAccount(request.fundingAccountId()); }
+            InvestmentAccount account=new InvestmentAccount(access.household(), name, broker, access.membership().getUser(),currency);
+            if(request.fundingAccountId()!=null) { requireFunding(h,request.fundingAccountId(),currency); account.fundingAccount(request.fundingAccountId()); }
             accounts.saveAndFlush(account);
             requests.record(h,key,digest,account.getId());
             return InvestmentAccountResponse.from(account);
@@ -126,7 +128,7 @@ public class InvestmentAccountService {
         ensureUnique(access.context().householdId(), name, id);
         try {
             account.update(name, broker);
-            if(request!=null&&request.fundingAccountId()!=null) {requireFunding(h,request.fundingAccountId());account.fundingAccount(request.fundingAccountId());}
+            if(request!=null&&request.fundingAccountId()!=null) {requireFunding(h,request.fundingAccountId(),account.getCurrency());account.fundingAccount(request.fundingAccountId());}
             accounts.flush();
             requests.record(h,key,digest,id);
             return InvestmentAccountResponse.from(account);
@@ -167,9 +169,10 @@ public class InvestmentAccountService {
         entities.detach(account);
         return accounts.findCurrent(id,h).orElseThrow();
     }
-    private void requireFunding(long h,long id) {
+    private void requireFunding(long h,long id,String currency) {
         var account=cashAccounts.findLockedByIdAndHouseholdId(id,h).orElseThrow(()->new ResourceNotFoundException("资金账户不存在"));
         cash.requireConfirmed(account);
+        if(!currency.equals(account.getCurrency()))throw new RequestValidationException(Map.of("fundingAccountId","投资账户与资金账户的币种必须一致"));
     }
 
     InvestmentAccount findOne(long householdId, long id) {

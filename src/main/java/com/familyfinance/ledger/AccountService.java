@@ -34,17 +34,19 @@ public class AccountService {
     private final CashAccountingService cash;
     private final LedgerReadService ledger;
     private final AccountingRequests requests;
+    private final com.familyfinance.accounting.MultiCurrencyPolicy currencyPolicy;
 
     public AccountService(
             FinancialAccountRepository accounts,
             CurrentMembership currentMembership,
             FamilyMutationAuthorization mutationAuthorization,
-            Clock clock, CashAccountingService cash, LedgerReadService ledger, AccountingRequests requests) {
+            Clock clock, CashAccountingService cash, LedgerReadService ledger, AccountingRequests requests,com.familyfinance.accounting.MultiCurrencyPolicy currencyPolicy) {
         this.accounts = accounts;
         this.currentMembership = currentMembership;
         this.mutationAuthorization = mutationAuthorization;
         this.clock = clock;
         this.cash=cash; this.ledger=ledger; this.requests=requests;
+        this.currencyPolicy=currencyPolicy;
     }
 
     public AccountPage list(Authentication authentication, int page, int size) {
@@ -88,6 +90,7 @@ public class AccountService {
         Long openingBalance = parseOpeningBalance(request == null ? null : request.openingBalance(), fields);
         Details details = details(type, request == null ? null : request.walletProvider(),
                 request == null ? null : request.bankName(), request == null ? null : request.cardLastFour(), fields);
+        requireWalletCurrency(details,currency,fields);
         throwIfInvalid(fields);
         LocalDate openingOn=cash.date(request.openingOn(),"openingOn");
         validateUnique(access.context().householdId(), name, null);
@@ -129,6 +132,7 @@ public class AccountService {
         String currency = request == null || request.currency() == null
                 ? account.getCurrency()
                 : requireCurrency(request.currency(), fields);
+        if(!currency.equals(account.getCurrency()))fields.put("currency","账户币种创建后不可修改，请新建对应币种账户");
         Long openingBalance = request == null || request.openingBalance() == null
                 ? account.getOpeningBalanceCents()
                 : parseOpeningBalance(request.openingBalance(), fields);
@@ -140,6 +144,7 @@ public class AccountService {
                         : type == AccountType.BANK ? account.getBankName() : null,
                 request != null && request.cardLastFour() != null ? request.cardLastFour()
                         : type == AccountType.BANK ? account.getCardLastFour() : null, fields);
+        requireWalletCurrency(details,currency,fields);
         throwIfInvalid(fields);
         boolean openingChange=request!=null&&(request.openingBalance()!=null||request.openingOn()!=null);
         LocalDate openingOn=openingChange
@@ -236,12 +241,15 @@ public class AccountService {
         return new Details(provider, bank, tail);
     }
 
-    private static String requireCurrency(String rawCurrency, Map<String, String> fields) {
+    private String requireCurrency(String rawCurrency, Map<String, String> fields) {
         String currency = rawCurrency == null ? "" : rawCurrency.trim().toUpperCase(java.util.Locale.ROOT);
-        if (!FinancialAccount.STAGE_TWO_CURRENCY.equals(currency)) {
-            fields.put("currency", "第二阶段账户币种只能是 CNY");
-        }
+        currencyPolicy.validate(currency,fields);
         return currency;
+    }
+
+    private static void requireWalletCurrency(Details details,String currency,Map<String,String> fields) {
+        if((details.walletProvider()==WalletProvider.ALIPAY||details.walletProvider()==WalletProvider.WECHAT)&&!currency.equals("CNY"))
+            fields.put("currency","支付宝和微信余额仅支持人民币");
     }
 
     private static Long parseOpeningBalance(String rawAmount, Map<String, String> fields) {

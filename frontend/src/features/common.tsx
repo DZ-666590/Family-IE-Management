@@ -6,15 +6,11 @@ import { EmptyIllustration } from './visuals';
 import { ApiError, type ApiRequest } from '../api/client';
 import type { HouseholdRole } from '../api/contracts';
 import { useDraftProtection } from '../shared/draft-guard';
+import { formatMoney } from '../shared/currency';
 
 export type RequestFn = ApiRequest;
 
-export function money(value: string | number | null | undefined): string {
-  if (value === null || value === undefined || value === '') return '—';
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return String(value);
-  return `${numeric < 0 ? '-' : ''}¥${Math.abs(numeric).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+export const money = formatMoney;
 
 export function dateText(value: string | null | undefined): string {
   if (!value) return '—';

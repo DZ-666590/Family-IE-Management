@@ -223,6 +223,7 @@ public class InvestmentTradeService {
         InvestmentAccount account = resolveAccount(householdId, request.accountId(), fields);
         Security security = resolveSecurity(
                 request.securityId(), request.tsCode(), request.securityName(), null, fields);
+        requireMatchingCurrency(account,security,fields);
         InvestmentTradeType type = request.type();
         if (type == null) fields.put("type", "交易类型不能为空");
         if (security != null && !security.isCatalogVerified()
@@ -250,6 +251,7 @@ public class InvestmentTradeService {
                 request == null ? null : request.tsCode(),
                 request == null ? null : request.securityName(),
                 trade.getSecurity(), fields);
+        requireMatchingCurrency(account,security,fields);
         InvestmentTradeType type = request == null || request.type() == null ? trade.getType() : request.type();
         BigDecimal quantity = parseQuantity(
                 request == null ? null : request.quantity(), type, trade.getQuantity(), fields);
@@ -279,6 +281,11 @@ public class InvestmentTradeService {
             fields.put("accountId", "投资账户不存在");
             return null;
         }
+    }
+
+    private static void requireMatchingCurrency(InvestmentAccount account,Security security,Map<String,String> fields) {
+        if(account!=null&&security!=null&&!account.getCurrency().equals(security.getCurrency()))
+            fields.put("accountId","投资账户与证券币种必须一致，请选择对应币种账户");
     }
 
     private Security resolveSecurity(
