@@ -8,8 +8,11 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
+import org.springframework.transaction.annotation.Transactional;
+
 /** Serializes family mutations, then derives authorization from the locked current database state. */
 @Service
+@Transactional
 public class FamilyMutationAuthorization {
 
     private final CurrentMembership currentMembership;

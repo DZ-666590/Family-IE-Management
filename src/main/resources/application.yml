@@ -8,6 +8,13 @@ server:
         same-site: lax
 
 spring:
+  ai:
+    zhipuai:
+      api-key: ${ZHIPUAI_API_KEY}
+      chat:
+        options:
+          model: glm-4-plus
+          temperature: 0.2
   application:
     name: family-finance
   datasource:
@@ -25,6 +32,10 @@ spring:
       ddl-auto: validate
     open-in-view: false
     show-sql: false
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
 
 app:
   multicurrency:
@@ -37,6 +48,10 @@ app:
   ai:
     encryption-key: ${APP_AI_ENCRYPTION_KEY:}
     allowed-hosts: ${APP_AI_ALLOWED_HOSTS:}
+
+  plugins:
+    loan-contract-extractor:
+      enabled: true
 
 # Never enable HTTP wire/header logging for credential-bearing AI requests.
 logging:

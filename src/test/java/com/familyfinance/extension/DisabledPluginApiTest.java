@@ -20,7 +20,7 @@ class DisabledPluginApiTest {
         var session = (MockHttpSession) mvc.perform(post("/api/auth/login").with(csrf())
                 .param("username", "demo").param("password", "demo1234"))
                 .andExpect(status().isOk()).andReturn().getRequest().getSession(false);
-        mvc.perform(get("/api/plugins").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.data").isEmpty());
+        mvc.perform(get("/api/plugins").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.data[?(@.id == 'annual-stats')]").isEmpty());
         mvc.perform(get("/api/plugins/annual-stats?year=2026").session(session)).andExpect(status().isNotFound());
         mvc.perform(get("/api/dashboard?month=2026-09").session(session)).andExpect(status().isOk());
     }
