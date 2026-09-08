@@ -34,6 +34,7 @@ public class NetWorthService {
     private final BudgetRepository budgets;
     private final LedgerReportingService transactions;
     private final Clock clock;
+    @org.springframework.beans.factory.annotation.Autowired private com.familyfinance.fx.FxJournalRates fx;
 
     public NetWorthService(FinancialAccountRepository accounts, AssetRepository assets, LoanRepository loans,
             PortfolioService portfolio, BudgetRepository budgets, LedgerReportingService transactions, Clock clock) {
@@ -51,18 +52,29 @@ public class NetWorthService {
         if(asOf==null||asOf.isAfter(LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai"))))||asOf.getYear()<1000)
             throw new com.familyfinance.shared.RequestValidationException(java.util.Map.of("asOf","截止日期必须在1000年至今天之间"));
         var balances=transactions.balancesAsOf(householdId,asOf);
-        long cash = sum(balances.entrySet().stream().filter(e->e.getKey().startsWith("CASH:")).map(java.util.Map.Entry::getValue).toList());
+        var currencies=transactions.currencies(householdId);
+        List<NetWorthResult.Unconverted> missing=new ArrayList<>();long knownCash=0;
+        for(var entry:balances.entrySet()){
+            if(!entry.getKey().startsWith("CASH:"))continue;
+            String currency=currencies.getOrDefault(entry.getKey(),"CNY");
+            BigDecimal converted=currency.equals("CNY")?BigDecimal.valueOf(entry.getValue(),2):fx.convert(currency,BigDecimal.valueOf(entry.getValue(),2),asOf);
+            if(converted==null)missing.add(new NetWorthResult.Unconverted("CASH",currency,com.familyfinance.shared.Money.formatCents(entry.getValue())));
+            else knownCash=Math.addExact(knownCash,converted.movePointRight(2).longValueExact());
+        }
+        Long cash=missing.isEmpty()?knownCash:null;
         long nonCashAssets = sum(balances.entrySet().stream().filter(e->e.getKey().startsWith("ASSET:")).map(java.util.Map.Entry::getValue).toList());
         PortfolioResponse portfolioResponse = portfolio.portfolio(householdId,asOf);
         InvestmentSummary investment = investment(portfolioResponse);
         long liabilities = sum(balances.entrySet().stream().filter(e->e.getKey().startsWith("LOAN:")).map(java.util.Map.Entry::getValue).toList());
-        long assetCents = sum(List.of(cash, nonCashAssets, investment.estimatedValueCents()));
-        long netWorth = subtract(assetCents, liabilities);
+        for(var p:portfolioResponse.positions())if(p.base()!=null&&p.base().estimatedValue()==null)missing.add(new NetWorthResult.Unconverted("INVESTMENT",p.currency(),p.estimatedValue()));
+        Long assetCents = cash==null||investment.estimatedValueCents()==null?null:sum(List.of(cash,nonCashAssets,investment.estimatedValueCents()));
+        Long netWorth = assetCents==null?null:subtract(assetCents,liabilities);
+        long knownAsset=sum(List.of(knownCash,nonCashAssets,parseCents(portfolioResponse.totals().knownEstimatedValue())));
         List<Loan> activeLoans = loans.findAllByHouseholdIdAndAccountingOnLessThanEqual(householdId,asOf);
         return new NetWorthResult(assetCents, liabilities, netWorth,
-                allocation(cash, nonCashAssets, investment.estimatedValueCents()), ratio(liabilities, assetCents),
+                assetCents==null?List.of():allocation(cash, nonCashAssets, investment.estimatedValueCents()), assetCents==null?null:ratio(liabilities, assetCents),
                 debtProgress(activeLoans,balances), budget(householdId, YearMonth.from(asOf),asOf.plusDays(1)), investment,
-                subtract(balances.getOrDefault("INCOME:VALUATION_GAIN",0L),balances.getOrDefault("EXPENSE:VALUATION_LOSS",0L)));
+                subtract(balances.getOrDefault("INCOME:VALUATION_GAIN",0L),balances.getOrDefault("EXPENSE:VALUATION_LOSS",0L)),knownAsset,List.copyOf(missing));
     }
 
     private InvestmentSummary investment(PortfolioResponse portfolioResponse) {
@@ -72,7 +84,7 @@ public class NetWorthService {
         boolean stale = portfolioResponse.positions().stream().anyMatch(PortfolioPositionResponse::stale);
         boolean missing = portfolioResponse.positions().stream().anyMatch(position -> position.marketValue() == null);
         return new InvestmentSummary(market, portfolioResponse.positions().size(),
-                portfolioResponse.totals().unpricedPositions(), manual, stale, missing,parseCents(portfolioResponse.totals().estimatedValue()));
+                portfolioResponse.totals().unpricedPositions(), manual, stale, missing,portfolioResponse.totals().estimatedValue()==null?null:parseCents(portfolioResponse.totals().estimatedValue()));
     }
 
     private BudgetSummary budget(long householdId, YearMonth month,LocalDate end) {
@@ -81,18 +93,19 @@ public class NetWorthService {
         BigInteger spent = BigInteger.ZERO;
         int near = 0;
         int over = 0;
+        boolean complete=true;
         for (Budget budget : active) {
-            long used = parseAggregateCents(transactions.sumBudgetExpenseCents(householdId, month.atDay(1),
-                    end, budget.getScopeType().name(),
-                    budget.getCategory() == null ? null : budget.getCategory().getId(),
-                    budget.getMember() == null ? null : budget.getMember().getId(), true));
+            long used;
+            try {used=parseAggregateCents(transactions.sumBudgetExpenseCents(householdId, month.atDay(1),end,budget.getScopeType().name(),
+                budget.getCategory()==null?null:budget.getCategory().getId(),budget.getMember()==null?null:budget.getMember().getId(),true));}
+            catch(ResourceConflictException error){if(!error.code().equals("FX_RATE_MISSING"))throw error;planned=planned.add(BigInteger.valueOf(budget.getAmountCents()));complete=false;continue;}
             planned = planned.add(BigInteger.valueOf(budget.getAmountCents()));
             spent = spent.add(BigInteger.valueOf(used));
             BudgetUsageStatus status = budgetStatus(used, budget.getAmountCents());
             if (status == BudgetUsageStatus.NEAR_LIMIT) near++;
             if (status == BudgetUsageStatus.AT_LIMIT || status == BudgetUsageStatus.OVER_BUDGET) over++;
         }
-        return new BudgetSummary(active.size(), bounded(planned), bounded(spent), near, over);
+        return new BudgetSummary(active.size(), bounded(planned), complete?bounded(spent):null, complete?near:null, complete?over:null);
     }
 
     private static BudgetUsageStatus budgetStatus(long spent, long amount) {

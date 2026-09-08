@@ -18,10 +18,12 @@ public class SecurityController {
 
     private final SecurityService securities;
     private final SecurityCatalogService catalog;
+    private final OverseasInvestmentService overseas;
 
-    public SecurityController(SecurityService securities, SecurityCatalogService catalog) {
+    public SecurityController(SecurityService securities, SecurityCatalogService catalog,OverseasInvestmentService overseas) {
         this.securities = securities;
         this.catalog = catalog;
+        this.overseas=overseas;
     }
 
     @GetMapping("/catalog-status")
@@ -51,4 +53,6 @@ public class SecurityController {
             Authentication authentication, @RequestBody SecurityResolveRequest request) {
         return ApiEnvelope.data(securities.resolve(authentication, request));
     }
+    @PostMapping("/overseas/resolve")
+    ApiEnvelope<SecurityResponse> overseas(Authentication authentication,@RequestBody OverseasInvestmentService.Resolve request){return ApiEnvelope.data(overseas.resolve(authentication,request));}
 }

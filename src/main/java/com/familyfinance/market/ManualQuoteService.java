@@ -22,6 +22,7 @@ public class ManualQuoteService {
     private final SecurityRepository securities;
     private final FamilyMutationAuthorization authorization;
     private final Clock clock;
+    @org.springframework.beans.factory.annotation.Autowired private com.familyfinance.accounting.DeploymentRevisionGate deployment;
 
     public ManualQuoteService(ManualPriceOverrideRepository overrides, SecurityRepository securities,
             FamilyMutationAuthorization authorization, Clock clock) {
@@ -34,7 +35,7 @@ public class ManualQuoteService {
         Security security = securities.findByIdAndActiveTrue(securityId)
                 .orElseThrow(() -> new ResourceNotFoundException("证券不存在"));
         Map<String, String> fields = new LinkedHashMap<>();
-        Long price = price(request == null ? null : request.price(), fields);
+        java.math.BigDecimal price = price(request == null ? null : request.price(), fields);
         LocalDate effectiveOn = request == null ? null : request.effectiveOn();
         LocalDate today = LocalDate.now(clock.withZone(SHANGHAI));
         if (effectiveOn == null) fields.put("effectiveOn", "生效日期不能为空");
@@ -50,8 +51,8 @@ public class ManualQuoteService {
         return MarketPriceResponse.manual(security, override, effectiveOn.isBefore(today));
     }
 
-    private static Long price(String raw, Map<String, String> fields) {
-        try { return Money.parseCents(raw); }
+    private java.math.BigDecimal price(String raw, Map<String, String> fields) {
+        try { var price=com.familyfinance.investment.UnitPrice.parse(raw);deployment.requireCompatibleUnitPrice(price);return price; }
         catch (IllegalArgumentException exception) { fields.put("price", exception.getMessage()); return null; }
     }
 

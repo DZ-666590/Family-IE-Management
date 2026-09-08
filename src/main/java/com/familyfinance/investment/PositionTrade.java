@@ -8,6 +8,10 @@ public record PositionTrade(
         LocalDate tradedOn,
         InvestmentTradeType type,
         BigDecimal quantity,
-        long priceCents,
+        BigDecimal unitPrice,
         long feeCents) {
+    public PositionTrade(long id,LocalDate day,InvestmentTradeType type,BigDecimal quantity,long cents,long fee) {
+        this(id,day,type,quantity,BigDecimal.valueOf(cents,2),fee);
+    }
+    public long priceCents(){return unitPrice.movePointRight(2).longValueExact();}
 }

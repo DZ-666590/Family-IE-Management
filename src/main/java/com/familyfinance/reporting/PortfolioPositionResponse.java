@@ -11,5 +11,6 @@ public record PortfolioPositionResponse(
         BigDecimal quantity, String averageCost, String cost, String price, String marketValue,
         String realizedProfit, String unrealizedProfit, String totalProfit, String allocationPercent,
         QuoteSource source, LocalDate tradeDate, Instant fetchedAt, boolean stale, String error,
-        String estimatedValue,String valuationStatus) {
+        String estimatedValue,String valuationStatus,String currency,String market,String symbol,String exchange,String timezone,BaseValuation base) {
+    public record BaseValuation(String cost,String marketValue,String realizedProfit,String unrealizedProfit,String totalProfit,String estimatedValue,LocalDate fxDate,String fxState){}
 }

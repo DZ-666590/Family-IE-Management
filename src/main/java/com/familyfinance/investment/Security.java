@@ -18,10 +18,14 @@ public class Security {
     @Column(nullable = false, length = 2, updatable = false)
     private String market;
 
-    @Column(name = "ts_code", nullable = false, length = 9, updatable = false)
+    @Column(name = "ts_code", nullable = false, length = 64, updatable = false)
     private String tsCode;
+    @Column(name="symbol",length=16,updatable=false) private String symbol;
+    @Column(name="exchange_name",length=40,updatable=false) private String exchange;
+    @Column(name="currency",length=3,nullable=false,updatable=false) private String currency="CNY";
+    @Column(name="timezone",length=40,updatable=false) private String timezone;
 
-    @Column(nullable = false, length = 100)
+    @Column(nullable = false, length = 200)
     private String name;
 
     @Column(name = "security_type", nullable = false, length = 16, updatable = false)
@@ -48,7 +52,15 @@ public class Security {
     public Long getId() { return id; }
     public String getMarket() { return market; }
     /** Trading universe: A shares CNY, HKD Hong Kong counters, USD US stocks. */
-    public String getCurrency() { return switch(market) {case "HK"->"HKD";case "US"->"USD";default->"CNY";}; }
+    public String getCurrency() { return currency; }
+    public String getSymbol(){return symbol==null?tsCode.substring(0,tsCode.indexOf('.')):symbol;}
+    public String getExchange(){return exchange==null?market:exchange;}
+    public String getTimezone(){return timezone==null?"Asia/Shanghai":timezone;}
+    public static Security overseas(com.familyfinance.market.OverseasInstrument instrument){
+        String code=instrument.symbol()+(instrument.market().equals("HK")?".HK":"."+instrument.exchange().replace(' ','_')+".US");
+        Security result=new Security(instrument.market(),code,instrument.name());
+        result.symbol=instrument.symbol();result.exchange=instrument.exchange();result.currency=instrument.currency();result.timezone=instrument.timezone();return result;
+    }
     public String getTsCode() { return tsCode; }
     public String getName() { return name; }
     public String getSecurityType() { return securityType; }

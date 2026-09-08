@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 @Component
 class LedgerStore {
     final JdbcTemplate jdbc;
+    @org.springframework.beans.factory.annotation.Autowired private com.familyfinance.fx.FxJournalRates fx;
     LedgerStore(JdbcTemplate jdbc) { this.jdbc=jdbc; }
 
     void lock(long householdId) {
@@ -101,6 +102,7 @@ class LedgerStore {
         int line=0;
         for (var e:c.entries()) jdbc.update("insert into ledger_entries(household_id,journal_id,line_no,account_code,debit_amount,credit_amount,category_id,member_id,currency) values (?,?,?,?,?,?,?,?,?)",
                 c.householdId(),id,++line,e.accountCode(),e.debitAmount(),e.creditAmount(),e.categoryId(),e.memberId(),e.currency());
+        fx.bind(id,c.effectiveOn(),c.entries().stream().map(LedgerEntryInput::currency).toList(),reversed);
         return new LedgerReceipt(id,c.householdId(),c.sourceType(),c.sourceId(),revision,c.effectiveOn(),reversed);
     }
 

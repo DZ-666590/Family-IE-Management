@@ -46,6 +46,8 @@ public class InvestmentTrade {
 
     @Column(name = "price_cents", nullable = false)
     private long priceCents;
+    @Column(name="unit_price",precision=25,scale=6)
+    private BigDecimal unitPrice;
 
     @Column(name = "fee_cents", nullable = false)
     private long feeCents;
@@ -85,12 +87,17 @@ public class InvestmentTrade {
             long feeCents,
             LocalDate tradedOn,
             AppUser createdBy) {
+        this(household,account,security,type,quantity,BigDecimal.valueOf(priceCents,2),feeCents,tradedOn,createdBy);
+    }
+    InvestmentTrade(Household household,InvestmentAccount account,Security security,InvestmentTradeType type,
+            BigDecimal quantity,BigDecimal unitPrice,long feeCents,LocalDate tradedOn,AppUser createdBy) {
         this.household = Objects.requireNonNull(household);
         this.account = Objects.requireNonNull(account);
         this.security = Objects.requireNonNull(security);
         this.type = Objects.requireNonNull(type);
         this.quantity = quantity;
-        this.priceCents = priceCents;
+        this.unitPrice=unitPrice;
+        this.priceCents = unitPrice.movePointRight(2).setScale(0,java.math.RoundingMode.HALF_UP).longValueExact();
         this.feeCents = feeCents;
         this.tradedOn = Objects.requireNonNull(tradedOn);
         this.createdBy = Objects.requireNonNull(createdBy);
@@ -104,6 +111,7 @@ public class InvestmentTrade {
     public InvestmentTradeType getType() { return type; }
     public BigDecimal getQuantity() { return quantity; }
     public long getPriceCents() { return priceCents; }
+    public BigDecimal getUnitPrice(){return unitPrice==null?BigDecimal.valueOf(priceCents,2):unitPrice;}
     public long getFeeCents() { return feeCents; }
     public LocalDate getTradedOn() { return tradedOn; }
     public AppUser getCreatedBy() { return createdBy; }
@@ -118,16 +126,20 @@ public class InvestmentTrade {
             long priceCents,
             long feeCents,
             LocalDate tradedOn) {
+        update(account,security,type,quantity,BigDecimal.valueOf(priceCents,2),feeCents,tradedOn);
+    }
+    void update(InvestmentAccount account,Security security,InvestmentTradeType type,BigDecimal quantity,BigDecimal unitPrice,long feeCents,LocalDate tradedOn) {
         this.account = Objects.requireNonNull(account);
         this.security = Objects.requireNonNull(security);
         this.type = Objects.requireNonNull(type);
         this.quantity = quantity;
-        this.priceCents = priceCents;
+        this.unitPrice=unitPrice;
+        this.priceCents = unitPrice.movePointRight(2).setScale(0,java.math.RoundingMode.HALF_UP).longValueExact();
         this.feeCents = feeCents;
         this.tradedOn = Objects.requireNonNull(tradedOn);
     }
 
-    PositionTrade toPositionTrade() {
-        return new PositionTrade(id, tradedOn, type, quantity, priceCents, feeCents);
+    public PositionTrade toPositionTrade() {
+        return new PositionTrade(id, tradedOn, type, quantity, getUnitPrice(), feeCents);
     }
 }

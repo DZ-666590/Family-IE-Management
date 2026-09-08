@@ -28,7 +28,7 @@ public record TransactionResponse(
         Instant updatedAt,
         Long sourceId,
         String principalAmount,
-        String interestAmount) {
+        String interestAmount,String currency) {
 
     static TransactionResponse from(FinancialTransaction transaction) {
         return new TransactionResponse(
@@ -56,6 +56,6 @@ public record TransactionResponse(
                 transaction.getUpdatedAt(),
                 transaction.getSourceId(),
                 transaction.getLoanPrincipalCents()==null?null:Money.formatCents(transaction.getLoanPrincipalCents()),
-                transaction.getLoanInterestCents()==null?null:Money.formatCents(transaction.getLoanInterestCents()));
+                transaction.getLoanInterestCents()==null?null:Money.formatCents(transaction.getLoanInterestCents()),transaction.getAccount().getCurrency());
     }
 }

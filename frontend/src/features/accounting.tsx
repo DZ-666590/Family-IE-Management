@@ -24,10 +24,14 @@ export function tradeCash(quantity: string, price: string, fee: string, selling 
   if (!/^\d{1,12}(\.\d{1,4})?$/.test(quantity)) return null;
   const [whole, fraction = ''] = quantity.split('.');
   const q = BigInt(whole) * 10000n + BigInt(fraction.padEnd(4, '0'));
-  const p = cents(price), f = cents(fee || '0');
+  const p = unitPrice(price), f = cents(fee || '0');
   if (p === null || f === null || p < 0n || f < 0n) return null;
-  const gross = (q * p + 5000n) / 10000n;
+  const gross = (q * p + 50000000n) / 100000000n;
   return decimal(selling ? gross - f : gross + f);
+}
+export function unitPrice(raw:string):bigint|null {
+ if(!/^\d{1,12}(\.\d{1,6})?$/.test(raw.trim()))return null;
+ const [whole,fraction='']=raw.trim().split('.');return BigInt(whole)*1000000n+BigInt(fraction.padEnd(6,'0'));
 }
 export function AccountOptions({ accounts }: { accounts: Account[] }) {
   return <>{accounts.map(account => <option key={account.id} value={account.id} disabled={!account.openingConfirmed || Boolean(account.archivedAt)}>{accountLabel(account)}{!account.openingConfirmed ? ' · 待确认期初余额' : ` · 可用 ${money(account.availableBalance,account.currency)}`}</option>)}</>;

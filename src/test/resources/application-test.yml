@@ -16,5 +16,12 @@ spring:
     show-sql: false
 
 app:
+  scheduling:
+    enabled: false
+  multicurrency:
+    enabled: false
+    verify-deployed-revision: false
+  fx:
+    scheduled: false
   seed:
     enabled: false

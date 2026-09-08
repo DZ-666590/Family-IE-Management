@@ -42,7 +42,7 @@ export function FlowChart({ points, label = '收入与支出趋势' }: { points:
 
 export function HistoryChart({ data }: { data: NetWorthHistory[] }) {
   const id = useId().replace(/:/g, '');
-  const sorted = [...data].sort((a,b) => a.snapshotOn.localeCompare(b.snapshotOn));
+  const sorted = [...data].filter(item=>item.netWorth!=null&&Number.isFinite(Number(item.netWorth))).sort((a,b) => a.snapshotOn.localeCompare(b.snapshotOn));
   if (!sorted.length) return <p className="muted">历史记录正在积累</p>;
   const values = sorted.map(p => Number(p.netWorth));
   const lo = Math.min(0,...values), hi = Math.max(1,...values), range = hi-lo;

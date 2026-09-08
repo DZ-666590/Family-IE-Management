@@ -47,6 +47,7 @@ public class QuoteRefreshService {
     private final MarketSleeper sleeper;
     private final HouseholdRepository households;
     private final MarketIssueService marketIssues;
+    @Autowired private com.familyfinance.investment.OverseasInvestmentService overseas;
     private final ConcurrentHashMap<Long, ReentrantLock> locks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, CompletableFuture<MarketRefreshResponse>> inFlight = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, Instant> lastManualRefresh = new ConcurrentHashMap<>();
@@ -137,6 +138,7 @@ public class QuoteRefreshService {
     public MarketPriceResponse effectivePriceAsOf(long householdId,Security security,LocalDate day) {
         var manual=overrides.findFirstByHouseholdIdAndSecurityIdAndEffectiveOnLessThanEqualOrderByEffectiveOnDescIdDesc(householdId,security.getId(),day);
         if(manual.isPresent())return MarketPriceResponse.manual(security,manual.get(),manual.get().getEffectiveOn().isBefore(day));
+        if(foreign(security))return overseas.price(security,day);
         return snapshots.findFirstBySecurityIdAndTradeDateLessThanEqualOrderByTradeDateDescFetchedAtDescIdDesc(security.getId(),day)
             .map(value->MarketPriceResponse.provider(security,value,value.getTradeDate().isBefore(day)))
             .orElseGet(()->MarketPriceResponse.noQuote(security,"NO_QUOTE"));
@@ -214,7 +216,8 @@ public class QuoteRefreshService {
 
     private boolean hasToday(List<Security> held, LocalDate today) {
         if (held.isEmpty()) return true;
-        Set<Long> ids = held.stream().map(Security::getId).collect(java.util.stream.Collectors.toSet());
+        Set<Long> ids = held.stream().filter(s->!foreign(s)).map(Security::getId).collect(java.util.stream.Collectors.toSet());
+        if(ids.isEmpty())return true;
         return snapshots.findBySecurityIdInAndTradeDateAndSource(ids, today, provider.source().name()).stream()
                 .map(snapshot -> snapshot.getSecurity().getId())
                 .collect(java.util.stream.Collectors.toSet()).containsAll(ids);
@@ -224,6 +227,7 @@ public class QuoteRefreshService {
         LocalDate today = today();
         List<MarketPriceResponse> result = new ArrayList<>();
         for (Security security : held) {
+            if(foreign(security)){result.add(effectivePriceAsOf(householdId,security,today));continue;}
             var manual = overrides.findFirstByHouseholdIdAndSecurityIdAndEffectiveOnLessThanEqualOrderByEffectiveOnDescIdDesc(
                     householdId, security.getId(), today);
             if (manual.isPresent()) result.add(MarketPriceResponse.manual(security, manual.get(), manual.get().getEffectiveOn().isBefore(today)));
@@ -236,8 +240,9 @@ public class QuoteRefreshService {
         return result;
     }
 
+    private static boolean foreign(Security security){return "HK".equals(security.getMarket())||"US".equals(security.getMarket());}
     private LocalDate today() { return LocalDate.now(clock.withZone(SHANGHAI)); }
     private static Set<String> symbols(List<Security> securities) {
-        return securities.stream().map(Security::getTsCode).collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        return securities.stream().filter(s->!foreign(s)).map(Security::getTsCode).collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
     }
 }

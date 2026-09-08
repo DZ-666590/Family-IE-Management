@@ -4,22 +4,25 @@ import { aggregateBars, selectBarsForRange, type CandleBar, type CandleResponse,
 import { dateText, money, type RequestFn } from '../common';
 import { isOverseasInstrument, marketMoney, type OverseasInstrument, type OverseasCandles } from './overseas-market';
 
-export type ChartSecurity = { id: number; tsCode: string; name: string };
+export type ChartSecurity = { id: number; tsCode: string; name: string; market?:string;symbol?:string;currency?:string;exchange?:string;timezone?:string };
 export function StockChart({ request, security }: { request: RequestFn; security: ChartSecurity | OverseasInstrument }) {
-  const foreign = 'symbol' in security;
-  const symbol = foreign ? security.symbol : security.tsCode;
-  const timezone = foreign ? security.timezone : 'Asia/Shanghai';
-  const formatPrice = (value: string | number | null | undefined) => foreign ? marketMoney(value, security.currency) : money(value);
+  const foreign = security.market==='HK'||security.market==='US';
+  const registered='id' in security?security:undefined;
+  const market=security.market as 'HK'|'US';
+  const currency=security.currency??'CNY';
+  const symbol = foreign ? security.symbol??'' : registered?.tsCode??'';
+  const timezone = foreign ? security.timezone??'Asia/Shanghai' : 'Asia/Shanghai';
+  const formatPrice = (value: string | number | null | undefined) => foreign ? marketMoney(value, currency) : money(value);
   const [adjustment, setAdjustment] = useState<'none' | 'qfq'>('qfq');
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [range, setRange] = useState<ChartRange>('all');
   const [macd, setMacd] = useState(false);
   const effectiveAdjustment = foreign ? 'none' : adjustment;
-  const query = useQuery({ queryKey: foreign ? ['overseas-candles', security.market, symbol] : ['security-candles', security.id, adjustment], queryFn: async (): Promise<CandleResponse> => {
-    if (!foreign) return request<CandleResponse>(`/api/securities/${security.id}/candles?adjust=${adjustment}`);
+  const query = useQuery({ queryKey: foreign ? ['overseas-candles', security.market, symbol] : ['security-candles', registered?.id, adjustment], queryFn: async (): Promise<CandleResponse> => {
+    if (!foreign) return request<CandleResponse>(`/api/securities/${registered?.id}/candles?adjust=${adjustment}`);
     const value = await request<OverseasCandles>(`/api/overseas-market/candles?market=${security.market}&symbol=${encodeURIComponent(symbol)}`);
-    if (!value || !isOverseasInstrument(value.instrument, security.market) || value.instrument.symbol !== symbol
-      || value.instrument.currency !== security.currency || value.symbol !== symbol || value.source !== 'SINA' || value.adjustment !== 'none'
+    if (!value || !isOverseasInstrument(value.instrument, market) || value.instrument.symbol !== symbol
+      || value.instrument.currency !== currency || value.symbol !== symbol || value.source !== 'SINA' || value.adjustment !== 'none'
       || !Array.isArray(value.bars) || typeof value.supported !== 'boolean') throw new Error('行情响应与所选股票不一致');
     return value;
   }, staleTime: 300_000, retry: false });

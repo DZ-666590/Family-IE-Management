@@ -78,6 +78,8 @@ public class ReportingController {
         return ApiEnvelope.data(DebtAnalysisResponse.from(netWorthService.calculate(
                 householdId, asOf==null?LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))):asOf)));
     }
+    @GetMapping("/api/net-worth/snapshot-revisions")
+    ApiEnvelope<java.util.List<NetWorthSnapshotService.Revision>> revisions(Authentication authentication,@RequestParam LocalDate on){return ApiEnvelope.data(snapshots.revisions(currentHousehold.id(authentication),on));}
 
     private YearMonth parseMonth(String rawMonth) {
         if (rawMonth == null || rawMonth.isBlank()) {

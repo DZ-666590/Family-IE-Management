@@ -1,5 +1,5 @@
 package com.familyfinance.market;
 
 public enum QuoteSource {
-    TUSHARE, BAOSTOCK, MANUAL
+    TUSHARE, BAOSTOCK, MANUAL, SINA
 }

@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface InvestmentTradeRepository
         extends JpaRepository<InvestmentTrade, Long>, JpaSpecificationExecutor<InvestmentTrade> {
+    List<InvestmentTrade> findByHouseholdId(long householdId,org.springframework.data.domain.Pageable page);
 
     Optional<InvestmentTrade> findByIdAndHouseholdId(Long id, Long householdId);
 

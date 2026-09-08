@@ -5,13 +5,15 @@ import { dateText, money, type RequestFn } from '../common';
 import type { MarketPrice } from '../../api/contracts';
 
 export function ReferenceQuote({request, security, onUsePrice}: {
-  request: RequestFn; security: {id:number;name:string;tsCode:string}; onUsePrice?: (price:string)=>void;
+  request: RequestFn; security: {id:number;name:string;tsCode:string;market?:string;symbol?:string;currency?:string}; onUsePrice?: (price:string)=>void;
 }) {
-  const query=useQuery({queryKey:['security-candles',security.id,'none'],queryFn:async()=>{
-    const response=await request<CandleResponse>(`/api/securities/${security.id}/candles?adjust=none`);
+  const foreign=security.market==='HK'||security.market==='US';
+  const symbol=foreign?security.symbol:security.tsCode;
+  const query=useQuery({queryKey:foreign?['overseas-candles',security.market,symbol]:['security-candles',security.id,'none'],queryFn:async()=>{
+    const response=await request<CandleResponse>(foreign?`/api/overseas-market/candles?market=${security.market}&symbol=${encodeURIComponent(symbol??'')}`:`/api/securities/${security.id}/candles?adjust=none`);
     const last=response?.bars?.at?.(-1);
-    if(!response || !Array.isArray(response.bars) || response.symbol!==security.tsCode || response.adjustment!=='none'
-      || response.source!=='BAOSTOCK' || typeof response.supported!=='boolean'
+    if(!response || !Array.isArray(response.bars) || response.symbol!==symbol || response.adjustment!=='none'
+      || response.source!==(foreign?'SINA':'BAOSTOCK') || typeof response.supported!=='boolean'
       || (last && (!Number.isFinite(last.close) || last.close<=0 || !response.asOf)))throw new Error('报价响应不完整');
     return response;
   },staleTime:300_000,retry:false});
@@ -21,8 +23,8 @@ export function ReferenceQuote({request, security, onUsePrice}: {
   if(!query.data?.supported)return <div className="reference-quote" role="status">当前行情源暂未覆盖这只股票</div>;
   if(!last)return <div className="reference-quote" role="status">暂未返回收盘报价，请核对实际成交记录。</div>;
   return <aside className="reference-quote" aria-label="参考报价">
-    <div><span>参考收盘价</span><strong>{money(last.close)}</strong>{onUsePrice && <button type="button" className="text-action" onClick={()=>onUsePrice(last.close.toFixed(2))}>填入参考价</button>}</div>
-    <p>BaoStock · {dateText(query.data.asOf)} · 不复权{query.data.stale ? ' · 缓存数据，更新暂不可用' : ''}</p>
+    <div><span>参考收盘价</span><strong>{money(last.close,security.currency)}</strong>{onUsePrice && <button type="button" className="text-action" onClick={()=>onUsePrice(last.close.toFixed(foreign?6:2))}>填入参考价</button>}</div>
+    <p>{foreign?'新浪日线':'BaoStock'} · {dateText(query.data.asOf)} · 不复权{query.data.stale ? ' · 缓存数据，更新暂不可用' : ''}</p>
     <p>参考价不等于实际成交价；期初持仓请填写原有单位成本。</p>
   </aside>;
 }
@@ -33,7 +35,7 @@ export function useMissingQuotesRefresh(request:RequestFn, manager:boolean, posi
   const cache=useQueryClient();
   const attempted=useRef(new Set<string>());
   const [cooldownUntil,setCooldownUntil]=useState(()=>cache.getQueryData<number>(REFRESH_WINDOW)??0);
-  const missing=[...new Set((positions??[]).filter(p=>p.quantity>0 && p.price===null && /\.(SH|SZ)$/.test(p.tsCode)).map(p=>p.securityId))].sort((a,b)=>a-b).join(',');
+  const missing=[...new Set((positions??[]).filter(p=>p.quantity>0 && p.price===null && /\.(SH|SZ|HK|US)$/.test(p.tsCode)).map(p=>p.securityId))].sort((a,b)=>a-b).join(',');
   const refresh=useMutation({mutationFn:async()=>{
     const result=await request<{state:string;refreshed:number;error:string|null;quotes:MarketPrice[]}>('/api/market-quotes/refresh',{method:'POST'});
     if(result?.state!=='READY')throw new Error('暂时无法更新持仓报价，请稍后手动刷新。');

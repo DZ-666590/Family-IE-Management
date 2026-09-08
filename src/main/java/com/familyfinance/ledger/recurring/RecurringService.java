@@ -247,9 +247,11 @@ public class RecurringService {
 
     private FinancialAccount resolveActiveAccount(long householdId, Long id, Map<String, String> fields) {
         if (id == null) { fields.put("accountId", "账户不能为空"); return null; }
-        return accounts.findByIdAndHouseholdIdAndArchivedAtIsNull(id, householdId).orElseGet(() -> {
+        FinancialAccount account=accounts.findByIdAndHouseholdIdAndArchivedAtIsNull(id, householdId).orElseGet(() -> {
             fields.put("accountId", "账户不存在"); return null;
         });
+        if(account!=null&&!account.getCurrency().equals("CNY"))fields.put("accountId","请选择人民币账户");
+        return account;
     }
 
     private FamilyMember resolveMember(long householdId, Long id, Map<String, String> fields) {

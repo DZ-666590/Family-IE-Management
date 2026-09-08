@@ -15,15 +15,20 @@ public class CsvExportService {
     private static final byte[] UTF8_BOM = new byte[] {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
 
     private final TransactionService transactionService;
+    @org.springframework.beans.factory.annotation.Autowired private com.familyfinance.fx.FxJournalRates fx;
 
     public CsvExportService(TransactionService transactionService) {
         this.transactionService = transactionService;
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly=true,isolation=org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public byte[] export(long householdId, TransactionFilter filter) {
         List<FinancialTransaction> transactions = transactionService.findAllForCsvExport(householdId, filter);
-        StringBuilder csv = new StringBuilder("日期,类型,金额,成员,分类,商家,地点,备注\n");
+        StringBuilder csv = new StringBuilder("日期,类型,金额,成员,分类,商家,地点,备注,币种,人民币参考金额,参考汇率,汇率日期\n");
         for (FinancialTransaction transaction : transactions) {
+            String currency=transaction.getAccount().getCurrency();
+            var rate=fx.sourceReference(householdId,"TRANSACTION",transaction.getId(),currency);
+            var converted=rate==null?null:java.math.BigDecimal.valueOf(transaction.getAmountCents(),2).multiply(rate.value()).setScale(2,java.math.RoundingMode.HALF_UP);
             csv.append(transaction.getOccurredOn()).append(',')
                     .append(label(transaction.getKind())).append(',')
                     .append(Money.formatCents(transaction.getAmountCents())).append(',')
@@ -31,7 +36,9 @@ public class CsvExportService {
                     .append(escape(transaction.getCategory().getName())).append(',')
                     .append(escape(transaction.getMerchant())).append(',')
                     .append(escape(transaction.getLocation())).append(',')
-                    .append(escape(transaction.getNote())).append('\n');
+                    .append(escape(transaction.getNote())).append(',').append(escape(currency)).append(',')
+                    .append(converted==null?"":converted.toPlainString()).append(',').append(rate==null?"":rate.value().toPlainString()).append(',')
+                    .append(rate==null||rate.effectiveOn()==null?"":rate.effectiveOn()).append('\n');
         }
 
         byte[] body = csv.toString().getBytes(StandardCharsets.UTF_8);

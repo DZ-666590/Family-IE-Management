@@ -21,7 +21,7 @@ public record InvestmentTradeResponse(
     static InvestmentTradeResponse from(InvestmentTrade trade, long cashImpactCents) {
         return new InvestmentTradeResponse(
                 trade.getId(), trade.getAccount().getId(), SecurityResponse.from(trade.getSecurity()),
-                trade.getType(), trade.getQuantity(), Money.formatCents(trade.getPriceCents()),
+                trade.getType(), trade.getQuantity(), UnitPrice.format(trade.getUnitPrice()),
                 Money.formatCents(trade.getFeeCents()), Money.formatCents(cashImpactCents), trade.getTradedOn(),
                 trade.getCreatedBy().getId(), trade.getSourceType(), trade.getSourceId(), trade.getCashAccountId(), trade.isAccountingConfirmed());
     }

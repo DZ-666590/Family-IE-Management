@@ -45,4 +45,5 @@ public final class Money {
     public static String formatCents(long cents) {
         return BigDecimal.valueOf(cents, 2).toPlainString();
     }
+    public static String formatCents(Long cents){return cents==null?null:formatCents(cents.longValue());}
 }

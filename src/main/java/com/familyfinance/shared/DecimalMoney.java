@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Map;
 
-/** Settled yuan amounts. Integer cents exist only at explicit compatibility boundaries. */
+/** Settled native-currency amounts. Integer cents exist only at explicit compatibility boundaries. */
 public final class DecimalMoney {
     public static final BigDecimal MAX_AMOUNT=BigDecimal.valueOf(Long.MAX_VALUE,2);
     public static final BigDecimal MIN_AMOUNT=BigDecimal.valueOf(Long.MIN_VALUE,2);

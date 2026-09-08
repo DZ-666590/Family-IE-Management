@@ -62,6 +62,9 @@ public class OverseasMarketService {
     public OverseasCandleResponse candles(
             Authentication authentication, String rawMarket, String rawSymbol) {
         security.requireMembership(authentication);
+        return verifiedCandles(rawMarket,rawSymbol);
+    }
+    public OverseasCandleResponse verifiedCandles(String rawMarket,String rawSymbol) {
         String market = normalizeMarket(rawMarket);
         String symbol = normalizeSymbol(market, rawSymbol);
         OverseasCandleResponse response = normalize(client.overseasCandles(market, symbol));

@@ -20,6 +20,7 @@ public interface SecurityRepository extends JpaRepository<Security, Long> {
     @Query("""
             select security from Security security
             where security.active = true
+              and security.market in ('SH','SZ','BJ')
               and security.catalogVerified = true
               and (upper(security.tsCode) like concat('%', :query, '%')
                    or upper(security.name) like concat('%', :query, '%'))

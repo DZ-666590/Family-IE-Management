@@ -10,3 +10,10 @@ export function formatMoney(value:string|number|null|undefined,currency='CNY'):s
   const whole=String(cents/100n).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   return `${match[1]&&cents>0n?'-':''}${currency==='CNY'?'¥':currency+' '}${whole}.${String(cents%100n).padStart(2,'0')}`;
 }
+export function formatUnitPrice(value:string|number|null|undefined,currency='CNY'):string {
+ if(value==null||value==='')return '—';
+ const raw=typeof value==='number'?value.toFixed(6):value;
+ const [whole,fraction='']=raw.split('.');
+ if(!/^-?\d+$/.test(whole))return String(value);
+ return `${currency==='CNY'?'¥':currency+' '}${whole.replace(/\B(?=(\d{3})+(?!\d))/g,',')}.${fraction.slice(0,6).replace(/0+$/,'').padEnd(2,'0')}`;
+}

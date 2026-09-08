@@ -75,6 +75,7 @@ public class AssetAccountingService {
     private void requireCash(long h,Long id,LocalDate day) {
         var account=accounts.findLockedByIdAndHouseholdId(id,h).orElseThrow(()->new ResourceNotFoundException("资金账户不存在"));
         cash.requireConfirmed(account,day);
+        if(!account.getCurrency().equals("CNY"))throw new com.familyfinance.shared.RequestValidationException(java.util.Map.of("accountId","实体资产买卖请使用人民币账户"));
     }
     private void post(Asset asset,String source,long id,String key,LocalDate day,long actor,java.util.List<LedgerEntryInput> entries) {
         // Zero economic events retain their domain history and command receipt, without zero legs.

@@ -8,7 +8,7 @@ public record DebtAnalysisResponse(String liability, String asset, String debtRa
                                    List<DebtProgressResponse> loans) {
     static DebtAnalysisResponse from(NetWorthResult value) {
         return new DebtAnalysisResponse(Money.formatCents(value.liabilityCents()), Money.formatCents(value.assetCents()),
-                BigDecimal.valueOf(value.debtRatioTenths(), 1).toPlainString(),
+                value.debtRatioTenths()==null?null:BigDecimal.valueOf(value.debtRatioTenths(), 1).toPlainString(),
                 value.debtProgress().stream().map(DebtProgressResponse::from).toList());
     }
 }

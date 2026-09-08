@@ -48,6 +48,7 @@ public class SecurityCatalogImporter {
             seen.add(item.tsCode());
         }
         existing.values().stream().filter(Security::isCatalogVerified)
+                .filter(security -> Set.of("SH","SZ","BJ").contains(security.getMarket()))
                 .filter(security -> !seen.contains(security.getTsCode()))
                 .forEach(Security::retireFromCatalog);
         securities.flush();

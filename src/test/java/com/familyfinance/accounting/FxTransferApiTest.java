@@ -78,4 +78,25 @@ class FxTransferApiTest {
         mvc.perform(get("/api/accounts/"+cny).session(s)).andExpect(jsonPath("$.data.balance").value("0.00"));
         mvc.perform(get("/api/accounts/"+usd).session(s)).andExpect(jsonPath("$.data.balance").value("900.00"));
     }
+    @Test void concurrentExchangesCannotSpendTheSameCashTwice() throws Exception {
+        var s=login();long cny=account(s,"CNY","7010.00"),usd=account(s,"USD","0.00");
+        var start=new java.util.concurrent.CountDownLatch(1);var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Callable<Integer> command=()->{start.await();return mvc.perform(post("/api/fx-transfers").session(s).with(csrf()).contentType("application/json").content(payload(cny,usd,UUID.randomUUID().toString()))).andReturn().getResponse().getStatus();};
+            var a=pool.submit(command);var b=pool.submit(command);start.countDown();
+            assertThat(java.util.List.of(a.get(15,java.util.concurrent.TimeUnit.SECONDS),b.get(15,java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder(201,409);
+            mvc.perform(get("/api/accounts/"+cny).session(s)).andExpect(jsonPath("$.data.balance").value("0.00"));
+            mvc.perform(get("/api/accounts/"+usd).session(s)).andExpect(jsonPath("$.data.balance").value("1000.00"));
+        } finally {pool.shutdownNow();}
+    }
+    @Test void cannotUseAnAccountOwnedByAnotherHousehold() throws Exception {
+        var s=login();long cny=account(s,"CNY","7010.00");String name=UUID.randomUUID().toString();
+        jdbc.update("insert into households(name,created_at) values(?,current_timestamp)",name);
+        long other=jdbc.queryForObject("select id from households where name=?",Long.class,name);
+        jdbc.update("insert into financial_accounts(household_id,name,type,currency) values(?,'foreign','BANK','USD')",other);
+        long target=jdbc.queryForObject("select id from financial_accounts where household_id=?",Long.class,other);
+        mvc.perform(post("/api/fx-transfers").session(s).with(csrf()).contentType("application/json").content(payload(cny,target,UUID.randomUUID().toString())))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/accounts/"+cny).session(s)).andExpect(jsonPath("$.data.balance").value("7010.00"));
+    }
 }

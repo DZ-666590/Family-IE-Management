@@ -17,8 +17,10 @@ import org.springframework.web.bind.annotation.RestController;
 public class MarketController {
     private final QuoteRefreshService refreshes;
     private final ManualQuoteService manual;
-    public MarketController(QuoteRefreshService refreshes, ManualQuoteService manual) {
+    private final com.familyfinance.investment.OverseasInvestmentService overseas;
+    public MarketController(QuoteRefreshService refreshes, ManualQuoteService manual,com.familyfinance.investment.OverseasInvestmentService overseas) {
         this.refreshes = refreshes; this.manual = manual;
+        this.overseas=overseas;
     }
     @GetMapping("/market-quotes")
     ApiEnvelope<List<MarketPriceResponse>> list(Authentication authentication) {
@@ -26,7 +28,9 @@ public class MarketController {
     }
     @PostMapping("/market-quotes/refresh")
     ApiEnvelope<MarketRefreshResponse> refresh(Authentication authentication) {
-        return ApiEnvelope.data(refreshes.refresh(authentication));
+        int foreign=overseas.refreshHeld(authentication);
+        var result=refreshes.refresh(authentication);
+        return ApiEnvelope.data(new MarketRefreshResponse(foreign>0?"READY":result.state(),result.refreshed()+foreign,result.error(),result.quotes()));
     }
     @PostMapping("/securities/{id}/manual-price")
     @ResponseStatus(HttpStatus.CREATED)

@@ -4,7 +4,11 @@ import com.familyfinance.shared.Money;
 import java.time.LocalDate;
 
 public record NetWorthSnapshotResponse(LocalDate snapshotOn, String asset, String liability, String netWorth,
-        String accountingBasis,boolean valuationEstimated,int unpricedPositions) {
+        String accountingBasis,boolean valuationEstimated,int unpricedPositions,String recordedNetWorth) {
+    public NetWorthSnapshotResponse(LocalDate day,String asset,String liability,String netWorth,String basis,boolean estimated,int unpriced){this(day,asset,liability,netWorth,basis,estimated,unpriced,null);}
+    static NetWorthSnapshotResponse from(NetWorthSnapshot snapshot,NetWorthResult value){
+        return new NetWorthSnapshotResponse(snapshot.getSnapshotOn(),Money.formatCents(value.assetCents()),Money.formatCents(value.liabilityCents()),Money.formatCents(value.netWorthCents()),"LEDGER_AS_OF",value.investment().missingPrice(),value.investment().unpricedPositionCount(),Money.formatCents(snapshot.getNetWorthCents()));
+    }
     static NetWorthSnapshotResponse from(LocalDate day, NetWorthResult value) {
         return new NetWorthSnapshotResponse(day, Money.formatCents(value.assetCents()),
                 Money.formatCents(value.liabilityCents()), Money.formatCents(value.netWorthCents()),

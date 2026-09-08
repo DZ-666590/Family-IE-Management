@@ -15,6 +15,9 @@ public class PositionCalculator {
     private static final BigDecimal ZERO_QUANTITY = new BigDecimal("0.0000");
 
     public InvestmentPosition calculate(List<PositionTrade> input, Long marketPriceCents) {
+        return calculateAtPrice(input,marketPriceCents==null?null:BigDecimal.valueOf(marketPriceCents,2));
+    }
+    public InvestmentPosition calculateAtPrice(List<PositionTrade> input,BigDecimal marketPrice) {
         List<PositionTrade> trades = input.stream()
                 .sorted(Comparator.comparing(PositionTrade::tradedOn).thenComparingLong(PositionTrade::id))
                 .toList();
@@ -27,7 +30,7 @@ public class PositionCalculator {
             validate(trade);
             switch (trade.type()) {
                 case OPENING, BUY -> {
-                    long gross = roundedProduct(trade.quantity(), trade.priceCents());
+                    long gross = roundedProduct(trade.quantity(), trade.unitPrice());
                     long addedCost = Math.addExact(gross, trade.feeCents());
                     costCents = Math.addExact(costCents, addedCost);
                     if (trade.type() == InvestmentTradeType.BUY)
@@ -38,7 +41,7 @@ public class PositionCalculator {
                     if (trade.quantity().compareTo(quantity) > 0) {
                         throw new InsufficientHoldingException();
                     }
-                    long proceeds = roundedProduct(trade.quantity(), trade.priceCents());
+                    long proceeds = roundedProduct(trade.quantity(), trade.unitPrice());
                     long allocatedCost = trade.quantity().compareTo(quantity) == 0
                             ? costCents
                             : BigDecimal.valueOf(costCents)
@@ -66,7 +69,8 @@ public class PositionCalculator {
         BigDecimal averageCostCents = quantity.signum() == 0
                 ? ZERO_QUANTITY
                 : BigDecimal.valueOf(costCents).divide(quantity, 4, RoundingMode.HALF_UP);
-        Long marketValueCents = marketPriceCents == null ? null : roundedProduct(quantity, marketPriceCents);
+        Long marketValueCents = marketPrice == null ? null : roundedProduct(quantity, marketPrice);
+        Long marketPriceCents = marketPrice == null ? null : marketPrice.movePointRight(2).setScale(0,RoundingMode.HALF_UP).longValueExact();
         Long unrealizedProfitCents = marketValueCents == null
                 ? null
                 : Math.subtractExact(marketValueCents, costCents);
@@ -81,8 +85,8 @@ public class PositionCalculator {
                 unrealizedProfitCents);
     }
 
-    private static long roundedProduct(BigDecimal quantity, long cents) {
-        return quantity.multiply(BigDecimal.valueOf(cents))
+    private static long roundedProduct(BigDecimal quantity, BigDecimal price) {
+        return quantity.multiply(price).movePointRight(2)
                 .setScale(0, RoundingMode.HALF_UP)
                 .longValueExact();
     }
@@ -91,7 +95,7 @@ public class PositionCalculator {
         if (trade == null || trade.tradedOn() == null || trade.type() == null) {
             throw new IllegalArgumentException("交易标识、日期和类型不能为空");
         }
-        if (trade.priceCents() <= 0 || trade.feeCents() < 0) {
+        if (trade.unitPrice()==null || trade.unitPrice().signum()<=0 || trade.unitPrice().scale()>6 || trade.feeCents() < 0) {
             throw new IllegalArgumentException("价格必须为正数且费用不能为负数");
         }
         if (trade.type() == InvestmentTradeType.OPENING || trade.type() == InvestmentTradeType.BUY || trade.type() == InvestmentTradeType.SELL) {

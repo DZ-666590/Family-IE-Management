@@ -127,6 +127,7 @@ class PortfolioServiceTest {
         when(trade.getPriceCents()).thenReturn(price);
         when(trade.getFeeCents()).thenReturn(fee);
         when(trade.getTradedOn()).thenReturn(LocalDate.parse(date));
+        when(trade.toPositionTrade()).thenReturn(new com.familyfinance.investment.PositionTrade(id,LocalDate.parse(date),type,quantity==null?null:new BigDecimal(quantity),price,fee));
         return trade;
     }
 
@@ -135,6 +136,7 @@ class PortfolioServiceTest {
         when(account.getId()).thenReturn(id);
         when(account.getName()).thenReturn(name);
         when(account.getBrokerName()).thenReturn("券商");
+        when(account.getCurrency()).thenReturn("CNY");
         return account;
     }
 

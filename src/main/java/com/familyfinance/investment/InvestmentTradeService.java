@@ -49,6 +49,7 @@ public class InvestmentTradeService {
     private final InvestmentAccountingService accounting;
     private final jakarta.persistence.EntityManager entities;
     private final InvestmentSetupService setup;
+    @org.springframework.beans.factory.annotation.Autowired private com.familyfinance.accounting.DeploymentRevisionGate deployment;
 
     public InvestmentTradeService(
             InvestmentTradeRepository trades,
@@ -231,7 +232,7 @@ public class InvestmentTradeService {
             throw new ResourceConflictException("SECURITY_NOT_LISTED", "请从股票搜索结果中选择证券");
         }
         BigDecimal quantity = parseQuantity(request.quantity(), type, null, fields);
-        Long price = parsePositiveMoney(request.price(), "price", fields);
+        BigDecimal price = parsePrice(request.price(),type,fields);
         Long fee = parseNonNegativeMoney(request.fee(), "fee", 0L, fields);
         LocalDate tradedOn = request.tradedOn();
         validateDate(tradedOn, fields);
@@ -255,9 +256,9 @@ public class InvestmentTradeService {
         InvestmentTradeType type = request == null || request.type() == null ? trade.getType() : request.type();
         BigDecimal quantity = parseQuantity(
                 request == null ? null : request.quantity(), type, trade.getQuantity(), fields);
-        Long price = request == null || request.price() == null
-                ? trade.getPriceCents()
-                : parsePositiveMoney(request.price(), "price", fields);
+        BigDecimal price = request == null || request.price() == null
+                ? trade.getUnitPrice()
+                : parsePrice(request.price(),type,fields);
         Long fee = request == null || request.fee() == null
                 ? trade.getFeeCents()
                 : parseNonNegativeMoney(request.fee(), "fee", trade.getFeeCents(), fields);
@@ -341,6 +342,12 @@ public class InvestmentTradeService {
             return null;
         }
     }
+    private BigDecimal parsePrice(String raw,InvestmentTradeType type,Map<String,String> fields) {
+        if(type==InvestmentTradeType.DIVIDEND||type==InvestmentTradeType.FEE){
+            Long cents=parsePositiveMoney(raw,"price",fields);return cents==null?null:BigDecimal.valueOf(cents,2);
+        }
+        try{BigDecimal price=UnitPrice.parse(raw);deployment.requireCompatibleUnitPrice(price);return price;}catch(IllegalArgumentException error){fields.put("price",error.getMessage());return null;}
+    }
 
     private static Long parseNonNegativeMoney(
             String raw, String field, long defaultValue, Map<String, String> fields) {
@@ -388,7 +395,7 @@ public class InvestmentTradeService {
     private static long cashImpact(InvestmentTrade trade) {
         long gross = trade.getQuantity() == null
                 ? trade.getPriceCents()
-                : trade.getQuantity().multiply(BigDecimal.valueOf(trade.getPriceCents()))
+                : trade.getQuantity().multiply(trade.getUnitPrice()).movePointRight(2)
                         .setScale(0, RoundingMode.HALF_UP).longValueExact();
         return switch (trade.getType()) {
             case OPENING -> 0;
@@ -467,7 +474,7 @@ public class InvestmentTradeService {
             Security security,
             InvestmentTradeType type,
             BigDecimal quantity,
-            long priceCents,
+            BigDecimal priceCents,
             long feeCents,
             LocalDate tradedOn) {
     }

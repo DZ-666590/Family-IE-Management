@@ -27,6 +27,10 @@ spring:
     show-sql: false
 
 app:
+  multicurrency:
+    enabled: ${APP_MULTICURRENCY_ENABLED:true}
+  fx:
+    scheduled: ${APP_FX_SCHEDULED:true}
   seed:
     enabled: true
 

@@ -7,6 +7,8 @@ const investments = [...ledger, 'portfolio', 'investment-setup', 'investment-acc
 const dependencies: Record<string, string[]> = {
   transactions: ledger,
   transfers: ledger,
+  'fx-transfers': ['fx-transfers',...investments],
+  'exchange-rates': ['exchange-rates','exchange-rate-history',...investments],
   accounts: ['recurring-rules', ...ledger],
   categories: ['categories', 'budget-revisions', 'recurring-rules', ...ledger],
   budgets: ['budgets', 'budget-revisions', ...ledger],

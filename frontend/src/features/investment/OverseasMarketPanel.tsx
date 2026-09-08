@@ -8,13 +8,13 @@ import { isOverseasInstrument, type OverseasInstrument, type OverseasMarket, typ
 import { dateText, type RequestFn } from '../common';
 import './stock-picker.scss';
 
-export function OverseasMarketPanel({ request, market }: { request: RequestFn; market: OverseasMarket }) {
+export function OverseasMarketPanel({ request, market,initial,onBuy,busy=false,tradingEnabled=false }: { request: RequestFn; market: OverseasMarket;initial?:OverseasInstrument;onBuy?:(value:OverseasInstrument)=>void;busy?:boolean;tradingEnabled?:boolean }) {
   const id = useId();
   const pickerId = `${id}-picker`;
   const dropdown = useStockDropdown(pickerId);
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [selected, setSelected] = useState<OverseasInstrument | null>(null);
+  const [selected, setSelected] = useState<OverseasInstrument | null>(initial??null);
   const pollStarted = useRef(Date.now());
   useEffect(() => { const timer = setTimeout(() => setDebounced(query.trim()), 250); return () => clearTimeout(timer); }, [query]);
   const search = useQuery({ queryKey: ['overseas-search', market, debounced], queryFn: async () => {
@@ -29,7 +29,7 @@ export function OverseasMarketPanel({ request, market }: { request: RequestFn; m
   const retry = () => { pollStarted.current = Date.now(); void search.refetch(); };
   const available = search.data?.state === 'READY' || (search.data?.state === 'ERROR' && items.length > 0);
   return <section className="overseas-market" aria-label={market === 'HK' ? '港股只读行情' : '美股只读行情'}>
-    <p className="overseas-readonly">只读行情，暂不计入家庭资产</p>
+    <p className="overseas-readonly">{tradingEnabled?'行情不会自动修改持仓，请同步实际发生的交易。':'只读行情，暂不计入家庭资产'}</p>
     <div className="stock-explorer"><div className="stock-picker" id={pickerId} style={{ position: 'relative' }}>
       <span className="stock-picker__label" id={`${id}-label`}>证券</span>
       <Select ref={dropdown.selectRef} className="stock-picker__select" aria-labelledby={`${id}-label`} filter remote onChangeWithObject inputProps={{ maxLength: 80 }}
@@ -50,6 +50,7 @@ export function OverseasMarketPanel({ request, market }: { request: RequestFn; m
         {search.data?.stale && <span>缓存目录 · {dateText(search.data.updatedAt)}</span>}
       </div>
     </div></div>
+    {selected&&onBuy&&<button type="button" className="secondary-action" disabled={busy} onClick={()=>onBuy(selected)}>{busy?'正在核对股票…':`记录买入${selected.name}`}</button>}
     {selected?.market === market ? <StockChart key={`${market}/${selected.symbol}`} request={request} security={selected}/> : <div className="investment-market-empty"><p>选择股票，查看参考收盘价与历史走势。</p></div>}
   </section>;
 }

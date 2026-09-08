@@ -12,6 +12,7 @@ public class ExchangeRateService {
     private final ExchangeRateProvider provider;
     private final ExchangeRateStore store;
     private final Clock clock;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private FxJournalRates journalRates;
     private final ReentrantLock refreshLock=new ReentrantLock();
     private volatile Instant lastAttempt=Instant.MIN;
     private volatile String refreshState="IDLE";
@@ -48,7 +49,9 @@ public class ExchangeRateService {
             try {
                 var batch=provider.fetch(day);
                 if(batch.effectiveOn().isAfter(day))throw new IllegalArgumentException("Future provider date");
-                store.save(batch,clock.instant());refreshState="SUCCESS";
+                store.save(batch,clock.instant());
+                if(journalRates!=null)journalRates.backfill();
+                refreshState="SUCCESS";
             }catch(RuntimeException failure){refreshState="FAILED";}
             return table(day,refreshState);
         }finally{refreshLock.unlock();}

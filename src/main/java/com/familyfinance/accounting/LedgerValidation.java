@@ -88,8 +88,7 @@ class LedgerValidation {
                     case "POSITION" -> {
                         match(e,LedgerAccountKind.ASSET,parts,3); ownedCurrency("investment_accounts",id,c.householdId(),e.currency());
                         require(currentSecurities.contains(parseId(parts[2])),"accountCode","证券不存在");
-                        String market=store.jdbc.queryForObject("select market from securities where id=?",String.class,parseId(parts[2]));
-                        String currency="HK".equals(market)?"HKD":"US".equals(market)?"USD":"CNY";
+                        String currency=store.jdbc.queryForObject("select currency from securities where id=?",String.class,parseId(parts[2]));
                         require(e.currency().equals(currency),"currency","分录币种与证券币种不一致");
                     }
                     case "INCOME","EXPENSE" -> {
