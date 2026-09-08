@@ -3,6 +3,7 @@ package com.familyfinance.accounting;
 import com.familyfinance.shared.ResourceConflictException;
 import com.familyfinance.shared.ResourceNotFoundException;
 import java.sql.Statement;
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -57,16 +58,16 @@ class LedgerStore {
     }
     List<LedgerEntryInput> entries(long h,long journalId,boolean current) {
         return jdbc.query("select e.*,a.kind from ledger_entries e join ledger_accounts a on a.household_id=e.household_id and a.account_code=e.account_code where e.household_id=? and e.journal_id=? order by e.line_no"+lockClause(current),
-                (rs,row)->new LedgerEntryInput(rs.getString("account_code"),LedgerAccountKind.valueOf(rs.getString("kind")),rs.getLong("debit_cents"),rs.getLong("credit_cents"),rs.getObject("category_id",Long.class),rs.getObject("member_id",Long.class)),h,journalId);
+                (rs,row)->new LedgerEntryInput(rs.getString("account_code"),LedgerAccountKind.valueOf(rs.getString("kind")),rs.getBigDecimal("debit_amount"),rs.getBigDecimal("credit_amount"),rs.getObject("category_id",Long.class),rs.getObject("member_id",Long.class)),h,journalId);
     }
 
-    record Account(String code,LedgerAccountKind kind,long balance) {}
+    record Account(String code,LedgerAccountKind kind,BigDecimal balance) {}
     List<Account> accounts(long h) {
         return accounts(h,true);
     }
     List<Account> accounts(long h,boolean current) {
-        return jdbc.query("select account_code,kind,balance_cents from ledger_accounts where household_id=? order by account_code"+lockClause(current),
-                (rs,row)->new Account(rs.getString(1),LedgerAccountKind.valueOf(rs.getString(2)),rs.getLong(3)),h);
+        return jdbc.query("select account_code,kind,balance_amount from ledger_accounts where household_id=? order by account_code"+lockClause(current),
+                (rs,row)->new Account(rs.getString(1),LedgerAccountKind.valueOf(rs.getString(2)),rs.getBigDecimal(3)),h);
     }
 
     String cashAccountName(long householdId,String code,boolean current) {
@@ -75,14 +76,14 @@ class LedgerStore {
                 .stream().findFirst().orElse("现金账户");
     }
 
-    record Movement(LocalDate day,long debit,long credit) {}
+    record Movement(LocalDate day,BigDecimal debit,BigDecimal credit) {}
     List<Movement> movements(long h,String code) {
         return movements(h,code,true);
     }
     List<Movement> movements(long h,String code,boolean current) {
         // Do not replace with a snapshot SUM: RR transactions may already have an older read view.
-        return jdbc.query("select j.effective_on,e.debit_cents,e.credit_cents from ledger_entries e join ledger_journals j on j.id=e.journal_id and j.household_id=e.household_id where e.household_id=? and e.account_code=? order by j.effective_on,e.id"+lockClause(current),
-                (rs,row)->new Movement(rs.getDate(1).toLocalDate(),rs.getLong(2),rs.getLong(3)),h,code);
+        return jdbc.query("select j.effective_on,e.debit_amount,e.credit_amount from ledger_entries e join ledger_journals j on j.id=e.journal_id and j.household_id=e.household_id where e.household_id=? and e.account_code=? order by j.effective_on,e.id"+lockClause(current),
+                (rs,row)->new Movement(rs.getDate(1).toLocalDate(),rs.getBigDecimal(2),rs.getBigDecimal(3)),h,code);
     }
 
     private static String lockClause(boolean current) { return current ? " for update" : ""; }
@@ -98,8 +99,8 @@ class LedgerStore {
         },keys);
         long id=keys.getKey().longValue();
         int line=0;
-        for (var e:c.entries()) jdbc.update("insert into ledger_entries(household_id,journal_id,line_no,account_code,debit_cents,credit_cents,category_id,member_id) values (?,?,?,?,?,?,?,?)",
-                c.householdId(),id,++line,e.accountCode(),e.debitCents(),e.creditCents(),e.categoryId(),e.memberId());
+        for (var e:c.entries()) jdbc.update("insert into ledger_entries(household_id,journal_id,line_no,account_code,debit_amount,credit_amount,category_id,member_id) values (?,?,?,?,?,?,?,?)",
+                c.householdId(),id,++line,e.accountCode(),e.debitAmount(),e.creditAmount(),e.categoryId(),e.memberId());
         return new LedgerReceipt(id,c.householdId(),c.sourceType(),c.sourceId(),revision,c.effectiveOn(),reversed);
     }
 

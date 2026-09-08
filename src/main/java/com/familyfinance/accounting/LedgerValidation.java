@@ -1,7 +1,8 @@
 package com.familyfinance.accounting;
 
 import com.familyfinance.shared.RequestValidationException;
-import java.math.BigInteger;
+import java.math.BigDecimal;
+import com.familyfinance.shared.DecimalMoney;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -37,15 +38,15 @@ class LedgerValidation {
         require(c.effectiveOn()!=null && !c.effectiveOn().isAfter(LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))))
                 && c.effectiveOn().getYear()>=1000,"effectiveOn","业务日期必须在1000年至上海当天之间");
         require(c.entries()!=null && c.entries().size()>=2 && c.entries().size()<=1000,"entries","凭证需包含2至1000条分录");
-        BigInteger debits=BigInteger.ZERO,credits=BigInteger.ZERO;
+        BigDecimal debits=BigDecimal.ZERO,credits=BigDecimal.ZERO;
         for (var e:c.entries()) {
             require(e!=null && e.kind()!=null,"entries","分录科目不能为空");
             require(e.accountCode()!=null && e.accountCode().length()<=120,"accountCode","科目编码无效");
-            require((e.debitCents()>0 && e.creditCents()==0)||(e.creditCents()>0 && e.debitCents()==0),"entries","分录金额必须为正且仅填写借方或贷方");
-            debits=debits.add(BigInteger.valueOf(e.debitCents())); credits=credits.add(BigInteger.valueOf(e.creditCents()));
+            require((e.debitAmount().signum()>0 && e.creditAmount().signum()==0)||(e.creditAmount().signum()>0 && e.debitAmount().signum()==0),"entries","分录金额必须为正且仅填写借方或贷方");
+            debits=debits.add(e.debitAmount()); credits=credits.add(e.creditAmount());
         }
-        require(debits.equals(credits),"entries","凭证借贷不平衡");
-        require(debits.compareTo(BigInteger.valueOf(Long.MAX_VALUE))<=0,"entries","凭证合计金额超出范围");
+        require(debits.compareTo(credits)==0,"entries","凭证借贷不平衡");
+        require(debits.compareTo(DecimalMoney.MAX_AMOUNT)<=0,"entries","凭证合计金额超出范围");
     }
 
     void register(LedgerPostingCommand c) {

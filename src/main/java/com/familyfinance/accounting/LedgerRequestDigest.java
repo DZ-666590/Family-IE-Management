@@ -19,6 +19,7 @@ final class LedgerRequestDigest {
             out.writeInt(c.entries().size());
             for(var e:c.entries()) {
                 out.writeUTF(e.accountCode()==null ? "" : e.accountCode()); out.writeUTF(e.kind().name());
+                // Compatibility boundary: persisted V14+ receipts hash signed long cents.
                 out.writeLong(e.debitCents()); out.writeLong(e.creditCents());
                 nullable(out,e.categoryId()); nullable(out,e.memberId());
             }

@@ -175,7 +175,7 @@ class WealthAccountingApiTest {
  @Test void investmentArchiveRejectsLedgerCostDriftEvenWhenTradeQuantityIsZero()throws Exception {
   trade("BUY","1","100.00","0.00","2026-01-02","buy").andExpect(status().isCreated());
   trade("SELL","1","100.00","0.00","2026-01-03","sell").andExpect(status().isCreated());
-  jdbc.update("update ledger_accounts set balance_cents=100 where household_id=? and account_code like 'POSITION:%'",household);
+  jdbc.update("update ledger_accounts set balance_amount=1.00 where household_id=? and account_code like 'POSITION:%'",household);
   mvc.perform(delete("/api/investment-accounts/"+investment).session(session).with(csrf())).andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("ACCOUNTING_BALANCE_MISMATCH"));
  }
  @Test void disposalAtRevaluedAmountPreservesCumulativeAssetValuationBridge()throws Exception {

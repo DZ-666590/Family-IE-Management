@@ -6,13 +6,16 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
-import java.math.BigInteger;
+import java.math.BigDecimal;
+import java.util.Arrays;
+import com.familyfinance.shared.DecimalMoney;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 /** Snapshot-safe reporting of the corrected effective ledger, never a funding authorization. */
-@Service @Transactional(readOnly=true)
+@Service @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
 public class LedgerReportingService {
     private final JdbcTemplate jdbc;
     public LedgerReportingService(JdbcTemplate jdbc){this.jdbc=jdbc;}
@@ -40,17 +43,23 @@ public class LedgerReportingService {
 
     public Map<String,Long> balancesAsOf(long h,LocalDate day) {
         Map<String,Long> result=new LinkedHashMap<>();
+        balanceAmountsAsOf(h,day).forEach((code,amount)->result.put(code,DecimalMoney.toCents(amount)));
+        return Map.copyOf(result);
+    }
+
+    public Map<String,BigDecimal> balanceAmountsAsOf(long h,LocalDate day) {
+        Map<String,BigDecimal> result=new LinkedHashMap<>();
         jdbc.query("""
-            select e.account_code,a.kind,e.debit_cents,e.credit_cents from ledger_entries e
+            select e.account_code,a.kind,e.debit_amount,e.credit_amount from ledger_entries e
             join ledger_journals j on j.id=e.journal_id and j.household_id=e.household_id
             join ledger_sources s on s.current_journal_id=j.id and s.household_id=j.household_id
             join ledger_accounts a on a.household_id=e.household_id and a.account_code=e.account_code
             where e.household_id=? and j.effective_on<=? order by j.effective_on,j.id,e.line_no
             """,rs->{
                 String kind=rs.getString(2);
-                long delta=Math.subtractExact(rs.getLong(3),rs.getLong(4));
-                if(kind.equals("LOAN")||kind.equals("INCOME")||kind.equals("EQUITY"))delta=Math.negateExact(delta);
-                result.merge(rs.getString(1),delta,Math::addExact);
+                BigDecimal delta=rs.getBigDecimal(3).subtract(rs.getBigDecimal(4));
+                if(kind.equals("LOAN")||kind.equals("INCOME")||kind.equals("EQUITY"))delta=delta.negate();
+                result.merge(rs.getString(1),delta,BigDecimal::add);
             },h,day);
         return Map.copyOf(result);
     }
@@ -58,7 +67,7 @@ public class LedgerReportingService {
     public List<LedgerActivity> activities(long h,LocalDate from,LocalDate toExclusive) {
         requireComplete(h);
         return jdbc.query("""
-            select e.id,j.effective_on,a.kind,e.debit_cents,e.credit_cents,e.account_code,
+            select e.id,j.effective_on,a.kind,e.debit_amount,e.credit_amount,e.account_code,
               c.id category_id,c.name category_name,p.id parent_id,p.name parent_name,
               m.id member_id,m.name member_name,j.source_type,j.source_id,t.note
             from ledger_entries e
@@ -77,7 +86,8 @@ public class LedgerReportingService {
             order by j.effective_on,e.id
             """,(rs,n)->{
                 var kind=TransactionKind.valueOf(rs.getString("kind"));
-                long amount=kind==TransactionKind.INCOME?rs.getLong("credit_cents")-rs.getLong("debit_cents"):rs.getLong("debit_cents")-rs.getLong("credit_cents");
+                BigDecimal amount=rs.getBigDecimal("debit_amount").subtract(rs.getBigDecimal("credit_amount"));
+                if(kind==TransactionKind.INCOME)amount=amount.negate();
                 Long category=rs.getObject("category_id",Long.class), parent=rs.getObject("parent_id",Long.class),member=rs.getObject("member_id",Long.class);
                 String code=rs.getString("account_code");
                 String label=code.equals("EXPENSE:INVESTMENT_FEE")?"投资费用":kind==TransactionKind.INCOME?"已实现收益":"已实现损失";
@@ -91,21 +101,31 @@ public class LedgerReportingService {
     }
 
     public String sumBudgetExpenseCents(long h,LocalDate from,LocalDate to,String scope,Long category,Long member,boolean rollup) {
-        BigInteger result=BigInteger.ZERO;
+        // Budget's legacy decimal-string-of-cents API intentionally supports totals beyond long.
+        return sumBudgetExpenseAmount(h,from,to,scope,category,member,rollup).movePointRight(2).toBigIntegerExact().toString();
+    }
+    public BigDecimal sumBudgetExpenseAmount(long h,LocalDate from,LocalDate to,String scope,Long category,Long member,boolean rollup) {
+        BigDecimal result=DecimalMoney.fromCents(0);
         for(var item:activities(h,from,to)) {
             if(item.kind()!=TransactionKind.EXPENSE)continue;
             if(scope.equals("CATEGORY")&&!(category!=null&&(item.category().id()==category||(rollup&&item.category().parent()!=null&&item.category().parent().id()==category))))continue;
             if(scope.equals("MEMBER")&&!(member!=null&&item.member().id()==member))continue;
-            result=result.add(BigInteger.valueOf(item.amountCents()));
+            result=result.add(item.amount());
         }
-        return result.toString();
+        return result;
     }
 
     public CashFlow cashFlow(long h,LocalDate from,LocalDate to) {
+        var amounts=cashFlowAmounts(h,from,to);
+        return new CashFlow(DecimalMoney.toCents(amounts.cashIn()),DecimalMoney.toCents(amounts.cashOut()),
+            DecimalMoney.toCents(amounts.principalPaid()),DecimalMoney.toCents(amounts.borrowed()),DecimalMoney.toCents(amounts.noncashValuationChange()));
+    }
+    public CashFlowAmounts cashFlowAmounts(long h,LocalDate from,LocalDate to) {
         requireComplete(h);
-        long[] totals=new long[5];
+        BigDecimal[] totals=new BigDecimal[5];
+        Arrays.fill(totals,DecimalMoney.fromCents(0));
         jdbc.query("""
-            select a.kind,e.debit_cents,e.credit_cents,e.account_code from ledger_entries e
+            select a.kind,e.debit_amount,e.credit_amount,e.account_code from ledger_entries e
             join ledger_accounts a on a.household_id=e.household_id and a.account_code=e.account_code
             join ledger_journals j on j.id=e.journal_id and j.household_id=e.household_id
             join ledger_sources s on s.current_journal_id=j.id and s.household_id=j.household_id
@@ -113,13 +133,14 @@ public class LedgerReportingService {
               and j.source_type not in ('CASH_OPENING','CASH_TRANSFER','LOAN_OPENING')
             """,rs->{
                 String kind=rs.getString(1),code=rs.getString(4);
-                long debit=rs.getLong(2),credit=rs.getLong(3);
-                if(kind.equals("CASH")){totals[0]=Math.addExact(totals[0],debit);totals[1]=Math.addExact(totals[1],credit);}
-                if(kind.equals("LOAN")){totals[2]=Math.addExact(totals[2],debit);totals[3]=Math.addExact(totals[3],credit);}
-                if(code.equals("INCOME:VALUATION_GAIN"))totals[4]=Math.addExact(totals[4],credit-debit);
-                if(code.equals("EXPENSE:VALUATION_LOSS"))totals[4]=Math.subtractExact(totals[4],debit-credit);
+                BigDecimal debit=rs.getBigDecimal(2),credit=rs.getBigDecimal(3);
+                if(kind.equals("CASH")){totals[0]=totals[0].add(debit);totals[1]=totals[1].add(credit);}
+                if(kind.equals("LOAN")){totals[2]=totals[2].add(debit);totals[3]=totals[3].add(credit);}
+                if(code.equals("INCOME:VALUATION_GAIN"))totals[4]=totals[4].add(credit.subtract(debit));
+                if(code.equals("EXPENSE:VALUATION_LOSS"))totals[4]=totals[4].subtract(debit.subtract(credit));
             },h,from,to);
-        return new CashFlow(totals[0],totals[1],totals[2],totals[3],totals[4]);
+        return new CashFlowAmounts(totals[0],totals[1],totals[2],totals[3],totals[4]);
     }
     public record CashFlow(long cashIn,long cashOut,long principalPaid,long borrowed,long noncashValuationChange){}
+    public record CashFlowAmounts(BigDecimal cashIn,BigDecimal cashOut,BigDecimal principalPaid,BigDecimal borrowed,BigDecimal noncashValuationChange){}
 }

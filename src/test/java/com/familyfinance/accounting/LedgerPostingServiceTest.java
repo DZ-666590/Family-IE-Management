@@ -171,7 +171,7 @@ class LedgerPostingServiceTest {
         posting.post(expense(1,2500,"spend",day));
         assertThat(read.balances(h)).containsEntry("CASH:"+cash,7500L);
         assertThat(read.reconstructedBalances(h)).isEqualTo(read.balances(h));
-        jdbc.update("update ledger_accounts set balance_cents=9000 where household_id=? and account_code=?",h,"CASH:"+cash);
+        jdbc.update("update ledger_accounts set balance_amount=90.00 where household_id=? and account_code=?",h,"CASH:"+cash);
         assertThat(read.reconstructedBalances(h)).containsEntry("CASH:"+cash,7500L);
         assertThatThrownBy(()->posting.post(expense(2,1,"unsafe",day))).isInstanceOf(ResourceConflictException.class);
         read.rebuildBalances(h);

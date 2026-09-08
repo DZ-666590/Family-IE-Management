@@ -11,9 +11,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 /** Source history is deliberately read-only; no arbitrary journal posting route exists. */
-@RestController @RequestMapping("/api/accounting/history") @Transactional(readOnly=true)
+@RestController @RequestMapping("/api/accounting/history") @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
 public class LedgerHistoryController {
     private final CurrentHousehold household;
     private final JdbcTemplate jdbc;
