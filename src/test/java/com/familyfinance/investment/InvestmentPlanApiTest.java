@@ -30,6 +30,7 @@ class InvestmentPlanApiTest {
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper mapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
     MockHttpSession owner;
     long account, security, cash, user;
     String today=LocalDate.now(ZoneId.of("Asia/Shanghai")).toString();
@@ -193,6 +194,72 @@ class InvestmentPlanApiTest {
         }
         mvc.perform(get("/api/investment-plans").session(owner)).andExpect(status().isOk()).andExpect(jsonPath("$.data.plans[0].security.tsCode").value("000001.SZ")).andExpect(jsonPath("$.data.plans[1].security.tsCode").value("920001.BJ"));
     }
+
+    @Test void earlierSnapshotCannotResumeAConcurrentlyEndedPlan() throws Exception {
+        setup("1000.00");long plan=create(today,"MONTHLY");
+        withEarlierSnapshot(()->stateCall(owner,plan,"ENDED").andExpect(status().isOk()),
+                ()->stateCall(owner,plan,"ACTIVE").andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("PLAN_ENDED")));
+        assertThat(jdbc.queryForObject("select state from investment_plans where id=?",String.class,plan)).isEqualTo("ENDED");
+    }
+
+    @Test void earlierSnapshotCannotConfirmAConcurrentlySkippedOccurrence() throws Exception {
+        setup("1000.00");create(today,"MONTHLY");long id=generate();long before=count("ledger_journals");
+        withEarlierSnapshot(()->mvc.perform(post("/api/investment-plans/occurrences/{id}/skip",id).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"取消本期\"}")).andExpect(status().isOk()),
+                ()->confirm(id,"stale-skip",409));
+        assertThat(jdbc.queryForObject("select state from investment_plan_occurrences where id=?",String.class,id)).isEqualTo("SKIPPED");
+        assertThat(count("investment_trades")).isZero();assertThat(count("ledger_journals")).isEqualTo(before);
+    }
+
+    @Test void earlierSnapshotReplaysAnotherActorsConfirmedTradeAndCurrentDetails() throws Exception {
+        setup("1000.00");create(today,"MONTHLY");long id=generate();
+        String token=data(mvc.perform(post("/api/family/invites").session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"role\":\"ADMIN\"}")).andExpect(status().isCreated()).andReturn()).path("token").asText();
+        mvc.perform(post("/api/auth/register").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"email\":\"plan-admin@example.com\",\"displayName\":\"管理员\",\"password\":\"family-pass-2026\",\"mode\":\"JOIN\",\"inviteToken\":\""+token+"\"}")).andExpect(status().isCreated());
+        MockHttpSession admin=login("plan-admin@example.com");long adminId=jdbc.queryForObject("select id from app_users where email='plan-admin@example.com'",Long.class);
+        java.util.concurrent.atomic.AtomicLong tradeId=new java.util.concurrent.atomic.AtomicLong();
+        withEarlierSnapshot(()->{JsonNode first=data(mvc.perform(post("/api/investment-plans/occurrences/{id}/confirm",id).session(admin).with(csrf()).header("Idempotency-Key","admin-first").contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":\"10\",\"price\":\"10.00\",\"fee\":\"1.00\",\"tradedOn\":\""+today+"\"}")).andExpect(status().isOk()).andReturn());tradeId.set(first.path("tradeId").asLong());},
+                ()->{JsonNode replay=confirm(id,"owner-second",200);assertThat(replay.path("tradeId").asLong()).isEqualTo(tradeId.get());assertThat(replay.path("actedBy").asLong()).isEqualTo(adminId);assertThat(replay.path("tradeReversed").asBoolean()).isFalse();assertThat(replay.path("currentTrade").path("cashImpact").asText()).isEqualTo("-101.00");});
+        assertThat(count("investment_trades")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select balance_cents from ledger_accounts where account_code=?",Long.class,"CASH:"+cash)).isEqualTo(89900);
+    }
+
+    @Test void earlierSnapshotGeneratorSeesCommittedOccurrenceAndNotification() throws Exception {
+        setup("1000.00");long plan=create(LocalDate.parse(today).plusDays(1).toString(),"MONTHLY");
+        jdbc.update("update investment_plans set first_due_on=?,next_due_on=? where id=?",today,today,plan);
+        withEarlierSnapshot(()->generate(),
+                ()->mvc.perform(post("/api/investment-plans/generate").session(owner).with(csrf())).andExpect(status().isOk()).andExpect(jsonPath("$.data.generated").value(0)));
+        assertThat(count("investment_plan_occurrences")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from notifications where reference_type='INVESTMENT_PLAN_OCCURRENCE'",Long.class)).isEqualTo(1);
+    }
+
+    @Test void earlierSnapshotGeneratorDoesNotUndoCommittedSnooze() throws Exception {
+        setup("1000.00");create(today,"MONTHLY");long id=generate();
+        jdbc.update("update investment_plan_occurrences set notification_pending=true where id=?",id);
+        withEarlierSnapshot(()->mvc.perform(post("/api/investment-plans/occurrences/{id}/snooze",id).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"option\":\"TWO_HOURS\"}")).andExpect(status().isOk()),
+                ()->{mvc.perform(post("/api/investment-plans/generate").session(owner).with(csrf())).andExpect(status().isOk()).andExpect(jsonPath("$.data.generated").value(0));
+                    assertThat(jdbc.queryForList("select id from notifications where reference_type='INVESTMENT_PLAN_OCCURRENCE' and resolved_at is null for update",Long.class)).isEmpty();});
+        assertThat(count("investment_plan_occurrences")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from notifications where reference_type='INVESTMENT_PLAN_OCCURRENCE' and resolved_at is null",Long.class)).isZero();
+    }
+
+    private org.springframework.test.web.servlet.ResultActions stateCall(MockHttpSession session,long id,String state)throws Exception{return mvc.perform(post("/api/investment-plans/{id}/state",id).session(session).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"state\":\""+state+"\"}"));}
+    private void withEarlierSnapshot(Checked committedOutside,Checked afterSnapshot)throws Exception {
+        ExecutorService pool=Executors.newSingleThreadExecutor();
+        var tx=new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        boolean mysql=Boolean.TRUE.equals(jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Boolean>) connection->"MySQL".equals(connection.getMetaData().getDatabaseProductName())));
+        // H2 RR aborts locking reads of changed rows. MySQL instead supplies the current version.
+        // Match LoanAccountingApiTest: exercise RR when actually running MySQL; H2 covers ordering under RC.
+        if(mysql)tx.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        try{tx.executeWithoutResult(transaction->{
+            jdbc.queryForObject("select count(*) from investment_plans",Long.class);
+            jdbc.queryForObject("select count(*) from investment_plan_occurrences",Long.class);
+            jdbc.queryForObject("select count(*) from investment_trades",Long.class);
+            jdbc.queryForObject("select count(*) from notifications",Long.class);
+            try{pool.submit(()->{committedOutside.run();return null;}).get(15,TimeUnit.SECONDS);afterSnapshot.run();}
+            catch(Exception error){throw new RuntimeException(error);}
+            finally{transaction.setRollbackOnly();}
+        });}finally{pool.shutdownNow();assertThat(pool.awaitTermination(10,TimeUnit.SECONDS)).isTrue();}
+    }
+    @FunctionalInterface private interface Checked {void run()throws Exception;}
 
     void setup(String balance) throws Exception {
         owner=(MockHttpSession)mvc.perform(post("/api/auth/login").with(csrf()).param("username","demo").param("password","demo1234")).andExpect(status().isOk()).andReturn().getRequest().getSession(false);

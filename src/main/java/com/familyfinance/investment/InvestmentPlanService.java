@@ -65,41 +65,41 @@ public class InvestmentPlanService {
     public Plan create(Authentication auth,Request request,String key) {
         var access=authorization.requireAdmin(auth);long h=access.context().householdId(),actor=access.context().userId();
         String digest=requests.digest("INVESTMENT_PLAN_CREATE",actor,request);Long original=requests.replay(h,key,digest);
-        if(original!=null)return plan(h,original);
+        if(original!=null)return currentPlan(h,original);
         Validated v=validate(h,request);Timestamp now=Timestamp.from(clock.instant());
         long id=insert("insert into investment_plans(household_id,name,account_id,account_name,funding_account_id,security_id,security_name,symbol,currency,amount,frequency,first_due_on,next_due_on,assigned_user_id,state,created_by,updated_by,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?)",
                 h,v.name(),v.account().getId(),v.account().getName(),v.account().getFundingAccountId(),v.security().getId(),v.security().getName(),v.security().getSymbol(),v.account().getCurrency(),v.amount(),request.frequency().name(),request.firstDueOn(),request.firstDueOn(),request.assignedUserId(),actor,actor,now,now);
-        requests.record(h,key,digest,id);generateHousehold(h);return plan(h,id);
+        requests.record(h,key,digest,id);generateHousehold(h);return currentPlan(h,id);
     }
 
     @Transactional
     public Plan update(Authentication auth,long id,Request request) {
-        var access=authorization.requireAdmin(auth);long h=access.context().householdId();Plan old=plan(h,id);
+        var access=authorization.requireAdmin(auth);long h=access.context().householdId();Plan old=currentPlan(h,id);
         if(old.state()==State.ENDED)throw conflict("PLAN_ENDED","已结束的计划不能编辑");
         Validated v=validate(h,request);
         LocalDate next=onOrAfter(request.firstDueOn(),request.frequency(),today());
         jdbc.update("update investment_plans set name=?,account_id=?,account_name=?,funding_account_id=?,security_id=?,security_name=?,symbol=?,currency=?,amount=?,frequency=?,first_due_on=?,next_due_on=?,assigned_user_id=?,updated_by=?,updated_at=? where household_id=? and id=?",
                 v.name(),v.account().getId(),v.account().getName(),v.account().getFundingAccountId(),v.security().getId(),v.security().getName(),v.security().getSymbol(),v.account().getCurrency(),v.amount(),request.frequency().name(),request.firstDueOn(),next,request.assignedUserId(),access.context().userId(),Timestamp.from(clock.instant()),h,id);
-        return plan(h,id);
+        return currentPlan(h,id);
     }
 
     @Transactional
     public Plan state(Authentication auth,long id,StateRequest request) {
-        var access=authorization.requireAdmin(auth);long h=access.context().householdId();Plan p=plan(h,id);
+        var access=authorization.requireAdmin(auth);long h=access.context().householdId();Plan p=currentPlan(h,id);
         if(request==null||request.state()==null)throw invalid("state","请选择计划状态");
         if(p.state()==State.ENDED&&request.state()!=State.ENDED)throw conflict("PLAN_ENDED","已结束的计划不能重新启动");
         LocalDate next=p.nextDueOn();
         if(p.state()==State.PAUSED&&request.state()==State.ACTIVE) next=onOrAfter(p.firstDueOn(),p.frequency(),today());
         jdbc.update("update investment_plans set state=?,next_due_on=?,updated_by=?,updated_at=? where household_id=? and id=?",
                 request.state().name(),next,access.context().userId(),Timestamp.from(clock.instant()),h,id);
-        return plan(h,id);
+        return currentPlan(h,id);
     }
 
     @Transactional
     public Occurrence confirm(Authentication auth,long id,Confirmation request) {
-        var access=authorization.requireAdmin(auth);long h=access.context().householdId();Occurrence o=occurrence(h,id);
+        var access=authorization.requireAdmin(auth);long h=access.context().householdId();Occurrence o=currentOccurrence(h,id);
         // The durable occurrence link is the idempotency identity, independent of the caller's request key.
-        if(o.state().equals("CONFIRMED"))return details(auth,o);
+        if(o.state().equals("CONFIRMED"))return currentDetails(h,o);
         requirePending(o);
         if(request==null)throw invalid("request","请填写实际成交内容");
         var account=accounts.findCurrent(h,o.accountId());
@@ -110,26 +110,26 @@ public class InvestmentPlanService {
         BigDecimal paid=new BigDecimal(trade.cashImpact()).negate();
         jdbc.update("update investment_plan_occurrences set state='CONFIRMED',trade_id=?,actual_amount=?,acted_by=?,acted_at=?,notification_pending=false where household_id=? and id=?",
                 trade.id(),paid,access.context().userId(),Timestamp.from(clock.instant()),h,id);
-        resolve(h,id);return details(auth,occurrence(h,id));
+        resolve(h,id);return currentDetails(h,currentOccurrence(h,id));
     }
 
     @Transactional
     public Occurrence skip(Authentication auth,long id,SkipRequest request) {
-        var access=authorization.requireAdmin(auth);long h=access.context().householdId();Occurrence o=occurrence(h,id);
+        var access=authorization.requireAdmin(auth);long h=access.context().householdId();Occurrence o=currentOccurrence(h,id);
         if(o.state().equals("SKIPPED"))return o;
         requirePending(o);String reason=request==null||request.reason()==null?"":request.reason().trim();
         if(reason.length()>500)throw invalid("reason","原因不能超过500字");
         jdbc.update("update investment_plan_occurrences set state='SKIPPED',reason=?,acted_by=?,acted_at=?,notification_pending=false where household_id=? and id=?",reason,access.context().userId(),Timestamp.from(clock.instant()),h,id);
-        resolve(h,id);return occurrence(h,id);
+        resolve(h,id);return currentOccurrence(h,id);
     }
 
     @Transactional
     public Occurrence snooze(Authentication auth,long id,SnoozeRequest request) {
-        var access=authorization.requireAdmin(auth);long h=access.context().householdId();Occurrence o=occurrence(h,id);requirePending(o);
+        var access=authorization.requireAdmin(auth);long h=access.context().householdId();Occurrence o=currentOccurrence(h,id);requirePending(o);
         if(request==null||request.option()==null)throw invalid("option","请选择稍后提醒时间");
         Instant at=request.option()==Snooze.TWO_HOURS?clock.instant().plus(2,ChronoUnit.HOURS):today().plusDays(1).atTime(9,0).atZone(ZONE).toInstant();
         jdbc.update("update investment_plan_occurrences set remind_at=?,notification_pending=true,snoozed_by=?,snoozed_at=? where household_id=? and id=?",Timestamp.from(at),access.context().userId(),Timestamp.from(clock.instant()),h,id);
-        resolve(h,id);return occurrence(h,id);
+        resolve(h,id);return currentOccurrence(h,id);
     }
 
     @Transactional
@@ -139,12 +139,12 @@ public class InvestmentPlanService {
     @Transactional
     public int generateHousehold(long h) {
         locks.lockActiveHousehold(h);int made=0,processed=0;
-        var due=jdbc.query(PLAN_SELECT+"where p.household_id=? and p.state='ACTIVE' and p.next_due_on<=? order by p.next_due_on,p.id limit 100",this::mapPlan,h,today());
+        var due=jdbc.query(PLAN_SELECT+"where p.household_id=? and p.state='ACTIVE' and p.next_due_on<=? order by p.next_due_on,p.id limit 100 for update",this::mapPlan,h,today());
         for(Plan p:due) {
             LocalDate day=p.nextDueOn();
             while(!day.isAfter(today())&&processed<100) {
                 processed++;
-                if(jdbc.queryForObject("select count(*) from investment_plan_occurrences where plan_id=? and due_on=?",Long.class,p.id(),day)==0) {
+                if(jdbc.queryForList("select id from investment_plan_occurrences where plan_id=? and due_on=? for update",Long.class,p.id(),day).isEmpty()) {
                     jdbc.update("insert into investment_plan_occurrences(household_id,plan_id,plan_name,account_id,account_name,funding_account_id,security_id,security_name,symbol,currency,amount,due_on,assigned_user_id,state,remind_at,notification_pending) values(?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING',?,true)",
                             h,p.id(),p.name(),p.accountId(),p.accountName(),p.fundingAccountId(),p.securityId(),p.securityName(),p.symbol(),p.currency(),new BigDecimal(p.amount()),day,p.assignedUserId(),Timestamp.from(day.atStartOfDay(ZONE).toInstant()));made++;
                 }
@@ -154,11 +154,11 @@ public class InvestmentPlanService {
             if(processed==100)break;
         }
         // Apply recipient eligibility before the batch limit so suspended users cannot starve other reminders.
-        var reminders=jdbc.query("select o.* from investment_plan_occurrences o where o.household_id=? and o.state='PENDING' and o.notification_pending=true and o.remind_at<=? and exists (select 1 from household_memberships m where m.household_id=o.household_id and m.user_id=o.assigned_user_id and m.status='ACTIVE') order by o.remind_at,o.id limit 100",this::mapOccurrence,h,Timestamp.from(clock.instant()));
+        var reminders=jdbc.query("select o.* from investment_plan_occurrences o join household_memberships m on m.household_id=o.household_id and m.user_id=o.assigned_user_id and m.status='ACTIVE' where o.household_id=? and o.state='PENDING' and o.notification_pending=true and o.remind_at<=? order by o.remind_at,o.id limit 100 for update",this::mapOccurrence,h,Timestamp.from(clock.instant()));
         for(Occurrence o:reminders) {
             var member=memberships.findByHouseholdIdAndUserIdAndStatus(h,o.assignedUserId(),MembershipStatus.ACTIVE);
             if(member.isEmpty())continue;
-            var existing=jdbc.queryForList("select id from notifications where household_id=? and reference_type=? and reference_id=? and user_id=?",Long.class,h,REF,o.id(),o.assignedUserId());
+            var existing=jdbc.queryForList("select id from notifications where household_id=? and reference_type=? and reference_id=? and user_id=? for update",Long.class,h,REF,o.id(),o.assignedUserId());
             if(existing.isEmpty()) jdbc.update("insert into notifications(household_id,user_id,type,title,body,reference_type,reference_id,due_at) values(?,?,'INVESTMENT_PLAN_DUE',?,?,?,?,?)",h,o.assignedUserId(),"定投计划到期",o.planName()+"：请在实际买入后确认成交，不会自动扣款",REF,o.id(),Timestamp.from(o.remindAt()));
             else jdbc.update("update notifications set due_at=?,read_at=null,resolved_at=null where id=?",Timestamp.from(o.remindAt()),existing.get(0));
             jdbc.update("update investment_plan_occurrences set notification_pending=false where id=?",o.id());
@@ -199,12 +199,18 @@ public class InvestmentPlanService {
     private LocalDate today(){return LocalDate.now(clock.withZone(ZONE));}
     private void requirePending(Occurrence o){if(!o.state().equals("PENDING"))throw conflict("OCCURRENCE_COMPLETED","本期已处理");}
     private void resolve(long h,long id){jdbc.update("update notifications set resolved_at=? where household_id=? and reference_type=? and reference_id=? and resolved_at is null",Timestamp.from(clock.instant()),h,REF,id);}
-    private Plan plan(long h,long id){return jdbc.query(PLAN_SELECT+"where p.household_id=? and p.id=?",this::mapPlan,h,id).stream().findFirst().orElseThrow(()->new ResourceNotFoundException("定投计划不存在"));}
-    private Occurrence occurrence(long h,long id){return jdbc.query("select * from investment_plan_occurrences where household_id=? and id=?",this::mapOccurrence,h,id).stream().findFirst().orElseThrow(()->new ResourceNotFoundException("定投待办不存在"));}
+    // A household lock serializes writers but does not reset a MySQL REPEATABLE READ snapshot.
+    // Every mutation decision and replay must therefore hydrate current rows with locking reads.
+    private Plan currentPlan(long h,long id){return jdbc.query(PLAN_SELECT+"where p.household_id=? and p.id=? for update",this::mapPlan,h,id).stream().findFirst().orElseThrow(()->new ResourceNotFoundException("定投计划不存在"));}
+    private Occurrence currentOccurrence(long h,long id){return jdbc.query("select * from investment_plan_occurrences where household_id=? and id=? for update",this::mapOccurrence,h,id).stream().findFirst().orElseThrow(()->new ResourceNotFoundException("定投待办不存在"));}
     private Occurrence details(Authentication auth,Occurrence o){
         if(o.tradeId()==null)return o;
         long h=current.require(auth).householdId();
         InvestmentTradeResponse trade=jdbc.queryForObject("select count(*) from investment_trades where household_id=? and id=?",Long.class,h,o.tradeId())==0?null:trades.get(auth,o.tradeId());
+        return withTrade(o,trade);
+    }
+    private Occurrence currentDetails(long h,Occurrence o){return o.tradeId()==null?o:withTrade(o,trades.currentIfPresent(h,o.tradeId()));}
+    private Occurrence withTrade(Occurrence o,InvestmentTradeResponse trade){
         return new Occurrence(o.id(),o.planId(),o.planName(),o.accountId(),o.accountName(),o.fundingAccountId(),o.securityId(),o.securityName(),o.symbol(),o.currency(),o.amount(),o.dueOn(),o.assignedUserId(),o.state(),o.remindAt(),o.tradeId(),o.actualAmount(),o.reason(),o.actedBy(),o.actedAt(),trade==null,trade);
     }
     private Plan mapPlan(ResultSet r,int n)throws SQLException{
