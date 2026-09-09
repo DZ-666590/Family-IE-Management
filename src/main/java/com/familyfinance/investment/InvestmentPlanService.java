@@ -67,8 +67,8 @@ public class InvestmentPlanService {
         String digest=requests.digest("INVESTMENT_PLAN_CREATE",actor,request);Long original=requests.replay(h,key,digest);
         if(original!=null)return currentPlan(h,original);
         Validated v=validate(h,request);Timestamp now=Timestamp.from(clock.instant());
-        long id=insert("insert into investment_plans(household_id,name,account_id,account_name,funding_account_id,security_id,security_name,symbol,currency,amount,frequency,first_due_on,next_due_on,assigned_user_id,state,created_by,updated_by,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?)",
-                h,v.name(),v.account().getId(),v.account().getName(),v.account().getFundingAccountId(),v.security().getId(),v.security().getName(),v.security().getSymbol(),v.account().getCurrency(),v.amount(),request.frequency().name(),request.firstDueOn(),request.firstDueOn(),request.assignedUserId(),actor,actor,now,now);
+        long id=insert("insert into investment_plans(household_id,name,account_id,account_name,funding_account_id,security_id,security_name,symbol,currency,quantity,frequency,first_due_on,next_due_on,assigned_user_id,state,created_by,updated_by,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?)",
+                h,v.name(),v.account().getId(),v.account().getName(),v.account().getFundingAccountId(),v.security().getId(),v.security().getName(),v.security().getSymbol(),v.account().getCurrency(),v.quantity(),request.frequency().name(),request.firstDueOn(),request.firstDueOn(),request.assignedUserId(),actor,actor,now,now);
         requests.record(h,key,digest,id);generateHousehold(h);return currentPlan(h,id);
     }
 
@@ -78,8 +78,8 @@ public class InvestmentPlanService {
         if(old.state()==State.ENDED)throw conflict("PLAN_ENDED","已结束的计划不能编辑");
         Validated v=validate(h,request);
         LocalDate next=onOrAfter(request.firstDueOn(),request.frequency(),today());
-        jdbc.update("update investment_plans set name=?,account_id=?,account_name=?,funding_account_id=?,security_id=?,security_name=?,symbol=?,currency=?,amount=?,frequency=?,first_due_on=?,next_due_on=?,assigned_user_id=?,updated_by=?,updated_at=? where household_id=? and id=?",
-                v.name(),v.account().getId(),v.account().getName(),v.account().getFundingAccountId(),v.security().getId(),v.security().getName(),v.security().getSymbol(),v.account().getCurrency(),v.amount(),request.frequency().name(),request.firstDueOn(),next,request.assignedUserId(),access.context().userId(),Timestamp.from(clock.instant()),h,id);
+        jdbc.update("update investment_plans set name=?,account_id=?,account_name=?,funding_account_id=?,security_id=?,security_name=?,symbol=?,currency=?,quantity=?,amount=null,frequency=?,first_due_on=?,next_due_on=?,assigned_user_id=?,updated_by=?,updated_at=? where household_id=? and id=?",
+                v.name(),v.account().getId(),v.account().getName(),v.account().getFundingAccountId(),v.security().getId(),v.security().getName(),v.security().getSymbol(),v.account().getCurrency(),v.quantity(),request.frequency().name(),request.firstDueOn(),next,request.assignedUserId(),access.context().userId(),Timestamp.from(clock.instant()),h,id);
         return currentPlan(h,id);
     }
 
@@ -88,6 +88,7 @@ public class InvestmentPlanService {
         var access=authorization.requireAdmin(auth);long h=access.context().householdId();Plan p=currentPlan(h,id);
         if(request==null||request.state()==null)throw invalid("state","请选择计划状态");
         if(p.state()==State.ENDED&&request.state()!=State.ENDED)throw conflict("PLAN_ENDED","已结束的计划不能重新启动");
+        if(request.state()==State.ACTIVE&&p.quantity()==null)throw conflict("INVESTMENT_PLAN_QUANTITY_REQUIRED","旧金额计划需先编辑并填写每期股数，再恢复执行");
         LocalDate next=p.nextDueOn();
         if(p.state()==State.PAUSED&&request.state()==State.ACTIVE) next=onOrAfter(p.firstDueOn(),p.frequency(),today());
         jdbc.update("update investment_plans set state=?,next_due_on=?,updated_by=?,updated_at=? where household_id=? and id=?",
@@ -108,8 +109,8 @@ public class InvestmentPlanService {
                 InvestmentTradeType.BUY,request.quantity(),request.price(),request.fee(),request.tradedOn(),null,null,null),
                 "investment-plan-occurrence:"+id).trade();
         BigDecimal paid=new BigDecimal(trade.cashImpact()).negate();
-        jdbc.update("update investment_plan_occurrences set state='CONFIRMED',trade_id=?,actual_amount=?,acted_by=?,acted_at=?,notification_pending=false where household_id=? and id=?",
-                trade.id(),paid,access.context().userId(),Timestamp.from(clock.instant()),h,id);
+        jdbc.update("update investment_plan_occurrences set state='CONFIRMED',trade_id=?,actual_quantity=?,actual_amount=?,acted_by=?,acted_at=?,notification_pending=false where household_id=? and id=?",
+                trade.id(),trade.quantity(),paid,access.context().userId(),Timestamp.from(clock.instant()),h,id);
         resolve(h,id);return currentDetails(h,currentOccurrence(h,id));
     }
 
@@ -139,14 +140,14 @@ public class InvestmentPlanService {
     @Transactional
     public int generateHousehold(long h) {
         locks.lockActiveHousehold(h);int made=0,processed=0;
-        var due=jdbc.query(PLAN_SELECT+"where p.household_id=? and p.state='ACTIVE' and p.next_due_on<=? order by p.next_due_on,p.id limit 100 for update",this::mapPlan,h,today());
+        var due=jdbc.query(PLAN_SELECT+"where p.household_id=? and p.state='ACTIVE' and p.quantity is not null and p.next_due_on<=? order by p.next_due_on,p.id limit 100 for update",this::mapPlan,h,today());
         for(Plan p:due) {
             LocalDate day=p.nextDueOn();
             while(!day.isAfter(today())&&processed<100) {
                 processed++;
                 if(jdbc.queryForList("select id from investment_plan_occurrences where plan_id=? and due_on=? for update",Long.class,p.id(),day).isEmpty()) {
-                    jdbc.update("insert into investment_plan_occurrences(household_id,plan_id,plan_name,account_id,account_name,funding_account_id,security_id,security_name,symbol,currency,amount,due_on,assigned_user_id,state,remind_at,notification_pending) values(?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING',?,true)",
-                            h,p.id(),p.name(),p.accountId(),p.accountName(),p.fundingAccountId(),p.securityId(),p.securityName(),p.symbol(),p.currency(),new BigDecimal(p.amount()),day,p.assignedUserId(),Timestamp.from(day.atStartOfDay(ZONE).toInstant()));made++;
+                    jdbc.update("insert into investment_plan_occurrences(household_id,plan_id,plan_name,account_id,account_name,funding_account_id,security_id,security_name,symbol,currency,quantity,due_on,assigned_user_id,state,remind_at,notification_pending) values(?,?,?,?,?,?,?,?,?,?,?,?,?,'PENDING',?,true)",
+                            h,p.id(),p.name(),p.accountId(),p.accountName(),p.fundingAccountId(),p.securityId(),p.securityName(),p.symbol(),p.currency(),new BigDecimal(p.quantity()),day,p.assignedUserId(),Timestamp.from(day.atStartOfDay(ZONE).toInstant()));made++;
                 }
                 day=onOrAfter(p.firstDueOn(),p.frequency(),day.plusDays(1));
             }
@@ -172,9 +173,9 @@ public class InvestmentPlanService {
         if(r.accountId()==null||r.securityId()==null)throw invalid("accountId","请选择账户和证券");
         if(r.frequency()==null)throw invalid("frequency","请选择频率");
         if(r.firstDueOn()==null||r.firstDueOn().getYear()<1000||r.firstDueOn().getYear()>9998)throw invalid("firstDueOn","请填写有效日期");
-        BigDecimal amount;
-        try {if(r.amount()==null||!r.amount().matches("\\d{1,9}(\\.\\d{1,2})?"))throw new IllegalArgumentException();amount=new BigDecimal(r.amount()).setScale(2);if(amount.signum()<=0)throw new IllegalArgumentException();}
-        catch(IllegalArgumentException e){throw invalid("amount","金额必须大于零，最多两位小数");}
+        BigDecimal quantity;
+        try {if(r.quantity()==null||!r.quantity().trim().matches("\\d{1,15}(\\.\\d{1,4})?"))throw new IllegalArgumentException();quantity=new BigDecimal(r.quantity().trim()).setScale(4);if(quantity.signum()<=0)throw new IllegalArgumentException();}
+        catch(IllegalArgumentException e){throw invalid("quantity","每期股数必须大于零，最多15位整数和4位小数");}
         var account=accounts.findCurrent(h,r.accountId());if(account.isArchived())throw conflict("INVESTMENT_ACCOUNT_ARCHIVED","投资账户已归档");
         if(account.getFundingAccountId()==null)throw conflict("INVESTMENT_FUNDING_REQUIRED","请先为投资账户关联资金账户");
         var cashAccount=funding.findLockedByIdAndHouseholdId(account.getFundingAccountId(),h).orElseThrow(()->new ResourceNotFoundException("资金账户不存在"));
@@ -183,9 +184,9 @@ public class InvestmentPlanService {
         if(!security.isActive()||!security.isCatalogVerified())throw conflict("SECURITY_NOT_LISTED","请从股票搜索结果选择证券");
         if(!account.getCurrency().equals(security.getCurrency())||!account.getCurrency().equals(cashAccount.getCurrency()))throw conflict("CURRENCY_MISMATCH","投资账户、资金账户和证券必须同币种");
         if(r.assignedUserId()==null||memberships.findByHouseholdIdAndUserIdAndStatus(h,r.assignedUserId(),MembershipStatus.ACTIVE).isEmpty())throw invalid("assignedUserId","负责人必须为当前家庭有效成员");
-        return new Validated(name,amount,account,security);
+        return new Validated(name,quantity,account,security);
     }
-    private record Validated(String name,BigDecimal amount,InvestmentAccount account,Security security) {}
+    private record Validated(String name,BigDecimal quantity,InvestmentAccount account,Security security) {}
 
     static LocalDate onOrAfter(LocalDate anchor,Frequency frequency,LocalDate minimum) {
         if(!anchor.isBefore(minimum))return anchor;
@@ -211,13 +212,14 @@ public class InvestmentPlanService {
     }
     private Occurrence currentDetails(long h,Occurrence o){return o.tradeId()==null?o:withTrade(o,trades.currentIfPresent(h,o.tradeId()));}
     private Occurrence withTrade(Occurrence o,InvestmentTradeResponse trade){
-        return new Occurrence(o.id(),o.planId(),o.planName(),o.accountId(),o.accountName(),o.fundingAccountId(),o.securityId(),o.securityName(),o.symbol(),o.currency(),o.amount(),o.dueOn(),o.assignedUserId(),o.state(),o.remindAt(),o.tradeId(),o.actualAmount(),o.reason(),o.actedBy(),o.actedAt(),trade==null,trade);
+        return new Occurrence(o.id(),o.planId(),o.planName(),o.accountId(),o.accountName(),o.fundingAccountId(),o.securityId(),o.securityName(),o.symbol(),o.currency(),o.quantity(),o.amount(),o.dueOn(),o.assignedUserId(),o.state(),o.remindAt(),o.tradeId(),o.actualQuantity(),o.actualAmount(),o.reason(),o.actedBy(),o.actedAt(),trade==null,trade);
     }
     private Plan mapPlan(ResultSet r,int n)throws SQLException{
         SecurityResponse security=new SecurityResponse(r.getLong("security_id"),r.getString("security_market"),r.getString("security_code"),r.getString("catalog_name"),r.getString("security_type"),r.getBoolean("security_active"),r.getString("security_currency"),r.getString("catalog_symbol"),r.getString("security_exchange"),r.getString("security_timezone"));
-        return new Plan(r.getLong("id"),r.getString("name"),r.getLong("account_id"),r.getString("account_name"),r.getLong("funding_account_id"),r.getLong("security_id"),r.getString("security_name"),r.getString("symbol"),r.getString("currency"),r.getBigDecimal("amount").toPlainString(),Frequency.valueOf(r.getString("frequency")),r.getObject("first_due_on",LocalDate.class),r.getObject("next_due_on",LocalDate.class),r.getLong("assigned_user_id"),State.valueOf(r.getString("state")),security);
+        return new Plan(r.getLong("id"),r.getString("name"),r.getLong("account_id"),r.getString("account_name"),r.getLong("funding_account_id"),r.getLong("security_id"),r.getString("security_name"),r.getString("symbol"),r.getString("currency"),decimal(r,"quantity"),decimal(r,"amount"),Frequency.valueOf(r.getString("frequency")),r.getObject("first_due_on",LocalDate.class),r.getObject("next_due_on",LocalDate.class),r.getLong("assigned_user_id"),State.valueOf(r.getString("state")),security);
     }
-    private Occurrence mapOccurrence(ResultSet r,int n)throws SQLException{return new Occurrence(r.getLong("id"),r.getLong("plan_id"),r.getString("plan_name"),r.getLong("account_id"),r.getString("account_name"),r.getLong("funding_account_id"),r.getLong("security_id"),r.getString("security_name"),r.getString("symbol"),r.getString("currency"),r.getBigDecimal("amount").toPlainString(),r.getObject("due_on",LocalDate.class),r.getLong("assigned_user_id"),r.getString("state"),r.getTimestamp("remind_at").toInstant(),r.getObject("trade_id",Long.class),r.getBigDecimal("actual_amount")==null?null:r.getBigDecimal("actual_amount").toPlainString(),r.getString("reason"),r.getObject("acted_by",Long.class),r.getTimestamp("acted_at")==null?null:r.getTimestamp("acted_at").toInstant(),false,null);}
+    private Occurrence mapOccurrence(ResultSet r,int n)throws SQLException{return new Occurrence(r.getLong("id"),r.getLong("plan_id"),r.getString("plan_name"),r.getLong("account_id"),r.getString("account_name"),r.getLong("funding_account_id"),r.getLong("security_id"),r.getString("security_name"),r.getString("symbol"),r.getString("currency"),decimal(r,"quantity"),decimal(r,"amount"),r.getObject("due_on",LocalDate.class),r.getLong("assigned_user_id"),r.getString("state"),r.getTimestamp("remind_at").toInstant(),r.getObject("trade_id",Long.class),decimal(r,"actual_quantity"),decimal(r,"actual_amount"),r.getString("reason"),r.getObject("acted_by",Long.class),r.getTimestamp("acted_at")==null?null:r.getTimestamp("acted_at").toInstant(),false,null);}
+    private static String decimal(ResultSet r,String column)throws SQLException{BigDecimal value=r.getBigDecimal(column);return value==null?null:value.toPlainString();}
     private long insert(String sql,Object...args){var keys=new GeneratedKeyHolder();jdbc.update(connection->{var statement=connection.prepareStatement(sql,new String[]{"id"});for(int i=0;i<args.length;i++)statement.setObject(i+1,args[i]);return statement;},keys);return Objects.requireNonNull(keys.getKey()).longValue();}
     private static RequestValidationException invalid(String field,String message){return new RequestValidationException(Map.of(field,message));}
     private static ResourceConflictException conflict(String code,String message){return new ResourceConflictException(code,message);}

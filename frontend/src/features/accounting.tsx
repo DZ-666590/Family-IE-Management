@@ -21,7 +21,7 @@ export function sumMoney(...values: Array<string | null | undefined>): string | 
   return parsed.some(value => value === null) ? null : decimal(parsed.reduce<bigint>((total, value) => total + value!, 0n));
 }
 export function tradeCash(quantity: string, price: string, fee: string, selling = false): string | null {
-  if (!/^\d{1,12}(\.\d{1,4})?$/.test(quantity)) return null;
+  if (!/^\d{1,15}(\.\d{1,4})?$/.test(quantity)) return null;
   const [whole, fraction = ''] = quantity.split('.');
   const q = BigInt(whole) * 10000n + BigInt(fraction.padEnd(4, '0'));
   const p = unitPrice(price), f = cents(fee || '0');

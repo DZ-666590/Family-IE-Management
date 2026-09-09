@@ -3,10 +3,15 @@ import userEvent from '@testing-library/user-event';
 import {InvestmentActions,InvestmentValuationStatus} from './investment-ui';
 
 it('shows quote failure without opening calculation explanations',()=>{
- render(<InvestmentValuationStatus live={false} failed busy={false} partial={false} onRefresh={()=>{}}/>);
+ render(<InvestmentValuationStatus failed busy={false} onRefresh={()=>{}}/>);
  expect(screen.getByRole('status')).toHaveTextContent('报价更新失败');
  expect(screen.getByRole('status')).toBeVisible();
  expect(screen.getByRole('button',{name:'重试报价'})).toBeVisible();
+});
+it('does not show a large warning for ordinary closing or delayed quotes',()=>{
+ render(<InvestmentValuationStatus failed={false} busy={false} onRefresh={()=>{}}/>);
+ expect(screen.queryByRole('status')).not.toBeInTheDocument();
+ expect(screen.queryByText('部分持仓不是即时价格')).not.toBeInTheDocument();
 });
 it('keeps context actions behind an explicit menu and dispatches only the selected action',async()=>{
  const buy=vi.fn(),sell=vi.fn();

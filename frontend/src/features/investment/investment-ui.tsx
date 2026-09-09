@@ -16,9 +16,7 @@ export function InvestmentActions({label,triggerLabel,actions,disabled=false}:{d
   <InvestmentButton disabled={disabled} variant="quiet" aria-label={label} aria-haspopup="menu" aria-expanded={open}>{triggerLabel??<MoreHorizontal size={18}/>}</InvestmentButton>
  </Dropdown>;
 }
-export function InvestmentValuationStatus({live,failed,partial,busy,onRefresh}:{live:boolean;failed:boolean;partial:boolean;busy:boolean;onRefresh:()=>void}){
- return <div className="investment-valuation">
-  <div className="investment-valuation-line"><span>{live?'参考估值':'收盘估值'}</span><details><summary>计算口径</summary><p>常规交易时段约60秒刷新，公开行情可能延迟。总览和历史快照使用收盘口径，实际成交成本不随报价变化。</p></details>{!failed&&<InvestmentButton variant="quiet" size="small" disabled={busy} onClick={onRefresh}>{busy?'更新中…':'刷新报价'}</InvestmentButton>}</div>
-  {(failed||partial)&&<div className="investment-data-issue" role="status"><CircleAlert size={17} aria-hidden="true"/><div><strong>{failed?'报价更新失败':'部分持仓不是即时价格'}</strong><p>{failed?'保留最近可用数据，请勿将其当作当前成交价。':'包含延迟、收盘或手工报价，详见持仓明细。'}</p></div>{failed&&<InvestmentButton variant="quiet" size="small" disabled={busy} onClick={onRefresh}>重试报价</InvestmentButton>}</div>}
- </div>;
+export function InvestmentValuationStatus({failed,busy,onRefresh}:{failed:boolean;busy:boolean;onRefresh:()=>void}){
+ if(!failed)return null;
+ return <div className="investment-data-issue" role="status"><CircleAlert size={17} aria-hidden="true"/><div><strong>报价更新失败</strong><p>保留最近可用数据，请勿将其当作当前成交价。</p></div><InvestmentButton variant="quiet" size="small" disabled={busy} onClick={onRefresh}>重试报价</InvestmentButton></div>;
 }
