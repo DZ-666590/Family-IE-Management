@@ -7,6 +7,8 @@
 **Tech Stack:** Java17 Spring Boot JDBC/JPA Flyway H2/MySQL, React Semi UI.
 **Spec:** User-approved design in this document: weekly/biweekly/monthly plans, month-end clipping; create/edit/pause/resume/end; pending/confirmed/skipped occurrences, snooze2h/tomorrow; household authorization; no auto trading, FX or funds creation. Existing pending items survive schedule edits/pause/end. Confirm only actual BUY with actual price/quantity/fee/date. In-app notifications only.
 
+**Execution completed 2026-09-09:** Tasks1–3 implemented and independently reviewed (UI issues plus MySQL-current-read issue fixed). Final frontend319 passed, Java697 passed/2conditional skips, no real HTTP startup tests run locally. Plan DTO additionally returns full `security`; occurrence returns current/reversed trade context; page includes pendingCount and pagination flags. See `docs/acceptance/investment-plans.md` for behavior, rationale and validation boundaries. No push/deployment performed in this implementation turn.
+
 ## Global Constraints
 - BigDecimal amounts, no balance or position writes until actual confirmation. Reuse InvestmentTradeService and AccountingCommandExecutor, no duplicated posting engine.
 - Funds must come from the investment account's linked concrete cash account; same currency and initialized. Snapshot fundingAccountId and reject confirmation if link changed; user updates plan for future occurrences or records past transaction manually instead of silently changing source.
