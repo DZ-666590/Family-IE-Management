@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import Modal from '@douyinfe/semi-ui/lib/es/modal';
 import Button from '@douyinfe/semi-ui/lib/es/button';
@@ -14,8 +14,8 @@ import {useInvestmentPlans,frequencyLabel,type InvestmentPlan,type InvestmentPla
 import './investment-plans.scss';
 
 export type InvestmentPlanSupportState={loading:boolean;error:unknown;retry:()=>void};
-type Props={request:RequestFn;manager:boolean;accounts:InvestmentAccount[];cashAccounts:Account[];supportState?:InvestmentPlanSupportState};
-export function InvestmentPlansPanel({request,manager,accounts,cashAccounts,supportState}:Props){
+type Props={request:RequestFn;manager:boolean;accounts:InvestmentAccount[];cashAccounts:Account[];supportState?:InvestmentPlanSupportState;createRequest?:number;onCreateHandled?:()=>void};
+export function InvestmentPlansPanel({request,manager,accounts,cashAccounts,supportState,createRequest=0,onCreateHandled}:Props){
  const [planPage,setPlanPage]=useState(0),[occurrencePage,setOccurrencePage]=useState(0);
  const query=useInvestmentPlans(request,planPage,occurrencePage),cache=useQueryClient();
  const [editor,setEditor]=useState<InvestmentPlan|'new'|null>(null);
@@ -25,6 +25,7 @@ export function InvestmentPlansPanel({request,manager,accounts,cashAccounts,supp
  const refresh=async()=>{await Promise.all(['investment-plans','notifications','accounts','portfolio','investment-trades','dashboard','net-worth'].map(key=>cache.invalidateQueries({queryKey:[key]})));};
  const action=useMutation({mutationFn:({path,body}:{path:string;body:unknown})=>request(path,{method:'POST',body,headers:{'Idempotency-Key':newIdempotencyKey()}}),onSuccess:async()=>{setSkip(null);setEnding(null);await refresh();setNotice('已更新，未确认的实际成交不会自动记账。');}});
  const supportUnavailable=Boolean(supportState?.loading||supportState?.error);
+ useEffect(()=>{if(createRequest&&manager&&!supportUnavailable){setEditor('new');onCreateHandled?.();}},[createRequest,manager,supportUnavailable]);
  const pending=query.data?.occurrences?.filter(o=>o.state==='PENDING')??[];
  const history=query.data?.occurrences?.filter(o=>o.state!=='PENDING')??[];
  return <section className="investment-plans" aria-label="定投计划">

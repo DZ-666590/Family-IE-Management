@@ -8,13 +8,23 @@ const stock = { id: 5, market: 'SZ', tsCode: '000001.SZ', name: '平安银行', 
 const account = { id: 3, name: '证券账户', brokerName: '券商', fundingAccountId: 7, currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null };
 const position = { accountId: 3, accountName: '证券账户', brokerName: '券商', securityId: 5, tsCode: stock.tsCode, name: stock.name, quantity: 100, averageCost: '8.00', cost: '800.00', price: '10.00', marketValue: '1000.00', estimatedValue: '1000.00', realizedProfit: '0.00', unrealizedProfit: '200.00', totalProfit: '200.00', allocationPercent: '100.00', source: 'BAOSTOCK', tradeDate: '2026-09-07', fetchedAt: null, stale: false, error: null, valuationStatus: 'MARKET' };
 const page = (items: unknown[]) => ({ items, page: 0, size: 50, totalPages: 1, totalElements: items.length, hasNext: false });
-function setup(role: 'OWNER'|'MEMBER' = 'OWNER', fixture: { missingFunds?: boolean; retired?: boolean } = {}) {
+it('opens quotes in a dialog and restores the filtered dashboard after close',async()=>{
+ const {user}=setup();
+ await screen.findAllByRole('button',{name:'平安银行'});
+ await user.type(screen.getByRole('searchbox',{name:'搜索持仓'}),'平安');
+ await user.click(screen.getAllByRole('button',{name:'平安银行'})[0]);
+ expect(await screen.findByRole('dialog',{name:'证券行情'})).toBeInTheDocument();
+ await user.click(within(screen.getByRole('dialog',{name:'证券行情'})).getByRole('button',{name:'关闭行情'}));
+ expect(screen.queryByRole('dialog',{name:'证券行情'})).not.toBeInTheDocument();
+ expect(screen.getByRole('searchbox',{name:'搜索持仓'})).toHaveValue('平安');
+});
+function setup(role: 'OWNER'|'MEMBER' = 'OWNER', fixture: { missingFunds?: boolean; retired?: boolean; secondAccount?:boolean } = {}) {
   const writes: unknown[] = [];
   const request: RequestFn = async <T,>(path: string, options?: Parameters<RequestFn>[1]) => {
     if (options?.method === 'POST') { writes.push(options.body); return {} as T; }
-    if (path === '/api/portfolio') return { positions: [position], totals: { cost: '800.00', estimatedValue: '1000.00', marketValue: '1000.00', realizedProfit: '0.00', unrealizedProfit: '200.00', totalProfit: '200.00', unpricedPositions: 0 } } as T;
+    if (path === '/api/portfolio') return { positions: fixture.secondAccount?[position,{...position,accountId:9,accountName:'备用账户'}]:[position], totals: { cost: '800.00', estimatedValue: '1000.00', marketValue: '1000.00', realizedProfit: '0.00', unrealizedProfit: '200.00', totalProfit: '200.00', unpricedPositions: 0 } } as T;
     if (path === '/api/investment-setup') return { completed: true, hasAccounts: true, hasTrades: true } as T;
-    if (path.startsWith('/api/investment-accounts')) return page([{ ...account, fundingAccountId: fixture.missingFunds ? null : 7 }]) as T;
+    if (path.startsWith('/api/investment-accounts')) return page([{ ...account, fundingAccountId: fixture.missingFunds ? null : 7 },...(fixture.secondAccount?[{...account,id:9,name:'备用账户'}]:[])]) as T;
     if (path.startsWith('/api/investment-trades')) return page([]) as T;
     if (path.startsWith('/api/accounts')) return page([{ id: 7, name: '资金卡', type: 'BANK', currency: 'CNY', openingBalance: '100.00', balance: '100.00', availableBalance: '100.00', openingConfirmed: true, openingOn: '2026-01-01', archivedAt: null }]) as T;
     if (path === '/api/market-quotes') return [] as T;
@@ -35,7 +45,7 @@ it('opens chart immediately after selection and carries the stock into a buy dra
   await user.click(await screen.findByRole('option', { name: /000001.SZ · 平安银行/ }));
   expect(await screen.findByRole('button', { name: '日 K' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: '查看 K 线' })).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: '记录买入平安银行' }));
+  await user.click(within(screen.getByRole('dialog',{name:'证券行情'})).getByRole('button', { name: '记录买入平安银行' }));
   const dialog = screen.getByRole('dialog', { name: '记一笔投资' });
   expect(within(dialog).getByRole('combobox', { name: '证券' })).toHaveTextContent('平安银行');
   expect(within(dialog).getByLabelText('成交单价')).toHaveValue('');
@@ -134,4 +144,15 @@ it('allows opening records without requiring a cash account but blocks cash-movi
   await user.click(within(dialog).getByText('其他业务 · 期初持仓、分红、费用'));
   await user.selectOptions(within(dialog).getByLabelText('业务类型'), 'OPENING');
   expect(within(dialog).getByRole('button', { name: '保存投资记录' })).toBeEnabled();
+});
+
+it('carries the clicked account through the quote modal when the same security is held twice',async()=>{
+ const {user}=setup('OWNER',{secondAccount:true});
+ const row=(await screen.findByText('000001.SZ · 备用账户')).closest('tr')!;
+ await user.click(within(row).getByRole('button',{name:'平安银行'}));
+ const quote=await screen.findByRole('dialog',{name:'证券行情'});
+ await user.click(await within(quote).findByRole('button',{name:'记录买入平安银行'}));
+ const draft=screen.getByRole('dialog',{name:'记一笔投资'});
+ expect(within(draft).getByLabelText('投资账户')).toHaveValue('9');
+ expect(within(draft).getByLabelText('成交单价')).toHaveValue('');
 });
