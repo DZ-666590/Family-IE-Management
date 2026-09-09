@@ -22,12 +22,14 @@ it('clears unavailable currency instead of falling back to another account',asyn
  expect(screen.getByText('此卡尚未添加 USD 余额')).toBeInTheDocument();
 });
 it('keeps the newly created currency selected before the parent query refreshes',async()=>{
+ const outerSubmit=vi.fn();
  const request=vi.fn(async()=>({id:10,name:'汇丰 One',bankName:'汇丰',cardLastFour:'1234',archivedAt:null,accounts:[child(1,'CNY'),child(2,'USD')]}));
- function Form(){const [value,setValue]=useState('');return <BankAccountPicker label="资金账户" canManage accounts={[child(1,'CNY')]} request={request as any} currency="USD" value={value} onChange={setValue}/>;}
+ function Form(){const [value,setValue]=useState('');return <form onSubmit={e=>{e.preventDefault();outerSubmit();}}><BankAccountPicker label="资金账户" canManage accounts={[child(1,'CNY')]} request={request as any} currency="USD" value={value} onChange={setValue}/></form>;}
  render(wrap(<Form/>));const user=userEvent.setup();await user.selectOptions(screen.getByLabelText('资金账户'),'bank:10');await user.click(screen.getByRole('button',{name:'添加 USD 余额'}));
  await user.type(screen.getByLabelText('USD 期初余额'),'0');await user.click(screen.getByRole('checkbox'));await user.click(screen.getByRole('button',{name:'保存余额'}));
  await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
  expect(screen.getByLabelText('资金账户')).toHaveValue('2');
+ expect(outerSubmit).not.toHaveBeenCalled();
 });
 it('retains the chosen bank when returning from a missing currency',async()=>{
  function Form(){const [value,setValue]=useState('1');return <BankAccountPicker label="资金账户" accounts={[child(1,'CNY')]} value={value} onChange={setValue}/>;}
