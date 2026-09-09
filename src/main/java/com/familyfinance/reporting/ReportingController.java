@@ -23,6 +23,8 @@ public class ReportingController {
     private final NetWorthSnapshotService snapshots;
     private final CurrentHousehold currentHousehold;
     private final java.time.Clock clock;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.familyfinance.fx.ExchangeRateHistory fxHistory;
+    @org.springframework.beans.factory.annotation.Value("${app.fx.scheduled:false}") private boolean automaticFx;
 
     public ReportingController(
             DashboardService dashboardService,
@@ -59,13 +61,16 @@ public class ReportingController {
     }
 
     @GetMapping("/api/portfolio")
-    ApiEnvelope<PortfolioResponse> portfolio(Authentication authentication,@RequestParam(required=false) LocalDate asOf) {
-        return ApiEnvelope.data(asOf==null?portfolioService.portfolio(currentHousehold.id(authentication)):portfolioService.portfolio(currentHousehold.id(authentication),asOf));
+    ApiEnvelope<PortfolioResponse> portfolio(Authentication authentication,@RequestParam(required=false) LocalDate asOf,jakarta.servlet.http.HttpServletResponse response) {
+        long id=currentHousehold.id(authentication);
+        prepareHistoricalFx(asOf,response);
+        return ApiEnvelope.data(asOf==null?portfolioService.portfolio(id):portfolioService.portfolio(id,asOf));
     }
 
     @GetMapping("/api/net-worth")
-    ApiEnvelope<NetWorthResponse> netWorth(Authentication authentication,@RequestParam(required=false) LocalDate asOf) {
+    ApiEnvelope<NetWorthResponse> netWorth(Authentication authentication,@RequestParam(required=false) LocalDate asOf,jakarta.servlet.http.HttpServletResponse response) {
         long householdId = currentHousehold.id(authentication);
+        prepareHistoricalFx(asOf,response);
         LocalDate today = LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai")));
         LocalDate day=asOf==null?today:asOf;
         NetWorthResult result = netWorthService.calculate(householdId, day);
@@ -73,13 +78,21 @@ public class ReportingController {
     }
 
     @GetMapping("/api/debt-analysis")
-    ApiEnvelope<DebtAnalysisResponse> debtAnalysis(Authentication authentication,@RequestParam(required=false) LocalDate asOf) {
+    ApiEnvelope<DebtAnalysisResponse> debtAnalysis(Authentication authentication,@RequestParam(required=false) LocalDate asOf,jakarta.servlet.http.HttpServletResponse response) {
         long householdId = currentHousehold.id(authentication);
+        prepareHistoricalFx(asOf,response);
         return ApiEnvelope.data(DebtAnalysisResponse.from(netWorthService.calculate(
                 householdId, asOf==null?LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))):asOf)));
     }
     @GetMapping("/api/net-worth/snapshot-revisions")
     ApiEnvelope<java.util.List<NetWorthSnapshotService.Revision>> revisions(Authentication authentication,@RequestParam LocalDate on){return ApiEnvelope.data(snapshots.revisions(currentHousehold.id(authentication),on));}
+
+    private void prepareHistoricalFx(LocalDate day,jakarta.servlet.http.HttpServletResponse response){
+        if(!automaticFx||fxHistory==null||day==null||day.getYear()<1999||day.isAfter(LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai")))))return;
+        var progress=fxHistory.requestValuationDate(day);
+        response.setHeader("X-FX-Resolution",progress.state());
+        if(!progress.state().equals("READY"))response.setHeader("Retry-After",progress.state().equals("FAILED")?"60":"5");
+    }
 
     private YearMonth parseMonth(String rawMonth) {
         if (rawMonth == null || rawMonth.isBlank()) {

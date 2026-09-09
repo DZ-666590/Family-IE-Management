@@ -1,0 +1,105 @@
+.unified-date-field {
+  min-width: 0;
+  color: var(--ledger-text, #20272e);
+}
+
+.unified-date-field .semi-datepicker {
+  width: 100%;
+}
+
+.unified-date-field__trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #c9cdd4;
+  border-radius: 8px;
+  background: #fff;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+.unified-date-field__trigger:focus-within {
+  border-color: var(--ledger-primary, #4b6bee);
+  box-shadow: 0 0 0 3px rgba(75, 107, 238, .14);
+}
+
+.unified-date-field__trigger input {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 62px 8px 11px;
+  border: 0;
+  border-radius: inherit;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.unified-date-field__trigger input:disabled,
+.unified-date-field__trigger input:read-only {
+  color: #8b949e;
+  cursor: not-allowed;
+}
+
+.unified-date-field:has(input:disabled) .unified-date-field__trigger {
+  border-color: #e5e9ee;
+  background: #f7f8fa;
+}
+
+.unified-date-field__clear {
+  position: absolute;
+  right: 34px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #67727e;
+  cursor: pointer;
+}
+
+.unified-date-field__clear:hover { background: #f0f3f8; color: #20272e; }
+.unified-date-field__clear:focus-visible { outline: 2px solid var(--ledger-primary, #4b6bee); outline-offset: 1px; }
+
+.unified-date-field__icon {
+  position: absolute;
+  right: 11px;
+  color: #67727e;
+  pointer-events: none;
+}
+
+.unified-date-field__error {
+  margin: 4px 0 0;
+  color: var(--ledger-danger, #d54941);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.unified-date-calendar {
+  max-width: calc(100vw - 24px);
+  border: 1px solid #e5e9ee;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(32, 39, 46, .16), 0 3px 10px rgba(32, 39, 46, .08);
+  color: #20272e;
+  overflow: hidden;
+}
+
+.unified-date-calendar .semi-datepicker-day-main { border-radius: 8px; }
+.unified-date-calendar .semi-datepicker-day-selected .semi-datepicker-day-main { background: var(--ledger-primary, #4b6bee); }
+.unified-date-calendar :is(button, [role="gridcell"]):focus-visible { outline: 2px solid var(--ledger-primary, #4b6bee); outline-offset: -2px; }
+
+@media (max-width: 430px) {
+  .unified-date-calendar { max-width: calc(100vw - 36px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unified-date-field__trigger { transition: none; }
+}

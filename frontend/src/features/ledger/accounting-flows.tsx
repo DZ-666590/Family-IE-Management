@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { Account, AccountingJournal, CashTransfer, HouseholdRole, Page } from '../../api/contracts';
 import { businessDate, newIdempotencyKey } from '../../shared/runtime';
+import { DateField } from '../../shared/DateField';
 import { PaginationControls, usePageRecovery } from '../../shared/pagination';
 import { AccountOptions, PaymentPreview, useFundsRefresh } from '../accounting';
 import { DataPanel, Drawer, FormError, QueryState, isManager, money, type RequestFn } from '../common';
@@ -24,7 +25,7 @@ export function TransfersPanel({ request, role, accounts, onHistory }: { request
       <label>转出账户<select required name="fromAccountId" value={draft.fromAccountId} onChange={e => setDraft({ ...draft, fromAccountId: e.target.value })}><option value="">请选择</option><AccountOptions accounts={accounts} /></select></label>
       <label>转入账户<select required name="toAccountId" value={draft.toAccountId} onChange={e => setDraft({ ...draft, toAccountId: e.target.value })}><option value="">请选择</option><AccountOptions accounts={accounts.filter(a => String(a.id) !== draft.fromAccountId && (a.currency??'CNY') === (accounts.find(a=>String(a.id)===draft.fromAccountId)?.currency??'CNY'))} /></select></label>
       <label>互转金额<input required name="amount" inputMode="decimal" value={draft.amount} onChange={e => setDraft({ ...draft, amount: e.target.value })} /></label>
-      <label>实际转账日期<input required name="occurredOn" type="date" max={businessDate()} value={draft.occurredOn} onChange={e => setDraft({ ...draft, occurredOn: e.target.value })} /></label>
+      <label>实际转账日期<DateField required name="occurredOn" max={businessDate()} value={draft.occurredOn} onChange={e => setDraft({ ...draft, occurredOn: e.target.value })} /></label>
       <PaymentPreview account={accounts.find(a => String(a.id) === draft.fromAccountId)} amount={draft.amount} />
       <PaymentPreview incoming account={accounts.find(a => String(a.id) === draft.toAccountId)} amount={draft.amount} />
       <Button htmlType="submit" theme="solid" loading={save.isPending} disabled={!draft.fromAccountId || !draft.toAccountId || draft.fromAccountId === draft.toAccountId}>保存互转记录</Button>

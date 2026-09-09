@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {useMutation,useQueryClient} from '@tanstack/react-query';
 import type {Account} from '../../api/contracts';
 import {businessDate,newIdempotencyKey} from '../../shared/runtime';
+import {DateField} from '../../shared/DateField';
 import {Drawer,FormError,type RequestFn} from '../common';
 import {AccountTypePicker,type AccountClassification} from './AccountTypePicker';
 export function FundingAccountCreator({currency,request,onCreated,onClose}:{currency:string;request:RequestFn;onCreated:(account:Account)=>void;onClose:()=>void}){
@@ -15,7 +16,7 @@ export function FundingAccountCreator({currency,request,onCreated,onClose}:{curr
    <AccountTypePicker value={kind} onChange={setKind}/><p>币种：{currency}</p>
    {!validPlatform&&<p role="alert">支付宝和微信余额仅支持人民币，请选择银行卡、现金或其他钱包。</p>}
    <label>期初余额<input required inputMode="decimal" value={draft.openingBalance} onChange={e=>setDraft({...draft,openingBalance:e.target.value,confirmed:false})}/></label>
-   <label>账务起始日期<input required type="date" max={businessDate()} value={draft.openingOn} onChange={e=>setDraft({...draft,openingOn:e.target.value,confirmed:false})}/></label>
+   <label>账务起始日期<DateField required max={businessDate()} value={draft.openingOn} onChange={e=>setDraft({...draft,openingOn:e.target.value,confirmed:false})}/></label>
    <label className="switch-line"><input type="checkbox" checked={draft.confirmed} onChange={e=>setDraft({...draft,confirmed:e.target.checked})}/>确认实际期初余额与日期，零余额也需确认</label>
    <button type="submit" disabled={!draft.confirmed||!validPlatform||save.isPending}>保存并使用此账户</button>
   </form>

@@ -21,6 +21,7 @@ from overseas import (
     OverseasMarketService,
     UpstreamUnavailable as OverseasUpstreamUnavailable,
 )
+from overseas_sources import SpotQuoteService, fetch_spot_text, completed_market_day, candle_cache_current
 
 
 SYMBOL = re.compile(r"^[0-9]{6}\.(SH|SZ|BJ)$")
@@ -162,7 +163,7 @@ def _candles_worker(symbol, adjustment):
     if login.error_code != "0":
         raise RuntimeError("BaoStock login failed")
     try:
-        end = datetime.now(SHANGHAI).date() - timedelta(days=1)
+        end = completed_market_day(datetime.now(timezone.utc), 'CN')
         start = end - timedelta(days=740)
         with contextlib.redirect_stdout(sys.stderr):
             result = bs.query_history_k_data_plus(
@@ -256,7 +257,7 @@ class MarketDataService:
         now = datetime.now(timezone.utc)
         with self._lock:
             cached = self._candle_cache.get(key)
-            if cached and (now - cached[0]).total_seconds() < self._ttl:
+            if cached and candle_cache_current(cached[0],cached[1].get('asOf'),now,'CN',self._ttl):
                 self._candle_cache.move_to_end(key)
                 return dict(cached[1])
         if not self._upstream_lock.acquire(timeout=self._admission_timeout):
@@ -264,7 +265,7 @@ class MarketDataService:
         try:
             with self._lock:
                 cached = self._candle_cache.get(key)
-                if cached and (now - cached[0]).total_seconds() < self._ttl:
+                if cached and candle_cache_current(cached[0],cached[1].get('asOf'),now,'CN',self._ttl):
                     self._candle_cache.move_to_end(key)
                     return dict(cached[1])
             try:
@@ -325,6 +326,7 @@ class Handler(BaseHTTPRequestHandler):
     service = None
     overseas_service = None
     release = None
+    spot_service = None
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -353,6 +355,14 @@ class Handler(BaseHTTPRequestHandler):
                 if set(query) - {"market", "symbol"} or len(query.get("market", [])) != 1 or len(query.get("symbol", [])) != 1:
                     raise ValueError("invalid query")
                 self._json(200, self.overseas_service.candles(query["market"][0], query["symbol"][0]))
+                return
+            if parsed.path == '/spot':
+                query=parse_qs(parsed.query,keep_blank_values=True)
+                if set(query)!={'market','symbols'} or any(len(values)!=1 for values in query.values()):
+                    raise ValueError('invalid spot query')
+                if self.spot_service is None:
+                    raise UpstreamUnavailable('spot unavailable')
+                self._json(200,self.spot_service.quotes(query['market'][0],query['symbols'][0].split(',')))
                 return
             self._json(404, {"error": "not found"})
         except ValueError as exception:
@@ -402,7 +412,7 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--worker", choices=("directory", "candles"))
+    parser.add_argument("--worker", choices=("directory", "candles", "spot"))
     parser.add_argument("worker_args", nargs="*")
     arguments = parser.parse_args()
     if arguments.worker == "directory":
@@ -415,9 +425,14 @@ def main():
         adjustment = validate_adjust(arguments.worker_args[1])
         print(json.dumps(_candles_worker(symbol, adjustment), ensure_ascii=False, separators=(",", ":")))
         return
+    if arguments.worker == 'spot':
+        if len(arguments.worker_args)!=2: raise SystemExit(2)
+        print(json.dumps({'raw':fetch_spot_text(arguments.worker_args[0],arguments.worker_args[1].split(','))},ensure_ascii=False))
+        return
     Handler.release = release_health(Path(__file__).resolve().parent)
     Handler.service = MarketDataService()
     Handler.overseas_service = OverseasMarketService()
+    Handler.spot_service = SpotQuoteService(lambda market,symbols:run_isolated([sys.executable,__file__,'--worker','spot',market,','.join(symbols)],12)['raw'])
     BoundedThreadingHTTPServer(("127.0.0.1", 8091), Handler).serve_forever()
 
 

@@ -3,6 +3,7 @@ import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import type {Account,HouseholdRole,Page} from '../../api/contracts';
 import {ApiError} from '../../api/client';
 import {businessDate,newIdempotencyKey} from '../../shared/runtime';
+import {DateField} from '../../shared/DateField';
 import {PaginationControls,usePageRecovery} from '../../shared/pagination';
 import {AccountOptions,PaymentPreview,cents,sumMoney,useFundsRefresh} from '../accounting';
 import {DataPanel,Drawer,ConfirmDialog,FormError,QueryState,money,isManager,type RequestFn} from '../common';
@@ -52,7 +53,7 @@ export function FxTransfersPanel({request,role,accounts}:{request:RequestFn;role
    <label>实际转出本金<input required inputMode="decimal" value={draft.fromAmount} onChange={e=>update('fromAmount',e.target.value)}/></label>
    <label>实际到账金额<input required inputMode="decimal" value={draft.toAmount} onChange={e=>update('toAmount',e.target.value)}/></label>
    <label>手续费（{from?.currency??'CNY'}）<input inputMode="decimal" value={draft.fee} onChange={e=>update('fee',e.target.value)}/></label>
-   <label>实际换汇日期<input required type="date" max={businessDate()} value={draft.occurredOn} onChange={e=>update('occurredOn',e.target.value)}/></label>
+   <label>实际换汇日期<DateField required max={businessDate()} value={draft.occurredOn} onChange={e=>update('occurredOn',e.target.value)}/></label>
   </fieldset>
   {from&&to&&<p>实际汇率：1 {from.currency} = {ratio(draft.fromAmount,draft.toAmount)} {to.currency}（不含手续费）</p>}
   {fromRate?.cnyPerUnit&&toRate?.cnyPerUnit?<p className="source-note">日参考汇率：1 {from?.currency} = {ratio(toRate.cnyPerUnit,fromRate.cnyPerUnit)} {to?.currency}，不替代实际到账金额。</p>:<p className="source-note">暂无对应日参考汇率，仍可按实际金额记录换汇。</p>}

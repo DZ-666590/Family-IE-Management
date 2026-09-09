@@ -11,7 +11,7 @@ public class MarketSchedule {
         this.refreshService = refreshService;
     }
 
-    @Scheduled(cron = "0 30 16 * * MON-FRI", zone = "Asia/Shanghai")
+    @Scheduled(cron = "0 10 18,20 * * MON-FRI", zone = "Asia/Shanghai")
     public void refreshWeekdayClose() {
         refreshService.refreshScheduledHouseholds();
     }

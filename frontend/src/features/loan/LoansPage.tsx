@@ -19,6 +19,7 @@ import { LoanPrepaymentPanel } from "./LoanPrepaymentPanel";
 import { LoanPayoffPanel } from "./LoanPayoffPanel";
 import { ApiError } from "../../api/client";
 import { businessDate, newIdempotencyKey } from "../../shared/runtime";
+import { DateField } from "../../shared/DateField";
 import {
   PaginationControls,
   readAllPages,
@@ -676,11 +677,10 @@ export function LoansPage({
                       : draft.fundingMode === "FINANCED_PURCHASE"
                         ? "购买入账日期"
                         : "实际放款日期"}
-                    <input
+                    <DateField
                       name="accountingOn"
                       disabled={Boolean(draft.purchasedAssetId)}
                       required
-                      type="date"
                       max={businessDate()}
                       value={draft.accountingOn}
                       onChange={(e) =>
@@ -719,11 +719,10 @@ export function LoansPage({
                   )}
                   <label>
                     起息 / 计划起算日期
-                    <input
+                    <DateField
                       name="startOn"
                       disabled={Boolean(draft.purchasedAssetId)}
                       required
-                      type="date"
                       value={draft.startOn}
                       onChange={(e) =>
                         setDraft({ ...draft, startOn: e.target.value })
@@ -803,10 +802,9 @@ export function LoansPage({
                       <legend>自定义期次</legend>
                       {draft.customSchedule.map((row, index) => (
                         <div className="custom-installment" key={index}>
-                          <input
+                          <DateField
                             aria-label={`第 ${index + 1} 期日期`}
                             required
-                            type="date"
                             name={`customSchedule[${index}].dueOn`}
                             value={row.dueOn}
                             onChange={(e) =>
@@ -1373,9 +1371,8 @@ export function LoansPage({
             </p>
             <label>
               实际还款日期
-              <input
+              <DateField
                 required
-                type="date"
                 name="paidOn"
                 max={businessDate()}
                 min={[

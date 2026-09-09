@@ -9,7 +9,7 @@ from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-from overseas_sources import load_directory, run_candle_worker
+from overseas_sources import load_directory, run_candle_worker, completed_market_day, candle_cache_current
 
 
 MARKET_METADATA = {
@@ -78,6 +78,7 @@ def normalize_overseas_candles(instrument, rows, fetched_at):
     if fetched_at.tzinfo is None:
         raise ValueError("fetched_at must be timezone aware")
     local_today = fetched_at.astimezone(zone).date()
+    complete_day = completed_market_day(fetched_at,market)
     earliest = local_today - timedelta(days=740)
     parsed_rows = []
     seen_dates = set()
@@ -85,7 +86,7 @@ def normalize_overseas_candles(instrument, rows, fetched_at):
         try:
             trading_day = date.fromisoformat(str(row["date"])[:10])
             # Older/unclosed rows are not part of this requested data window.
-            if not earliest <= trading_day < local_today:
+            if not earliest <= trading_day <= complete_day:
                 continue
             open_price = _decimal(row["open"], "open")
             high = _decimal(row["high"], "high")
@@ -108,7 +109,7 @@ def normalize_overseas_candles(instrument, rows, fetched_at):
             raise ValueError("invalid OHLC range")
         if volume != volume.to_integral_value():
             raise ValueError("volume must be whole shares")
-        if earliest <= trading_day < local_today:
+        if earliest <= trading_day <= complete_day:
             parsed_rows.append((trading_day, open_price, high, low, close, volume, turnover))
 
     bars = []
@@ -320,7 +321,7 @@ class OverseasMarketService:
 
     def _fresh_candle_locked(self, key, now):
         cached = self._candle_cache.get(key)
-        if cached is None or (now - cached[0]).total_seconds() >= self._candle_ttl:
+        if cached is None or not candle_cache_current(cached[0],cached[1].get('asOf'),now,key[0],self._candle_ttl):
             return None
         self._candle_cache.move_to_end(key)
         return dict(cached[1])

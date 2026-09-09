@@ -4,6 +4,7 @@ import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { Account, Loan, LoanRepayment, LoanRepaymentPreview, LoanRepaymentRequest, LoanTermOptions, PrepaymentStrategy } from '../../api/contracts';
 import { ApiError } from '../../api/client';
 import { businessDate, newIdempotencyKey } from '../../shared/runtime';
+import { DateField } from '../../shared/DateField';
 import { AccountOptions, cents, useFundsRefresh } from '../accounting';
 import { Drawer, FormError, dateText, money, type RequestFn } from '../common';
 import { LoanStrategyComparison } from './LoanStrategyComparison';
@@ -78,7 +79,7 @@ export function LoanPrepaymentPanel({ loan, accounts, request, onClose, onPaid, 
     {draft.additionalPrincipal.trim() && !validExtra && <p id="additional-principal-error" role="alert">额外本金请输入大于 0 且最多两位小数的金额。</p>}
     {context && <div className="source-note"><p>按所选日期，先处理到期本金 {money(context.duePrincipal)} 和到期利息 {money(context.dueInterest)}，再偿还额外本金。</p>{(cents(context.remainingPrincipal) ?? 0n) > 0n && <Button size="small" onClick={() => update('additionalPrincipal', context.remainingPrincipal)}>填入全部剩余本金 {money(context.remainingPrincipal)}</Button>}</div>}
     {draft.strategy === 'ADJUST_TERM' && validExtra && projected && inputCents === cents(projected.remainingPrincipal) && <Button onClick={() => update('strategy', 'REDUCE_PAYMENT')}>预览结清（不再设置后续期数）</Button>}
-    <label>实际还款日期<input required name="paidOn" type="date" min={loan.lastPaymentOn ?? loan.accountingOn ?? undefined} max={businessDate()} value={draft.paidOn} onChange={event => update('paidOn', event.target.value)} /></label>
+    <label>实际还款日期<DateField required name="paidOn" min={loan.lastPaymentOn ?? loan.accountingOn ?? undefined} max={businessDate()} value={draft.paidOn} onChange={event => update('paidOn', event.target.value)} /></label>
     <label>本次付款账户<select required name="paymentAccountId" value={draft.paymentAccountId} onChange={event => update('paymentAccountId', event.target.value)}><option value="">请选择</option><AccountOptions accounts={(accounts).filter(a=>(a.currency??'CNY')==='CNY')} /></select></label>
    </fieldset>
    {enabled && preview.isFetching && <p role="status">正在核对到期款、额外本金与后续计划…</p>}

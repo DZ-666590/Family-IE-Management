@@ -31,8 +31,12 @@ class OverseasPrecisionTest(unittest.TestCase):
     def test_discarded_ancient_and_unfinished_rows_do_not_poison_visible_window(self):
         old = dict(row(), date="2006-06-13", open=16.3, high=17.3, low=16.799, close=16.3)
         today = dict(old, date="2026-09-08")
-        bars = normalize_overseas_candles(HK, [old, old, today, row("477.2")], NOW)["bars"]
+        bars = normalize_overseas_candles(HK, [old, old, today, row("477.2")], NOW.replace(hour=7))["bars"]
         self.assertEqual(1, len(bars))
+
+    def test_closed_today_is_kept_after_publication_buffer(self):
+        bars=normalize_overseas_candles(HK,[dict(row('477.2'),date='2026-09-08')],NOW)['bars']
+        self.assertEqual(1,len(bars))
 
     def test_malformed_dates_and_retained_duplicates_remain_errors(self):
         for rows in [[dict(row(), date="bad")], [row("477.2"), row("477.2")]]:

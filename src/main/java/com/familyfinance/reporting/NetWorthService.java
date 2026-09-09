@@ -57,7 +57,8 @@ public class NetWorthService {
         for(var entry:balances.entrySet()){
             if(!entry.getKey().startsWith("CASH:"))continue;
             String currency=currencies.getOrDefault(entry.getKey(),"CNY");
-            BigDecimal converted=currency.equals("CNY")?BigDecimal.valueOf(entry.getValue(),2):fx.convert(currency,BigDecimal.valueOf(entry.getValue(),2),asOf);
+            boolean currentDay=asOf.equals(LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai"))));
+            BigDecimal converted=currency.equals("CNY")?BigDecimal.valueOf(entry.getValue(),2):currentDay?fx.valuationConvert(currency,BigDecimal.valueOf(entry.getValue(),2),asOf):fx.convert(currency,BigDecimal.valueOf(entry.getValue(),2),asOf);
             if(converted==null)missing.add(new NetWorthResult.Unconverted("CASH",currency,com.familyfinance.shared.Money.formatCents(entry.getValue())));
             else knownCash=Math.addExact(knownCash,converted.movePointRight(2).longValueExact());
         }

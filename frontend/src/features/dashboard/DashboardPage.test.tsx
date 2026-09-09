@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { DashboardPage } from './DashboardPage';
 import type { RequestFn } from '../common';
 import { ApiError } from '../../api/client';
@@ -33,4 +34,25 @@ it('offers one initialization action instead of repeated failing financial panel
   expect(screen.getByRole('link', {name: '核对资产记录'})).toHaveAttribute('href', '/workspace/assets');
   expect(screen.getByRole('link', {name: '核对贷款记录'})).toHaveAttribute('href', '/workspace/loans');
   expect(screen.getByRole('link', {name: '核对投资记录'})).toHaveAttribute('href', '/workspace/investments');
+});
+
+it('keeps the applied dashboard month when manual filter text is invalid or cleared', async () => {
+  request.mockClear();
+  const user = userEvent.setup();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><DashboardPage request={request as RequestFn} role="OWNER" /></QueryClientProvider>);
+  await screen.findByText('¥350,000.00');
+
+  const input = screen.getByRole('textbox', { name: '收支月份' });
+  const appliedMonth = input.getAttribute('value');
+  expect(screen.queryByRole('button', { name: '清除月份' })).not.toBeInTheDocument();
+
+  await user.clear(input);
+  await user.type(input, '2026-13');
+  expect(screen.getByText(/请输入有效月份（YYYY-MM）/)).toBeInTheDocument();
+  expect(request.mock.calls.filter(([path]) => String(path).startsWith('/api/dashboard?month=')).every(([path]) => String(path).includes(`month=${appliedMonth}`))).toBe(true);
+
+  await user.tab();
+  expect(input).toHaveValue(appliedMonth);
+  expect(screen.queryByText(/请输入有效月份（YYYY-MM）/)).not.toBeInTheDocument();
 });

@@ -44,7 +44,7 @@ class MultiCurrencyReportingApiTest {
  }
  @Test void foreignCashIsConvertedInsteadOfAddedAsYuan()throws Exception{
   var session=setup();long baseline=worth.calculate(h,LocalDate.of(2026,1,2)).assetCents();
-  fx.save(new ExchangeRateBatch("ECB",LocalDate.of(2026,1,1),Map.of("USD",new BigDecimal("7"),"HKD",new BigDecimal("0.9"))),Instant.now());
+  fx.save(new ExchangeRateBatch("ECB",LocalDate.of(2026,1,2),Map.of("USD",new BigDecimal("7"),"HKD",new BigDecimal("0.9"))),Instant.now());
   account(session,"USD","100.00");
   assertThat(worth.calculate(h,LocalDate.of(2026,1,2)).assetCents()).isEqualTo(baseline+70000);
  }
@@ -56,16 +56,16 @@ class MultiCurrencyReportingApiTest {
  }
  @Test void regeneratedSnapshotsKeepTheirPreviousSavedValues()throws Exception{
   var session=setup();var day=LocalDate.of(2026,1,2);long baseline=worth.calculate(h,day).assetCents();
-  fx.save(new ExchangeRateBatch("ECB",LocalDate.of(2026,1,1),Map.of("USD",new BigDecimal("7"),"HKD",new BigDecimal("0.9"))),Instant.now());
+  fx.save(new ExchangeRateBatch("ECB",LocalDate.of(2026,1,2),Map.of("USD",new BigDecimal("7"),"HKD",new BigDecimal("0.9"))),Instant.now());
   account(session,"USD","100.00");snapshots.generate(h,day);
-  fx.save(new ExchangeRateBatch("ECB",LocalDate.of(2026,1,1),Map.of("USD",new BigDecimal("8"),"HKD",BigDecimal.ONE)),Instant.now());
+  fx.save(new ExchangeRateBatch("ECB",LocalDate.of(2026,1,2),Map.of("USD",new BigDecimal("8"),"HKD",BigDecimal.ONE)),Instant.now());
   snapshots.generate(h,day);snapshots.generate(h,day);
   var versions=snapshots.revisions(h,day);assertThat(versions).hasSize(2);
   assertThat(versions.get(0).asset()).isEqualTo(com.familyfinance.shared.Money.formatCents(baseline+80000));
   assertThat(versions.get(1).asset()).isEqualTo(com.familyfinance.shared.Money.formatCents(baseline+70000));
  }
  @Test void hongKongBuyQuotesAndBaseValuationWorkTogetherWithSubcentPrices()throws Exception{
-  var session=setup();fx.save(new ExchangeRateBatch("ECB",LocalDate.of(2026,1,1),Map.of("USD",new BigDecimal("7"),"HKD",new BigDecimal("0.9"))),Instant.now());
+  var session=setup();fx.save(new ExchangeRateBatch("ECB",LocalDate.of(2026,1,2),Map.of("USD",new BigDecimal("7"),"HKD",new BigDecimal("0.9"))),Instant.now());
   long cash=account(session,"HKD","500.00");
   var instrument=new OverseasInstrument("00700","腾讯控股","HK","HKD","HKEX","Asia/Hong_Kong");
   when(client.overseasSearch("HK","00700")).thenReturn(new OverseasSearchResponse(List.of(instrument),false,Instant.now(),false,"READY",null));
