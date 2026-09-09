@@ -111,8 +111,15 @@ function RecurringOverview({ pendingCount, selectableCount, activeRules, loading
     categoryMap.set(item.categoryId, current);
   });
   const colors = ['#3370ff', '#5b8ff9', '#61cfa3', '#65789b', '#f6bd16'];
-  const categoryData = [...categoryMap.values()].sort((a, b) => b.amount - a.amount).slice(0, 5).map((item, index) => ({ ...item, color: colors[index] }));
-  const categoryTotal = Math.max(1, categoryData.reduce((total, item) => total + item.amount, 0));
+  const allCategories = [...categoryMap.values()].filter(item => item.amount > 0).sort((a, b) => b.amount - a.amount);
+  const categoryTotal = allCategories.reduce((total, item) => total + item.amount, 0);
+  const categoryData = allCategories.slice(0, 5).map((item, index) => ({ ...item, color: colors[index] }));
+  const remainingCategories = allCategories.slice(5);
+  if (remainingCategories.length) categoryData.push({
+    name: '其他', color: '#a3adbc',
+    amount: remainingCategories.reduce((total, item) => total + item.amount, 0),
+    count: remainingCategories.reduce((total, item) => total + item.count, 0),
+  });
   const topCategory = categoryData[0];
   let categoryStart = -90;
   const categorySegments = categoryData.map(item => {

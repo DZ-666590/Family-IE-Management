@@ -89,12 +89,15 @@ public class RecurringConfirmationService {
         long householdId = access.context().householdId();
         RecurringOccurrence occurrence = occurrences.findLockedByIdAndHouseholdId(occurrenceId, householdId)
                 .orElseThrow(() -> new ResourceNotFoundException("周期发生项不存在"));
+        // Refresh after locking: an entity graph may have hydrated from a repeatable-read snapshot.
+        entityManager.refresh(occurrence, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
         Long assigneeId = occurrence.getAssignedUser() == null ? null : occurrence.getAssignedUser().getId();
         if (assigneeId == null) {
             throw new ResourceConflictException("OCCURRENCE_UNASSIGNED", "周期发生项尚未分配，无法确认");
         }
         permissions.requireCanConfirmAssignedOccurrence(access.context(), assigneeId);
         if (occurrence.getStatus() == RecurringOccurrenceStatus.CONFIRMED) {
+            requireMatchingAmount(occurrence.getConfirmedTransaction(), amountOverrideCents);
             return RecurringOccurrenceResponse.from(occurrence);
         }
         if (occurrence.getStatus() == RecurringOccurrenceStatus.CANCELLED) {
@@ -104,6 +107,7 @@ public class RecurringConfirmationService {
             throw staleReference();
         }
         RecurringRule rule = occurrence.getRule();
+        entityManager.refresh(rule,jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
         long amountCents = amountOverrideCents == null ? rule.getAmountCents() : amountOverrideCents;
         String key="recurring:"+occurrenceId;
         String digest=requests.digest("RECURRING_CONFIRM", access.context().userId(),
@@ -111,7 +115,6 @@ public class RecurringConfirmationService {
         String historicalDigest=requests.digest("RECURRING_CONFIRM", access.context().userId(), occurrenceId);
         Long replay=requests.replay(householdId,key,digest,historicalDigest);
 
-        entityManager.refresh(rule,jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
         FinancialAccount account = accounts
                 .findLockedByIdAndHouseholdId(rule.getAccount().getId(), householdId).filter(a->!a.isArchived())
                 .orElseThrow(RecurringConfirmationService::staleReference);
@@ -123,9 +126,10 @@ public class RecurringConfirmationService {
                 .orElseThrow(RecurringConfirmationService::staleReference);
 
         FinancialTransaction existing = transactions
-                .findBySourceTypeAndSourceId(TransactionSourceType.RECURRING, occurrenceId)
+                .findLockedByHouseholdIdAndSourceTypeAndSourceId(householdId, TransactionSourceType.RECURRING, occurrenceId)
                 .orElse(null);
         if (existing != null) {
+            requireMatchingAmount(existing, amountOverrideCents);
             if(ledger.currentSource(householdId,"TRANSACTION",existing.getId()).isEmpty())
                 throw new ResourceConflictException("ACCOUNTING_NOT_INITIALIZED","历史周期收支未初始化账务");
             occurrence.confirm(existing);
@@ -147,6 +151,14 @@ public class RecurringConfirmationService {
         } catch (DataIntegrityViolationException exception) {
             throw new ResourceConflictException(
                     "RECURRING_CONFIRMATION_RACE", "周期账单已由另一请求确认，请重试");
+        }
+    }
+
+    private void requireMatchingAmount(FinancialTransaction transaction, Long amountOverrideCents) {
+        if (amountOverrideCents == null) return; // Legacy callers retry without an amount.
+        entityManager.refresh(transaction, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        if (!amountOverrideCents.equals(transaction.getAmountCents())) {
+            throw new ResourceConflictException("IDEMPOTENCY_KEY_REUSED", "本期账单已按其他金额入账，请在收支明细中更正");
         }
     }
 
