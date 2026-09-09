@@ -8,13 +8,14 @@ it('previews the actual recurring cash payment before recording today without ch
   const page = (items: unknown[]) => ({ items, page: 0, size: 50, totalElements: items.length, totalPages: 1, hasNext: false });
   const request = vi.fn(async (path: string, options?: any) => {
     if (options?.method === 'POST') return {};
-    if (path.startsWith('/api/recurring-rules')) return page([{ id: 1, amount: '0.20', kind: 'expense', accountId: 2, accountName: '零钱', categoryName: '水费', assignedUserId: 7 }]);
+    if (path.startsWith('/api/recurring-rules')) return page([{ id: 1, amount: '0.20', kind: 'expense', accountId: 2, accountName: '零钱', categoryName: '水费', assignedUserId: 7, active: true, paused: false, scheduleType: 'MONTHLY', intervalValue: 1 }]);
     if (path.startsWith('/api/recurring-occurrences')) return page([{ id: 3, ruleId: 1, dueOn: '2026-01-01', assignedUserId: 7, status: 'PENDING' }]);
     if (path.startsWith('/api/accounts')) return page([{ id: 2, name: '零钱', openingConfirmed: true, balance: '0.30', availableBalance: '0.30', openingOn: '2026-01-01' }]);
     return path === '/api/members' ? [] : page([]);
   });
   render(<QueryClientProvider client={new QueryClient()}><RecurringPage request={request as RequestFn} role="OWNER" userId={7}/></QueryClientProvider>);
   const user = userEvent.setup();
+  expect(await screen.findByRole('heading', { name: '支出分类' })).toBeInTheDocument();
   await user.click(await screen.findByRole('button', { name: '确认入账' }));
   expect(await screen.findByText('预计余额 ¥0.10')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: '记录本次账单' }));

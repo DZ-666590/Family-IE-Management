@@ -273,6 +273,40 @@ a:hover { text-decoration: underline; }
 .recurring-amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .recurring-amount.income { color: #187442; }
 .recurring-amount.expense { color: #b43b31; }
+.recurring-overview { display: grid; gap: 18px; padding: 20px; border: 1px solid #e1e7f0; border-radius: 16px; background: linear-gradient(135deg, #fff 0%, #f7faff 100%); box-shadow: 0 8px 24px rgba(36, 55, 82, .05); }
+.recurring-overview-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.recurring-overview-top > div { min-width: 0; }
+.recurring-overview-kicker, .recurring-expense-analysis-heading > span { color: #8490a0; font-size: 11px; font-weight: 650; letter-spacing: .02em; }
+.recurring-overview-top h2 { margin: 4px 0 0; color: #293b55; font-size: 20px; letter-spacing: -.03em; }
+.recurring-overview-top p { margin: 6px 0 0; color: #8490a0; font-size: 12px; }
+.recurring-overview-period { flex: 0 0 auto; padding: 5px 10px; border-radius: 999px; background: #eef3ff; color: #5d78a1; font-size: 11px; font-variant-numeric: tabular-nums; }
+.recurring-overview-summary { display: grid; grid-template-columns: minmax(190px, 1.25fr) repeat(3, minmax(110px, 1fr)); gap: 10px; }
+.recurring-overview-summary > div { min-width: 0; min-height: 76px; display: grid; align-content: center; gap: 4px; padding: 12px 14px; border: 1px solid #e4eaf3; border-radius: 12px; background: rgba(255, 255, 255, .86); }
+.recurring-summary-total { background: linear-gradient(135deg, #f5f8ff 0%, #fff 100%) !important; }
+.recurring-summary-total span, .recurring-summary-stat span { color: #8a929d; font-size: 11px; }
+.recurring-summary-total strong { color: #3370ff; font-size: 23px; line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
+.recurring-summary-total.negative strong { color: #d54941; }
+.recurring-summary-total small, .recurring-summary-stat small { overflow: hidden; color: #a0a7b1; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.recurring-summary-stat strong { color: #293b55; font-size: 18px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.recurring-summary-stat strong.income { color: #2ea85f; }
+.recurring-summary-stat strong.expense { color: #d54941; }
+.recurring-expense-analysis { display: grid; grid-template-columns: minmax(180px, .65fr) minmax(0, 1.35fr); align-items: center; gap: 18px; padding-top: 16px; border-top: 1px solid #e8edf4; }
+.recurring-expense-analysis-heading { min-width: 0; }
+.recurring-expense-analysis-heading h3 { margin: 4px 0 0; color: #293b55; font-size: 17px; }
+.recurring-expense-analysis-heading p { margin: 10px 0 0; color: #69778b; font-size: 12px; line-height: 1.6; }
+.recurring-expense-analysis-heading strong { color: #293b55; }
+.recurring-expense-analysis-heading em { color: #3370ff; font-style: normal; font-weight: 700; }
+.recurring-category-ring { display: block; width: 100%; height: 208px; overflow: visible; }
+.recurring-category-ring-track { fill: none; stroke: #eef1f5; stroke-width: 36; }
+.recurring-category-ring-segment { stroke: #fff; stroke-width: 2; stroke-linejoin: round; }
+.recurring-category-ring-hole { fill: #fff; }
+.recurring-category-ring-leader { fill: none; stroke: #aab2bd; stroke-width: 1; }
+.recurring-category-ring-dot { stroke: #fff; stroke-width: 1; }
+.recurring-category-ring-label { fill: #646a73; font-size: 12px; font-variant-numeric: tabular-nums; }
+.recurring-category-ring-value { fill: #3370ff; font-weight: 700; }
+.recurring-category-ring-center-name { fill: #1f2329; font-size: 13px; font-weight: 650; }
+.recurring-category-ring-center-value { fill: #3370ff; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.recurring-expense-analysis .recurring-chart-empty { margin: 0; padding: 36px 0; }
 .recurring-kind-selector { display: grid; gap: 5px; margin: 0; padding: 10px; border: 1px solid #dce5f5; border-radius: 8px; background: #f8faff; }
 .recurring-kind-selector.income { border-color: #c5e8d1; background: #f5fcf7; }
 .recurring-kind-selector.expense { border-color: #f1d0cb; background: #fff9f8; }
