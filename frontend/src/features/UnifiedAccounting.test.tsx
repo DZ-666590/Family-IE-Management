@@ -11,6 +11,7 @@ const cash = { id: 1, name: '工资卡', type: 'BANK', currency: 'CNY', openingB
 const generated = { id: 8, kind: 'expense', amount: '1100.00', occurredOn: '2026-09-01', accountId: 1, accountName: '工资卡', memberId: 2, memberName: '本人', createdByUserId: 7, createdByName: '本人', sourceType: 'LOAN_PAYMENT', sourceId: 9, principalAmount: '1000.00', interestAmount: '100.00', categoryId: 3, categoryName: '利息', categoryParentId: null, categoryLevel: 1, merchant: null, location: null, note: null, createdAt: '', updatedAt: '' };
 function setup(options: { accounts?: unknown[]; transactions?: unknown[]; write?: (path: string, opts: any) => unknown } = {}, investment = false) {
   const request = vi.fn(async (path: string, opts?: any) => {
+    if(path==='/api/bank-accounts')return [];
     if (opts?.method) return options.write?.(path, opts) ?? { id: 1 };
     if (path.startsWith('/api/accounts')) return page(options.accounts ?? [cash]);
     if (path.startsWith('/api/transactions')) return page(options.transactions ?? []);
@@ -64,7 +65,8 @@ it('limits a generated payment edit to metadata and displays its principal and i
 });
 it('requires a cash funding account for a new investment account', async () => {
   const { user } = setup({}, true);
-  await user.click(screen.getByRole('button', { name: '账户' }));
+  await user.click(screen.getByRole('button',{name:'投资管理'}));
+  await user.click(await screen.findByRole('menuitem',{name:'账户'}));
   await user.click(await screen.findByRole('button', { name: '新建账户' }));
   expect(await screen.findByLabelText('资金账户')).toBeRequired();
   expect(screen.getByRole('option', { name: /工资卡/ })).toBeInTheDocument();

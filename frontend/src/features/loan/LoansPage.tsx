@@ -1,3 +1,4 @@
+import {BankAccountPicker} from '../ledger/BankAccountPicker';
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Button from "@douyinfe/semi-ui/lib/es/button";
@@ -162,6 +163,7 @@ export function LoansPage({
   );
   const [contractExtraction, setContractExtraction] =
     useState<LoanContractExtraction | null>(null);
+  const [useAiConsent, setUseAiConsent] = useState(false);
   const [prepayOpen, setPrepayOpen] = useState(false);
   const [loanPage, setLoanPage] = useState(0);
   const [schedulePage, setSchedulePage] = useState(0);
@@ -259,11 +261,11 @@ export function LoansPage({
   const manager = isManager(role);
   const fundsError = useFundsRefresh();
   const extractContract = useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: ({ file, useAi }: { file: File; useAi: boolean }) => {
       const body = new FormData();
       body.append("file", file);
       return request<LoanContractExtraction>(
-        "/api/plugins/loan-contract-extractor/extract",
+        `/api/plugins/loan-contract-extractor/extract?useAi=${useAi ? "true" : "false"}`,
         { method: "POST", body },
       );
     },
@@ -454,35 +456,86 @@ export function LoansPage({
                   <span>剩余本金</span>
                   <strong>{money(item.currentPrincipal)}</strong>
                 </div>
-                <LoanTotals loan={item} />
-                <LoanCurrentPlan loan={item} />
-                <dl>
-                  <div>
-                    <dt>
-                      {item.fundingMode === "OPENING"
-                        ? "期初剩余本金"
-                        : item.fundingMode === "FINANCED_PURCHASE"
-                          ? "贷款购买本金"
-                          : "放款本金"}
-                    </dt>
-                    <dd>{money(item.principal)}</dd>
-                  </div>
+                <dl className="loan-facts" aria-label="贷款信息">
                   <div>
                     <dt>年利率</dt>
                     <dd>{formatAnnualRatePercent(item.annualRate)}%</dd>
                   </div>
-                  <div>
-                    <dt>原合同期限</dt>
-                    <dd>
-                      {item.termMonths}{" "}
-                      {item.repaymentMethod === "CUSTOM" ? "期" : "个月"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>开始日</dt>
-                    <dd>{dateText(item.startOn)}</dd>
-                  </div>
+                  {item.remainingTerm !== undefined && (
+                    <div>
+                      <dt>剩余期数</dt>
+                      <dd>{item.remainingTerm} 期</dd>
+                    </div>
+                  )}
+                  {item.nextPaymentOn && (
+                    <>
+                      <div>
+                        <dt>下期还款日</dt>
+                        <dd>{dateText(item.nextPaymentOn)}</dd>
+                      </div>
+                      <div>
+                        <dt>下期应还</dt>
+                        <dd>{money(item.nextPaymentAmount)}</dd>
+                      </div>
+                    </>
+                  )}
                 </dl>
+                <details className="loan-facts-more">
+                  <summary>更多贷款信息</summary>
+                  <dl className="loan-facts">
+                    <div>
+                      <dt>
+                        {item.fundingMode === "OPENING"
+                          ? "期初剩余本金"
+                          : item.fundingMode === "FINANCED_PURCHASE"
+                            ? "贷款购买本金"
+                            : "放款本金"}
+                      </dt>
+                      <dd>{money(item.principal)}</dd>
+                    </div>
+                    <div>
+                      <dt>原合同期限</dt>
+                      <dd>
+                        {item.termMonths}{" "}
+                        {item.repaymentMethod === "CUSTOM" ? "期" : "个月"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>开始日</dt>
+                      <dd>{dateText(item.startOn)}</dd>
+                    </div>
+                    <div>
+                      <dt>当前有效计划总金额</dt>
+                      <dd>{money(item.scheduledRepaymentTotal)}</dd>
+                    </div>
+                    <div>
+                      <dt>计划剩余本息</dt>
+                      <dd>{money(item.remainingRepaymentTotal)}</dd>
+                    </div>
+                    <div>
+                      <dt>累计已还现金</dt>
+                      <dd>{money(item.paidRepaymentTotal)}</dd>
+                    </div>
+                    {item.remainingTerm !== undefined && (
+                      <div>
+                        <dt>计划到期</dt>
+                        <dd>{dateText(item.maturityOn)}</dd>
+                      </div>
+                    )}
+                    {item.latestStrategy && (
+                      <div className="loan-facts__wide">
+                        <dt>最近调整</dt>
+                        <dd>
+                          {item.latestStrategy === "REDUCE_TERM"
+                            ? "按原付款上限缩期"
+                            : item.latestStrategy === "ADJUST_TERM"
+                              ? "自选更短期数"
+                              : "保留期数"}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </details>
                 <footer>
                   <Button
                     size="small"
@@ -583,11 +636,26 @@ export function LoansPage({
                       accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                       onChange={event => {
                         const file = event.target.files?.[0];
-                        if (file) extractContract.mutate(file);
-                        event.currentTarget.value = '';
+                        if (file)
+                          extractContract.mutate({
+                            file,
+                            useAi: useAiConsent,
+                          });
+                        event.currentTarget.value = "";
                       }}
                     />
-                    <p className="source-note">上传后只提取贷款字段并预填表单，不会自动提交；请核对合同原文。</p>
+                    <label className="ai-consent">
+                      使用系统 AI 提取
+                      <input
+                        type="checkbox"
+                        checked={useAiConsent}
+                        onChange={(e) => setUseAiConsent(e.target.checked)}
+                      />
+                    </label>
+                    <p className="source-note">
+                      勾选会把合同文本发送到 AI 服务用于更准确识别；不勾选则用规则识别。<br />
+                      上传后仅提取字段并预填表单，不会自动提交，请核对合同原文。
+                    </p>
                     {extractContract.isPending && <p role="status">正在提取合同信息…</p>}
                     <FormError error={extractContract.error} />
                     {contractExtraction?.warnings.map(warning => <p className="field-help" key={warning}>{warning}</p>)}
@@ -690,23 +758,7 @@ export function LoansPage({
                   </label>
                   {draft.fundingMode === "DISBURSEMENT" && (
                     <>
-                      <label>
-                        放款到账账户
-                        <select
-                          required
-                          name="disbursementAccountId"
-                          value={draft.disbursementAccountId}
-                          onChange={(e) =>
-                            setDraft({
-                              ...draft,
-                              disbursementAccountId: e.target.value,
-                            })
-                          }
-                        >
-                          <option value="">请选择</option>
-                          <AccountOptions accounts={(accounts.data ?? []).filter(a=>(a.currency??'CNY')==='CNY')} />
-                        </select>
-                      </label>
+                      <BankAccountPicker accountsReady={accounts.data!==undefined} label="放款到账账户" name="disbursementAccountId" required currency="CNY" request={request} accounts={accounts.data ?? []} value={draft.disbursementAccountId} onChange={id => setDraft({ ...draft, disbursementAccountId: id })}/>
                       <PaymentPreview
                         incoming
                         account={accounts.data?.find(
@@ -990,20 +1042,7 @@ export function LoansPage({
                       ))}
                     </select>
                   </label>
-                  <label>
-                    扣款账户
-                    <select
-                      name="paymentAccountId"
-                      required
-                      value={draft.paymentAccountId}
-                      onChange={(e) =>
-                        setDraft({ ...draft, paymentAccountId: e.target.value })
-                      }
-                    >
-                      <option value="">请选择</option>
-                      <AccountOptions accounts={(accounts.data ?? []).filter(a=>(a.currency??'CNY')==='CNY')} />
-                    </select>
-                  </label>
+                  <BankAccountPicker accountsReady={accounts.data!==undefined} label="扣款账户" name="paymentAccountId" required currency="CNY" request={request} accounts={accounts.data ?? []} value={draft.paymentAccountId} onChange={id => setDraft({ ...draft, paymentAccountId: id })}/>
                   <label>
                     还款分类
                     <select
@@ -1319,7 +1358,7 @@ export function LoansPage({
         )}
       </Drawer>
       {selected && prepayOpen && (
-        <LoanPrepaymentPanel
+        <LoanPrepaymentPanel accountsReady={accounts.data!==undefined}
           key={selected.id}
           loan={selected}
           accounts={accounts.data ?? []}
@@ -1388,19 +1427,7 @@ export function LoansPage({
                 }
               />
             </label>
-            <label>
-              本次付款账户
-              <select
-                required
-                name="paymentAccountId"
-                value={payment.paymentAccountId}
-                onChange={(e) =>
-                  setPayment({ ...payment, paymentAccountId: e.target.value })
-                }
-              >
-                <AccountOptions accounts={(accounts.data ?? []).filter(a=>(a.currency??'CNY')==='CNY')} />
-              </select>
-            </label>
+            <BankAccountPicker accountsReady={accounts.data!==undefined} label="本次付款账户" name="paymentAccountId" currency="CNY" request={request} accounts={accounts.data ?? []} value={payment.paymentAccountId} onChange={id=>setPayment({...payment,paymentAccountId:id})}/>
             <PaymentPreview
               account={accounts.data?.find(
                 (a) => String(a.id) === payment.paymentAccountId,
@@ -1454,20 +1481,7 @@ export function LoansPage({
                 }
               />
             </label>
-            <label>
-              扣款账户
-              <select
-                required
-                name="paymentAccountId"
-                value={settings.paymentAccountId}
-                onChange={(e) =>
-                  setSettings({ ...settings, paymentAccountId: e.target.value })
-                }
-              >
-                <option value="">请选择</option>
-                <AccountOptions accounts={(accounts.data ?? []).filter(a=>(a.currency??'CNY')==='CNY')} />
-              </select>
-            </label>
+            <BankAccountPicker accountsReady={accounts.data!==undefined} label="扣款账户" name="paymentAccountId" required currency="CNY" request={request} accounts={accounts.data ?? []} value={settings.paymentAccountId} onChange={id => setSettings({ ...settings, paymentAccountId: id })}/>
             <label>
               利息费用分类
               <select
@@ -1522,7 +1536,7 @@ export function LoansPage({
         )}
       </Drawer>
       {payoffOpen && selected && (
-        <LoanPayoffPanel
+        <LoanPayoffPanel accountsReady={accounts.data!==undefined}
           key={selected.id}
           loan={selected}
           accounts={accounts.data ?? []}

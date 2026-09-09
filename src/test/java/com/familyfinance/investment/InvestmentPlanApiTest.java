@@ -39,6 +39,11 @@ class InvestmentPlanApiTest {
         setup("1000.00");
         long before=count("ledger_journals");
         long plan=create(today,"MONTHLY");
+        mvc.perform(get("/api/investment-plans").session(owner)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plans[0].quantity").value("100.1234"))
+                .andExpect(jsonPath("$.data.plans[0].amount").isEmpty())
+                .andExpect(jsonPath("$.data.occurrences[0].quantity").value("100.1234"))
+                .andExpect(jsonPath("$.data.occurrences[0].amount").isEmpty());
         assertThat(count("investment_trades")).isZero();
         assertThat(count("ledger_journals")).isEqualTo(before);
         long occurrence=generate();
@@ -48,16 +53,23 @@ class InvestmentPlanApiTest {
         assertThat(count("ledger_journals")).isEqualTo(before);
         assertThat(jdbc.queryForObject("select count(*) from notifications where reference_type='INVESTMENT_PLAN_OCCURRENCE'",Long.class)).isEqualTo(1);
         JsonNode first=confirm(occurrence,"first",200);
+        assertThat(first.path("quantity").asText()).isEqualTo("100.1234");
+        assertThat(first.path("actualQuantity").asText()).isEqualTo("10.0000");
         assertThat(first.path("actualAmount").asText()).isEqualTo("101.00");
         assertThat(confirm(occurrence,"different-key",200).path("tradeId").asLong()).isEqualTo(first.path("tradeId").asLong());
         assertThat(count("investment_trades")).isEqualTo(1);
         assertThat(jdbc.queryForObject("select balance_cents from ledger_accounts where account_code=?",Long.class,"CASH:"+cash)).isEqualTo(89900);
-        mvc.perform(patch("/api/investment-trades/{id}",first.path("tradeId").asLong()).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"price\":\"11.00\"}")).andExpect(status().isOk());
+        mvc.perform(patch("/api/investment-trades/{id}",first.path("tradeId").asLong()).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":\"12.125\",\"price\":\"11.00\"}")).andExpect(status().isOk());
         JsonNode corrected=confirm(occurrence,"after-correction",200);
         assertThat(corrected.path("actualAmount").asText()).isEqualTo("101.00");
+        assertThat(corrected.path("actualQuantity").asText()).isEqualTo("10.0000");
+        assertThat(corrected.path("currentTrade").path("quantity").decimalValue()).isEqualByComparingTo("12.125");
         assertThat(corrected.path("currentTrade").path("price").asText()).isEqualTo("11.00");
         mvc.perform(delete("/api/investment-trades/{id}",first.path("tradeId").asLong()).session(owner).with(csrf())).andExpect(status().isNoContent());
-        assertThat(confirm(occurrence,"after-reversal",200).path("tradeReversed").asBoolean()).isTrue();
+        JsonNode reversed=confirm(occurrence,"after-reversal",200);
+        assertThat(reversed.path("tradeReversed").asBoolean()).isTrue();
+        assertThat(reversed.path("actualQuantity").asText()).isEqualTo("10.0000");
+        assertThat(reversed.path("actualAmount").asText()).isEqualTo("101.00");
         assertThat(count("investment_trades")).isZero();
     }
 
@@ -69,12 +81,72 @@ class InvestmentPlanApiTest {
         assertThat(jdbc.queryForObject("select state from investment_plan_occurrences where id=?",String.class,id)).isEqualTo("PENDING");
     }
 
+    @Test void quantityBoundsApplyAndPlansCanBeCreatedWithoutSpendableFunds() throws Exception {
+        setup("0.00");long journals=count("ledger_journals");
+        for(String quantity:new String[]{"0","-1","1.00001","1000000000000000","1e2",""}) {
+            mvc.perform(post("/api/investment-plans").session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                    .content(planBody(today,"MONTHLY").replace("100.1234",quantity)))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.fields.quantity").exists());
+        }
+        mvc.perform(post("/api/investment-plans").session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content(planBody(today,"MONTHLY").replace("100.1234","999999999999999.9999")))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.quantity").value("999999999999999.9999"));
+        assertThat(count("investment_plan_occurrences")).isEqualTo(1);
+        assertThat(count("investment_trades")).isZero();
+        assertThat(count("ledger_journals")).isEqualTo(journals);
+        assertThat(jdbc.queryForObject("select coalesce(sum(balance_cents),0) from ledger_accounts where account_code=?",Long.class,"CASH:"+cash)).isZero();
+    }
+
+    @Test void editedQuantityAppliesToNewOccurrencesWithoutRewritingConfirmedSnapshot() throws Exception {
+        setup("1000.00");String yesterday=LocalDate.parse(today).minusDays(1).toString();
+        long plan=create(yesterday,"WEEKLY");long oldOccurrence=generate();
+        confirm(oldOccurrence,"before-edit",200);
+        mvc.perform(patch("/api/investment-plans/{id}",plan).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content(planBody(today,"WEEKLY").replace("100.1234","250.0001"))).andExpect(status().isOk());
+        generate();
+        assertThat(count("investment_plan_occurrences")).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select quantity from investment_plan_occurrences where id=?",String.class,oldOccurrence)).isEqualTo("100.1234");
+        assertThat(jdbc.queryForObject("select quantity from investment_plan_occurrences where due_on=?",String.class,today)).isEqualTo("250.0001");
+        assertThat(jdbc.queryForObject("select actual_amount from investment_plan_occurrences where id=?",String.class,oldOccurrence)).isEqualTo("101.00");
+        assertThat(count("investment_trades")).isEqualTo(1);
+    }
+
+    @Test void legacyPlanRequiresQuantityEditBeforeResumeWhilePendingSnapshotStillConfirms() throws Exception {
+        setup("1000.00");long plan=create(today,"MONTHLY");long occurrence=generate();
+        jdbc.update("update investment_plans set quantity=null,amount=123.45,state='PAUSED' where id=?",plan);
+        jdbc.update("update investment_plan_occurrences set quantity=null,amount=123.45 where id=?",occurrence);
+        stateCall(owner,plan,"ACTIVE").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVESTMENT_PLAN_QUANTITY_REQUIRED"));
+        // Defensive generation filtering also protects a legacy row left active by an older writer.
+        jdbc.update("update investment_plans set state='ACTIVE',next_due_on='2020-01-01' where id=?",plan);
+        mvc.perform(post("/api/investment-plans/generate").session(owner).with(csrf())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.generated").value(0));
+        stateCall(owner,plan,"PAUSED").andExpect(status().isOk());
+        mvc.perform(get("/api/investment-plans").session(owner)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.plans[0].quantity").isEmpty())
+                .andExpect(jsonPath("$.data.plans[0].amount").value("123.45"));
+        mvc.perform(patch("/api/investment-plans/{id}",plan).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content(planBody(today,"MONTHLY").replace("100.1234","20.125"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.quantity").value("20.1250")).andExpect(jsonPath("$.data.amount").isEmpty());
+        stateCall(owner,plan,"ACTIVE").andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("select amount from investment_plan_occurrences where id=?",String.class,occurrence)).isEqualTo("123.45");
+        assertThat(jdbc.queryForObject("select quantity from investment_plan_occurrences where id=?",String.class,occurrence)).isNull();
+        JsonNode confirmed=confirm(occurrence,"legacy-confirm",200);
+        assertThat(confirmed.path("quantity").isNull()).isTrue();
+        assertThat(confirmed.path("amount").asText()).isEqualTo("123.45");
+        assertThat(confirmed.path("actualAmount").asText()).isEqualTo("101.00");
+        assertThat(confirmed.path("actualQuantity").asText()).isEqualTo("10.0000");
+        assertThat(confirm(occurrence,"legacy-retry",200).path("tradeId").asLong()).isEqualTo(confirmed.path("tradeId").asLong());
+        assertThat(count("investment_trades")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select balance_cents from ledger_accounts where account_code=?",Long.class,"CASH:"+cash)).isEqualTo(89900);
+    }
+
     @Test void monthEndAnchorAndEditPreserveExistingSnapshots() throws Exception {
         setup("1000.00");long plan=create("2026-01-31","MONTHLY");generate();
         var dates=jdbc.queryForList("select cast(due_on as varchar) from investment_plan_occurrences order by due_on",String.class);
         assertThat(dates).startsWith("2026-01-31","2026-02-28","2026-03-31");
-        mvc.perform(patch("/api/investment-plans/{id}",plan).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(planBody(today,"WEEKLY").replace("100.00","250.00"))).andExpect(status().isOk());
-        assertThat(jdbc.queryForObject("select min(amount) from investment_plan_occurrences",String.class)).startsWith("100");
+        mvc.perform(patch("/api/investment-plans/{id}",plan).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(planBody(today,"WEEKLY").replace("100.1234","250.0001"))).andExpect(status().isOk());
+        assertThat(jdbc.queryForList("select distinct quantity from investment_plan_occurrences",String.class)).containsExactly("100.1234");
         mvc.perform(post("/api/investment-plans/{id}/state",plan).session(owner).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"state\":\"PAUSED\"}")).andExpect(status().isOk());
         long count=count("investment_plan_occurrences");generate();assertThat(count("investment_plan_occurrences")).isEqualTo(count);
         jdbc.update("update investment_plans set next_due_on='2020-01-01' where id=?",plan);
@@ -270,7 +342,7 @@ class InvestmentPlanApiTest {
         security=jdbc.queryForObject("select id from securities where ts_code='600000.SH'",Long.class);
     }
     long create(String date,String frequency) throws Exception {return data(mvc.perform(post("/api/investment-plans").session(owner).with(csrf()).header("Idempotency-Key","create-plan").contentType(MediaType.APPLICATION_JSON).content(planBody(date,frequency))).andExpect(status().isCreated()).andReturn()).path("id").asLong();}
-    String planBody(String date,String frequency){return "{\"name\":\"月定投\",\"accountId\":"+account+",\"securityId\":"+security+",\"amount\":\"100.00\",\"frequency\":\""+frequency+"\",\"firstDueOn\":\""+date+"\",\"assignedUserId\":"+user+"}";}
+    String planBody(String date,String frequency){return "{\"name\":\"月定投\",\"accountId\":"+account+",\"securityId\":"+security+",\"quantity\":\"100.1234\",\"frequency\":\""+frequency+"\",\"firstDueOn\":\""+date+"\",\"assignedUserId\":"+user+"}";}
     long generate() throws Exception {mvc.perform(post("/api/investment-plans/generate").session(owner).with(csrf())).andExpect(status().isOk());return data(mvc.perform(get("/api/investment-plans").session(owner)).andExpect(status().isOk()).andReturn()).path("occurrences").get(0).path("id").asLong();}
     JsonNode confirm(long id,String key,int status) throws Exception {MvcResult result=mvc.perform(post("/api/investment-plans/occurrences/{id}/confirm",id).session(owner).with(csrf()).header("Idempotency-Key",key).contentType(MediaType.APPLICATION_JSON).content("{\"quantity\":\"10\",\"price\":\"10.00\",\"fee\":\"1.00\",\"tradedOn\":\""+today+"\"}")).andExpect(status().is(status)).andReturn();return data(result);}
     JsonNode data(MvcResult result) throws Exception{return mapper.readTree(result.getResponse().getContentAsString()).path("data");}

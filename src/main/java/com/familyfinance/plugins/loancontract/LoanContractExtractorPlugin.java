@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -18,11 +19,11 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/plugins/loan-contract-extractor")
 @ConditionalOnProperty(name = "app.plugins.loan-contract-extractor.enabled", havingValue = "true", matchIfMissing = false)
 public class LoanContractExtractorPlugin implements FinancePlugin {
-    private final LoanContractExtractionService extraction;
+    private final LoanContractAutoFillService autofill;
     private final FamilyMutationAuthorization authorization;
 
-    public LoanContractExtractorPlugin(LoanContractExtractionService extraction, FamilyMutationAuthorization authorization) {
-        this.extraction = extraction;
+    public LoanContractExtractorPlugin(LoanContractAutoFillService autofill, FamilyMutationAuthorization authorization) {
+        this.autofill = autofill;
         this.authorization = authorization;
     }
 
@@ -36,10 +37,12 @@ public class LoanContractExtractorPlugin implements FinancePlugin {
 
     @PostMapping("/extract")
     public ApiEnvelope<LoanContractExtractionResponse> extract(
-            Authentication authentication, @RequestPart("file") MultipartFile file) {
+            Authentication authentication,
+            @RequestPart("file") MultipartFile file,
+            @RequestParam(name = "useAi", defaultValue = "false") boolean useAi) {
         authorization.requireAdmin(authentication);
         try {
-            return ApiEnvelope.data(extraction.extract(file));
+            return ApiEnvelope.data(autofill.extract(authentication, useAi, file));
         } catch (RequestValidationException exception) {
             throw exception;
         } catch (RuntimeException exception) {

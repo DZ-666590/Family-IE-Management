@@ -8,6 +8,30 @@ const stock = { id: 5, market: 'SZ', tsCode: '000001.SZ', name: '平安银行', 
 const account = { id: 3, name: '证券账户', brokerName: '券商', fundingAccountId: 7, currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null };
 const position = { accountId: 3, accountName: '证券账户', brokerName: '券商', securityId: 5, tsCode: stock.tsCode, name: stock.name, quantity: 100, averageCost: '8.00', cost: '800.00', price: '10.00', marketValue: '1000.00', estimatedValue: '1000.00', realizedProfit: '0.00', unrealizedProfit: '200.00', totalProfit: '200.00', allocationPercent: '100.00', source: 'BAOSTOCK', tradeDate: '2026-09-07', fetchedAt: null, stale: false, error: null, valuationStatus: 'MARKET' };
 const page = (items: unknown[]) => ({ items, page: 0, size: 50, totalPages: 1, totalElements: items.length, hasNext: false });
+it('opens management in a dialog without replacing filtered holdings',async()=>{
+ const {user}=setup();await screen.findAllByRole('button',{name:'平安银行'});
+ await user.type(screen.getByRole('searchbox',{name:'搜索持仓'}),'平安');
+ await user.click(screen.getByRole('button',{name:'投资管理'}));
+ await user.click(await screen.findByRole('menuitem',{name:'账户'}));
+ const dialog=screen.getByRole('dialog',{name:'账户管理'});
+ expect(within(dialog).getByRole('heading',{name:'投资账户'})).toBeInTheDocument();
+ await user.click(within(dialog).getByRole('button',{name:'关闭'}));
+ expect(screen.getByRole('searchbox',{name:'搜索持仓'})).toHaveValue('平安');
+ await user.click(screen.getByRole('button',{name:'投资管理'}));
+ await user.click(await screen.findByRole('menuitem',{name:'汇率'}));
+ expect(screen.getByRole('dialog',{name:'汇率管理'})).toBeInTheDocument();
+});
+it.each([['accounts','账户管理'],['rates','汇率管理']])('keeps the %s deep link as a modal entry',async(tab,title)=>{
+ const previous=window.location.href;
+ window.history.replaceState(null,'',`/workspace/investments?tab=${tab}`);
+ try{setup();expect(screen.getByRole('dialog',{name:title})).toBeInTheDocument();}
+ finally{window.history.replaceState(null,'',previous);}
+});
+it('keeps failed live quotes visible on the dashboard without opening explanatory content',async()=>{
+ setup();
+ expect(await screen.findByText('报价更新失败')).toBeVisible();
+ expect(screen.getByText('保留最近可用数据，请勿将其当作当前成交价。')).toBeVisible();
+});
 it('opens quotes in a dialog and restores the filtered dashboard after close',async()=>{
  const {user}=setup();
  await screen.findAllByRole('button',{name:'平安银行'});
@@ -53,7 +77,8 @@ it('opens chart immediately after selection and carries the stock into a buy dra
 });
 it('prefills a position buy and prevents known cash overdraft before submitting', async () => {
   const { user, writes } = setup();
-  await user.click((await screen.findAllByRole('button', { name: '记录买入平安银行' }))[0]);
+  await user.click(await screen.findByRole('button',{name:'平安银行更多操作'}));
+  await user.click(await screen.findByRole('menuitem',{name:'记录买入平安银行'}));
   const dialog = screen.getByRole('dialog', { name: '记一笔投资' });
   await user.type(within(dialog).getByLabelText('数量'), '11');
   await user.type(within(dialog).getByLabelText('成交单价'), '10');
@@ -71,7 +96,8 @@ it('prefills a position buy and prevents known cash overdraft before submitting'
 });
 it('shows exact available position and prevents selling more than owned', async () => {
   const { user, writes } = setup();
-  await user.click((await screen.findAllByRole('button', { name: '记录卖出平安银行' }))[0]);
+  await user.click(await screen.findByRole('button',{name:'平安银行更多操作'}));
+  await user.click(await screen.findByRole('menuitem',{name:'记录卖出平安银行'}));
   const dialog = screen.getByRole('dialog', { name: '记一笔投资' });
   expect(within(dialog).getByText('账内持仓 100 股')).toBeInTheDocument();
   await user.type(within(dialog).getByLabelText('数量'), '100.0001');
@@ -83,11 +109,12 @@ it('shows exact available position and prevents selling more than owned', async 
 it('does not expose contextual trade actions to members', async () => {
   setup('MEMBER');
   await screen.findAllByText('平安银行');
-  expect(screen.queryByRole('button', { name: /记录买入|记录卖出/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /记录买入|记录卖出|更多操作/ })).not.toBeInTheDocument();
 });
 it('includes selling fees in the cash guard even when selling creates a net outflow', async () => {
   const { user } = setup();
-  await user.click((await screen.findAllByRole('button', { name: '记录卖出平安银行' }))[0]);
+  await user.click(await screen.findByRole('button',{name:'平安银行更多操作'}));
+  await user.click(await screen.findByRole('menuitem',{name:'记录卖出平安银行'}));
   const dialog = screen.getByRole('dialog', { name: '记一笔投资' });
   await user.type(within(dialog).getByLabelText('数量'), '1');
   await user.type(within(dialog).getByLabelText('成交单价'), '10');
@@ -104,15 +131,18 @@ it('includes selling fees in the cash guard even when selling creates a net outf
 });
 it('does not advertise new buys for retired stocks while preserving historic sell entry', async () => {
   const { user } = setup('OWNER', { retired: true });
-  await screen.findAllByRole('button', { name: '记录卖出平安银行' });
-  expect(screen.queryByRole('button', { name: '记录买入平安银行' })).not.toBeInTheDocument();
+  await user.click(await screen.findByRole('button',{name:'平安银行更多操作'}));
+  expect(await screen.findByRole('menuitem',{name:'记录卖出平安银行'})).toBeInTheDocument();
+  expect(screen.queryByRole('menuitem', { name: '记录买入平安银行' })).not.toBeInTheDocument();
+  await user.keyboard('{Escape}');
   await user.click(screen.getAllByRole('button', { name: '平安银行' })[0]);
   await screen.findByRole('button', { name: '日 K' });
   expect(screen.queryByRole('button', { name: '记录买入平安银行' })).not.toBeInTheDocument();
 });
 it('rejects signed negative-zero fees before the server rejects their syntax', async () => {
   const { user } = setup();
-  await user.click((await screen.findAllByRole('button', { name: '记录买入平安银行' }))[0]);
+  await user.click(await screen.findByRole('button',{name:'平安银行更多操作'}));
+  await user.click(await screen.findByRole('menuitem',{name:'记录买入平安银行'}));
   const dialog = screen.getByRole('dialog', { name: '记一笔投资' });
   await user.type(within(dialog).getByLabelText('数量'), '1');
   await user.type(within(dialog).getByLabelText('成交单价'), '10');
@@ -122,7 +152,8 @@ it('rejects signed negative-zero fees before the server rejects their syntax', a
 });
 it('validates positive opening cost without treating it as a cash outflow', async () => {
   const { user } = setup();
-  await user.click((await screen.findAllByRole('button', { name: '记录买入平安银行' }))[0]);
+  await user.click(await screen.findByRole('button',{name:'平安银行更多操作'}));
+  await user.click(await screen.findByRole('menuitem',{name:'记录买入平安银行'}));
   const dialog = screen.getByRole('dialog', { name: '记一笔投资' });
   await user.click(within(dialog).getByText('其他业务 · 期初持仓、分红、费用'));
   await user.selectOptions(within(dialog).getByLabelText('业务类型'), 'OPENING');
@@ -136,7 +167,8 @@ it('validates positive opening cost without treating it as a cash outflow', asyn
 });
 it('allows opening records without requiring a cash account but blocks cash-moving buys', async () => {
   const { user } = setup('OWNER', { missingFunds: true });
-  await user.click((await screen.findAllByRole('button', { name: '记录买入平安银行' }))[0]);
+  await user.click(await screen.findByRole('button',{name:'平安银行更多操作'}));
+  await user.click(await screen.findByRole('menuitem',{name:'记录买入平安银行'}));
   const dialog = screen.getByRole('dialog', { name: '记一笔投资' });
   await user.type(within(dialog).getByLabelText('数量'), '10');
   await user.type(within(dialog).getByLabelText('成交单价'), '10');

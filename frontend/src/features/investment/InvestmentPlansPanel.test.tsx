@@ -6,7 +6,7 @@ import type {RequestFn} from '../common';
 
 vi.mock('./TradeStockPicker',()=>({TradeStockPicker:({onChange,disabled,value}:any)=><div><span data-testid="selected-security">{value?`${value.market} ${value.tsCode} ${value.exchange??''}`:'none'}</span><button type="button" disabled={disabled} onClick={()=>onChange({id:8,name:'阿里巴巴',tsCode:'BABA.US',market:'US',symbol:'BABA',currency:'USD'})}>选择阿里巴巴</button></div>,securityCurrency:(s:any)=>s?.currency??'CNY'}));
 const planSecurity={id:8,name:'阿里巴巴',tsCode:'BABA.US',market:'US',symbol:'BABA',currency:'USD',exchange:'NASDAQ',timezone:'America/New_York',securityType:'STOCK',active:true};
-const plan={id:1,name:'长期积累',accountId:3,accountName:'美股账户',fundingAccountId:4,securityId:8,securityName:'阿里巴巴',symbol:'BABA',currency:'USD',amount:'100.00',frequency:'MONTHLY',firstDueOn:'2026-09-01',nextDueOn:'2026-10-01',assignedUserId:7,state:'ACTIVE',security:planSecurity};
+const plan={id:1,name:'长期积累',accountId:3,accountName:'美股账户',fundingAccountId:4,securityId:8,securityName:'阿里巴巴',symbol:'BABA',currency:'USD',quantity:'2.0000',amount:null,frequency:'MONTHLY',firstDueOn:'2026-09-01',nextDueOn:'2026-10-01',assignedUserId:7,state:'ACTIVE',security:planSecurity};
 const occurrence={...plan,id:11,planId:1,planName:'长期积累',dueOn:'2026-09-01',state:'PENDING',remindAt:null,tradeId:null,actualAmount:null,reason:null};
 const cash={id:4,name:'美元现金',currency:'USD',type:'BANK',balance:'500.00',availableBalance:'500.00',openingConfirmed:true,openingOn:'2026-01-01',archivedAt:null};
 function setup(options:{pending?:boolean;manager?:boolean;fail?:boolean;reversed?:boolean;plan?:any;accounts?:any[];cashAccounts?:any[]}={}){
@@ -27,8 +27,10 @@ it('opening a pending occurrence never posts and requires actual execution ackno
  await user.click(await screen.findByRole('button',{name:'确认已成交'}));
  const dialog=screen.getByRole('dialog');
  expect(within(dialog).getByLabelText('实际成交单价')).toHaveValue('');
+ expect(within(dialog).getByLabelText('实际成交数量')).toHaveValue('2');
  expect(within(dialog).getByRole('button',{name:'确认已成交并记账'})).toBeDisabled();
  expect(calls.filter(c=>c.options?.method)).toHaveLength(0);
+ await user.clear(within(dialog).getByLabelText('实际成交数量'));
  await user.type(within(dialog).getByLabelText('实际成交数量'),'2');
  await user.type(within(dialog).getByLabelText('实际成交单价'),'50');
  await user.click(within(dialog).getByLabelText('我已在券商完成实际买入，以上是成交记录'));
@@ -40,6 +42,7 @@ it('shows a failure without dismissing the confirmation or pretending it posted'
  const {user}=setup({fail:true});
  await user.click(await screen.findByRole('button',{name:'确认已成交'}));
  const dialog=screen.getByRole('dialog');
+ await user.clear(within(dialog).getByLabelText('实际成交数量'));
  await user.type(within(dialog).getByLabelText('实际成交数量'),'2');
  await user.type(within(dialog).getByLabelText('实际成交单价'),'50');
  await user.click(within(dialog).getByLabelText('我已在券商完成实际买入，以上是成交记录'));
@@ -47,19 +50,31 @@ it('shows a failure without dismissing the confirmation or pretending it posted'
  expect(await screen.findByText('余额不足，未记账')).toBeInTheDocument();
  expect(screen.getByRole('dialog')).toBeInTheDocument();
 });
-it('creates an amount and cycle plan only after showing its linked cash account',async()=>{
+it('creates a quantity and cycle plan only after showing its linked cash account',async()=>{
  const {calls,user}=setup({pending:false});
  await user.click(screen.getByRole('button',{name:'新建定投计划'}));
  const dialog=screen.getByRole('dialog');
  await user.click(within(dialog).getByRole('button',{name:'选择阿里巴巴'}));
- await user.type(within(dialog).getByLabelText('每期计划金额'),'100');
+ await user.type(within(dialog).getByLabelText('每期计划股数'),'100');
  await user.selectOptions(within(dialog).getByLabelText('投资账户'),'3');
  await user.selectOptions(within(dialog).getByLabelText('提醒负责人'),'7');
  expect(within(dialog).getByText('美元现金')).toBeInTheDocument();
  expect(within(dialog).getByText('仅创建提醒，不会自动买入或扣款')).toBeInTheDocument();
  await user.click(within(dialog).getByRole('button',{name:'创建提醒计划'}));
  await waitFor(()=>expect(calls.some(c=>c.path==='/api/investment-plans'&&c.options?.method==='POST')).toBe(true));
- expect(calls.find(c=>c.options?.method==='POST')!.options.body).toMatchObject({accountId:3,securityId:8,amount:'100',frequency:'MONTHLY',assignedUserId:7});
+ expect(calls.find(c=>c.options?.method==='POST')!.options.body).toMatchObject({accountId:3,securityId:8,quantity:'100',frequency:'MONTHLY',assignedUserId:7});
+});
+it('requires shares when editing a legacy amount plan without converting money to shares',async()=>{
+ const {user,calls}=setup({pending:false,plan:{...plan,quantity:null,amount:'1000.00',state:'PAUSED'}});
+ await user.click(await screen.findByRole('button',{name:'编辑计划'}));
+ const dialog=screen.getByRole('dialog');
+ expect(within(dialog).getByLabelText('每期计划股数')).toHaveValue('');
+ await user.type(within(dialog).getByLabelText('每期计划股数'),'10');
+ await user.click(within(dialog).getByRole('button',{name:'保存计划'}));
+ await waitFor(()=>expect(calls.some(c=>c.options?.method==='PATCH')).toBe(true));
+ const body=calls.find(c=>c.options?.method==='PATCH')!.options.body;
+ expect(body.quantity).toBe('10');
+ expect(body).not.toHaveProperty('amount');
 });
 it('does not expose accounting or lifecycle mutations to read-only members',async()=>{
  setup({manager:false});
@@ -84,8 +99,8 @@ it('shows reversed trades honestly without offering to confirm the same occurren
 });
 it('skips only the selected occurrence without sending a trade confirmation',async()=>{
  const {user,calls}=setup();
- await user.click(await screen.findByText('更多操作'));
- await user.click(screen.getByRole('button',{name:'跳过本期'}));
+ await user.click(await screen.findByRole('button',{name:'阿里巴巴本期操作'}));
+ await user.click(await screen.findByRole('menuitem',{name:'跳过本期'}));
  const dialog=screen.getByRole('dialog');
  await user.type(within(dialog).getByLabelText('原因（可选）'),'本期暂缓');
  await user.click(within(dialog).getByRole('button',{name:'确认跳过'}));

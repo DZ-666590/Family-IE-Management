@@ -23,6 +23,7 @@ it('previews the actual recurring cash payment before recording today without ch
   expect(taskActions?.querySelectorAll('button')).toHaveLength(2);
   expect(screen.getByRole('heading', { name: '支出分类' })).toBeInTheDocument();
   await waitFor(() => expect(container.querySelector('.recurring-category-ring')).not.toBeNull());
+  expect(screen.getByRole('img', { name: '支出分类：水费 100.0%' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: '月度计划现金流' })).not.toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: '执行节奏' })).not.toBeInTheDocument();
   expect(within(taskList!).queryByText('支出', { exact: true })).not.toBeInTheDocument();
@@ -40,6 +41,23 @@ it('previews the actual recurring cash payment before recording today without ch
   expect(await screen.findByText('预计余额 ¥0.05')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: '记录本次账单' }));
   expect(request).toHaveBeenCalledWith('/api/recurring-occurrences/3/confirm', { method: 'POST', body: { amount: '0.25' } });
+});
+
+it('keeps all expense categories in the denominator and groups the remaining categories', async () => {
+  const rules = Array.from({ length: 7 }, (_, index) => ({
+    id: index + 1, categoryId: index + 1, categoryName: `分类${index + 1}`,
+    kind: 'expense', amount: index === 0 ? '40.00' : '10.00',
+    active: true, paused: false, scheduleType: 'MONTHLY', intervalValue: 1,
+  }));
+  const page = (items: unknown[]) => ({ items, page: 0, size: 50, totalElements: items.length, totalPages: 1, hasNext: false });
+  const request = vi.fn(async (path: string) => {
+    if (path.startsWith('/api/recurring-rules')) return page(rules);
+    return path === '/api/members' ? [] : page([]);
+  });
+  render(<QueryClientProvider client={new QueryClient()}><RecurringPage request={request as RequestFn} role="OWNER" userId={7} /></QueryClientProvider>);
+
+  const chart = await screen.findByRole('img', { name: '支出分类：分类1 40.0%，分类2 10.0%，分类3 10.0%，分类4 10.0%，分类5 10.0%，其他 20.0%' });
+  expect(chart).toBeInTheDocument();
 });
 
 it('preselects sole eligible options and shows rules after saving while allowing month-end dates', async () => {

@@ -25,6 +25,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -57,6 +59,7 @@ class RecurringConfirmationApiTest {
     @Autowired FamilyMemberRepository members;
     @Autowired AppUserRepository users;
     @Autowired JdbcTemplate jdbc;
+    @Autowired com.familyfinance.accounting.AccountingRequests accountingRequests;
 
     @Test
     void assignedMemberConfirmationIsIdempotentAndOnlyThenCountsTowardBudget() throws Exception {
@@ -238,11 +241,58 @@ class RecurringConfirmationApiTest {
                 TransactionSourceType.RECURRING, occurrence.getId()).orElseThrow();
         assertThat(transaction.getAmountCents()).isEqualTo(3_550L);
         assertThat(occurrence.getRule().getAmountCents()).isEqualTo(1_200L);
+
+        long transactionId = transaction.getId();
+        confirm(memberSession, occurrence.getId(), "35.5")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.confirmedTransactionId").value(transactionId));
+        confirm(memberSession, occurrence.getId(), "35.50").andExpect(status().isOk());
+        confirm(memberSession, occurrence.getId()).andExpect(status().isOk());
+        Long balance = jdbc.queryForObject("select balance_cents from ledger_accounts where account_code=? and household_id=?",
+                Long.class, "CASH:" + fixture.accountId(), memberUser.getHousehold().getId());
+        confirm(memberSession, occurrence.getId(), "50.00")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_REUSED"));
+        assertThat(transactions.countBySourceTypeAndSourceId(TransactionSourceType.RECURRING, occurrence.getId()))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("select amount_cents from financial_transactions where id=?", Long.class, transactionId))
+                .isEqualTo(3_550L);
+        assertThat(jdbc.queryForObject("select balance_cents from ledger_accounts where account_code=? and household_id=?",
+                Long.class, "CASH:" + fixture.accountId(), memberUser.getHousehold().getId())).isEqualTo(balance);
     }
 
     private org.springframework.test.web.servlet.ResultActions confirm(MockHttpSession session, long id)
             throws Exception {
         return mvc.perform(post("/api/recurring-occurrences/{id}/confirm", id).session(session).with(csrf()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void historicalReceiptsRejectChangedAmountsWithoutLosingBodylessRetries(boolean pending) throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        MockHttpSession assigned = join(owner, "recurring-historical@example.com");
+        AppUser user = users.findByEmail("recurring-historical@example.com").orElseThrow();
+        Fixture fixture = fixture(user);
+        long ruleId = createRule(owner, fixture, "12.00");
+        recurringService.generateDueOccurrences();
+        long occurrenceId = occurrences.findByRuleIdOrderByDueOnAscIdAsc(ruleId).get(0).getId();
+        long transactionId = data(confirm(assigned, occurrenceId).andExpect(status().isOk()).andReturn())
+                .path("confirmedTransactionId").asLong();
+        jdbc.update("update accounting_commands set request_digest=? where household_id=? and request_key=?",
+                accountingRequests.digest("RECURRING_CONFIRM", user.getId(), occurrenceId),
+                user.getHousehold().getId(), "recurring:" + occurrenceId);
+        if (pending) jdbc.update("update recurring_occurrences set status='PENDING',confirmed_transaction_id=null where id=?", occurrenceId);
+
+        confirm(assigned, occurrenceId, "35.50")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_REUSED"));
+        assertThat(jdbc.queryForObject("select amount_cents from financial_transactions where id=?", Long.class, transactionId))
+                .isEqualTo(1_200L);
+        confirm(assigned, occurrenceId, "12").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.confirmedTransactionId").value(transactionId));
+        confirm(assigned, occurrenceId).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.confirmedTransactionId").value(transactionId));
+        assertThat(transactions.countBySourceTypeAndSourceId(TransactionSourceType.RECURRING, occurrenceId)).isEqualTo(1);
     }
 
     private org.springframework.test.web.servlet.ResultActions confirm(
