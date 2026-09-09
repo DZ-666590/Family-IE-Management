@@ -19,7 +19,7 @@
 .reference-quote p { margin: 5px 0 0; color: var(--inv-muted); line-height: 1.5; }
 .stock-picker-status { color: var(--inv-muted); min-height: 23px; font-size:var(--inv-font-meta); line-height: 1.6; }
 .stock-picker-updated { display: block; margin-top: 2px; color: var(--inv-muted); }
-.stock-picker-warning { display: block; color: #a66822; }
+.stock-picker-warning { display: block; color: var(--inv-warning); }
 .stock-picker-warning .text-action { margin-left: 8px; }
 .investment-setup-prerequisite { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; color: var(--inv-muted); font-size:var(--inv-font-body); }
 .position-sale-action { align-self: flex-start; }
@@ -33,7 +33,7 @@
 .investment-context-actions .semi-button { min-height: 40px; padding-inline: 22px; }
 .investment-market-workspace .stock-chart { border-top: 1px solid var(--inv-border); padding-top: 24px; margin-bottom: 28px; }
 .investment-market-empty { min-height: 200px; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--inv-muted); }
-.investment-market-empty svg { color: var(--inv-accent); }
+.investment-market-empty svg { color: var(--inv-muted); }
 .investment-market-empty p { font-size:var(--inv-font-body); }
 .investment-trade-form .investment-direction { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--inv-muted-surface); border-radius: 10px; }
 .investment-direction button { border: 0; border-radius: 7px; min-height: 40px; background: transparent; color: var(--inv-muted); font: inherit; cursor: pointer; }

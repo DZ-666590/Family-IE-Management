@@ -18,10 +18,12 @@
 .investment-menu {border-radius:var(--inv-radius-control);}.investment-menu .semi-dropdown-item {font-size:var(--inv-font-body);min-height:38px;}
 .investment-ui .text-action,.investment-dialog .text-action {font-size:var(--inv-font-body);font-weight:500;}
 .investment-ui .segmented-tabs button,.investment-dialog .market-tabs button {font-size:var(--inv-font-body);}
-.investment-unit {font-size:var(--inv-font-meta);font-weight:400;color:var(--inv-muted);margin-left:8px;white-space:nowrap;}
+.investment-ui .investment-unit {font-size:var(--inv-font-meta);font-weight:400;color:var(--inv-muted);margin-left:8px;white-space:nowrap;}
 .investment-ui .page-heading h1 {font-size:var(--inv-font-title);font-weight:600;}
 .investment-eye {border:0;background:none;color:var(--inv-muted);cursor:pointer;display:inline-flex;padding:4px;}
-.investment-ui .investment-summary__label {flex-wrap:wrap;}
+.investment-ui .investment-summary__label {flex-wrap:wrap;font-size:var(--inv-font-body);font-weight:500;color:var(--inv-muted);}
+.investment-ui .investment-summary small {font-size:var(--inv-font-meta);color:var(--inv-muted);}
+.investment-ui .investment-hero .investment-summary>div+div>strong {font-size:var(--inv-font-amount);}
 .investment-dialog .investment-modal-summary .payment-preview>div:nth-child(3)>strong {font-size:var(--inv-font-amount);}
 .investment-dialog .investment-reference-compact strong {font-size:var(--inv-font-section);}
 .investment-menu .semi-dropdown-item {max-width:320px;white-space:normal;overflow-wrap:anywhere;}
