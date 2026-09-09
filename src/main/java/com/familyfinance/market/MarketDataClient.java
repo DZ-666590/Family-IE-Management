@@ -43,6 +43,16 @@ public class MarketDataClient {
         return enabled;
     }
 
+    public SpotBatchResponse spot(String market, java.util.List<String> symbols) {
+        requireEnabled();
+        if(!java.util.Set.of("CN","HK","US").contains(market)||symbols.isEmpty()||symbols.size()>50)
+            throw new IllegalArgumentException("invalid quote batch");
+        try {
+            return client.get().uri(builder->builder.path("/spot").queryParam("market",market)
+                    .queryParam("symbols",String.join(",",symbols)).build()).retrieve().body(SpotBatchResponse.class);
+        } catch(RuntimeException failure) { throw new MarketProviderException("SPOT_UNAVAILABLE",false); }
+    }
+
     public MarketDirectoryResponse directory() {
         requireEnabled();
         return get("/directory", MarketDirectoryResponse.class);

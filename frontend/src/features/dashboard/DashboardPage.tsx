@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowDownLeft, ArrowUpRight, ArrowRight, Wallet, Bell, TrendingUp } from 'lucide-react';
 import type { Analysis, Dashboard, DebtAnalysis, HouseholdRole, NetWorth, NotificationPage, Portfolio, Transaction } from '../../api/contracts';
 import { localYearMonth } from '../../shared/runtime';
+import { DateField } from '../../shared/DateField';
 import { DataPanel, Drawer, PageScaffold, QueryState, StatusTag, dateText, money, type RequestFn } from '../common';
 import { FlowChart, HistoryChart, historyBasisLabel, historyValuationLabel } from '../visuals';
 import { ApiError } from '../../api/client';
@@ -27,7 +28,7 @@ export function DashboardPage({ request, role }: { request: RequestFn; role: Hou
     </section>
   </PageScaffold>;
   return <PageScaffold title="家庭总览">
-    <div className="overview-topline"><label className="date-control">收支月份<input aria-label="收支月份" type="month" value={month} onChange={e => { if(e.target.value) setMonth(e.target.value); }} /></label></div>
+    <div className="overview-topline"><label className="date-control">收支月份<DateField aria-label="收支月份" mode="month" allowClear={false} value={month} onChange={e => { if(e.target.value) setMonth(e.target.value); }} /></label></div>
     <div className="overview-hero">
       <section className="wealth-panel" aria-label="当前家庭净资产">
         <div className="wealth-heading"><span className="muted"><Wallet size={17} aria-hidden="true"/>家庭净资产</span><span className="quiet-badge">当前</span></div>

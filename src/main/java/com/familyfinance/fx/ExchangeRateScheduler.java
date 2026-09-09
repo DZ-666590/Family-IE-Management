@@ -9,14 +9,16 @@ import org.springframework.stereotype.Component;
 class ExchangeRateScheduler {
     private final ExchangeRateService rates;
     private final FxJournalRates journals;
-    ExchangeRateScheduler(ExchangeRateService rates,FxJournalRates journals){this.rates=rates;this.journals=journals;}
+    private final ExchangeRateHistory history;
+    ExchangeRateScheduler(ExchangeRateService rates,FxJournalRates journals,ExchangeRateHistory history){this.rates=rates;this.journals=journals;this.history=history;}
     // Retry once on the next hour; service-level cooldown/concurrency still applies.
     @Scheduled(cron="0 10 23,0 * * *",zone="Asia/Shanghai")
-    void refresh(){rates.refresh(null);}
+    void refresh(){rates.refresh(null);history.acquire(rates.today().minusDays(89),rates.today());}
     @Scheduled(fixedDelay=60000)
-    void backfill(){journals.backfill();}
+    void backfill(){journals.backfill();history.acquirePending();}
     @Scheduled(initialDelay=5000,fixedDelay=3600000)
     void initializeMissing(){
         if(rates.table(null).rows().stream().anyMatch(row->row.cnyPerUnit()==null))rates.refresh(null);
+        history.acquire(rates.today().minusDays(89),rates.today());
     }
 }

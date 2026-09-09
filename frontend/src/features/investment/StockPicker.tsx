@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useId } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Select, { type OptionProps } from '@douyinfe/semi-ui/lib/es/select';
 import type { Page, Security } from '../../api/contracts';
@@ -6,6 +6,7 @@ import { dateText, type RequestFn } from '../common';
 import './stock-picker.scss';
 import { StockLabel } from './StockLabel';
 import { useStockDropdown } from './useStockDropdown';
+import { useStockSearch } from './useStockSearch';
 
 type SecurityReference = Pick<Security, 'id' | 'tsCode' | 'name'> & Partial<Pick<Security, 'market'>>;
 type CatalogStatus = { state: string; count: number; updatedAt?: string; error?: string };
@@ -28,11 +29,9 @@ export function StockPicker({ request, value, onChange, disabled = false }: {
   request: RequestFn; value: SecurityReference | null; onChange: (value: Security | null) => void; disabled?: boolean;
 }) {
   const id = useId();
-  const [query, setQuery] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const {query,setQuery,debounced,composing,compositionProps} = useStockSearch();
   const pickerId = `${id}-picker`;
   const { selectRef, controlWidth, setMenuOpen } = useStockDropdown(pickerId);
-  useEffect(() => { const timer = setTimeout(() => setDebounced(query.trim()), 250); return () => clearTimeout(timer); }, [query]);
   const catalog = useQuery({ queryKey: ['security-catalog'], queryFn: () => request<CatalogStatus>('/api/securities/catalog-status'), staleTime: 60_000, enabled: !disabled });
   const catalogAvailable = (catalog.data?.count ?? 0) > 0
     && (catalog.data?.state === 'READY' || catalog.data?.state === 'ERROR');
@@ -52,16 +51,17 @@ export function StockPicker({ request, value, onChange, disabled = false }: {
                 : search.data.hasNext ? <span>显示前 20 条，请输入更完整的代码或名称。</span>
                   : null;
 
-  return <div className="stock-picker" id={pickerId} style={{ position: 'relative' }}>
+  return <div className="stock-picker" id={pickerId} style={{ position: 'relative' }} {...compositionProps}>
     <span id={`${id}-label`} className="stock-picker__label">证券</span>
     <Select ref={selectRef} className="stock-picker__select" data-field="securityId" aria-labelledby={`${id}-label`} aria-required filter remote onChangeWithObject
       disabled={disabled || !catalogAvailable} value={value ? { value: value.id, label: renderSecurityLabel(value), security: value } : undefined}
-      placeholder="搜索股票代码或名称，直接选择"
+      inputProps={{maxLength:80}} placeholder="搜索股票代码或名称，直接选择"
       style={{ width: '100%' }} loading={waiting && catalogAvailable} dropdownMatchSelectWidth dropdownClassName="stock-picker-dropdown" dropdownStyle={{ width: controlWidth || '100%', minWidth: 0, boxSizing: 'border-box' }} rePosKey={controlWidth}
       optionList={options.map(item => ({ value: item.id, label: renderSecurityLabel(item), security: item }))}
       onSearch={setQuery}
       onDropdownVisibleChange={setMenuOpen}
       onSelect={(_next, option) => {
+        if (composing) return;
         const picked = option.security as Security | undefined;
         if (!picked || picked.id === value?.id) return;
         onChange(picked);

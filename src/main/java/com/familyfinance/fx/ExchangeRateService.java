@@ -13,12 +13,14 @@ public class ExchangeRateService {
     private final ExchangeRateStore store;
     private final Clock clock;
     @org.springframework.beans.factory.annotation.Autowired(required=false) private FxJournalRates journalRates;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private ExchangeRateHistory historicalRates;
     private final ReentrantLock refreshLock=new ReentrantLock();
     private volatile Instant lastAttempt=Instant.MIN;
     private volatile String refreshState="IDLE";
     public ExchangeRateService(ExchangeRateProvider provider,ExchangeRateStore store,Clock clock){this.provider=provider;this.store=store;this.clock=clock;}
     public record Row(String currency,String cnyPerUnit,LocalDate effectiveOn,Instant fetchedAt,String source,String state,Long batchId){}
     public record Table(LocalDate asOf,List<Row> rows,String refreshState){}
+    public record History(LocalDate from,LocalDate to,List<Row> rows,String state,Instant retryAfter,String detail){}
     public LocalDate today(){return LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai")));}
     public Table table(LocalDate asOf){asOf=validDate(asOf);return table(asOf,refreshState);}
     private Table table(LocalDate day,String state) {
@@ -39,6 +41,12 @@ public class ExchangeRateService {
             rows.add(new Row(currency,snap.rates().get(currency).toPlainString(),snap.effectiveOn(),snap.fetchedAt(),snap.source(),"HISTORICAL",snap.id()));
         return List.copyOf(rows);
     }
+    public History historyView(LocalDate from,LocalDate to) {
+        from=validDate(from);to=validDate(to);
+        if(from.isAfter(to)||ChronoUnit.DAYS.between(from,to)>89)throw invalid("历史查询范围最多90天");
+        var progress=historicalRates==null?new ExchangeRateHistory.Progress("UNAVAILABLE",null,"历史采集不可用"):historicalRates.acquire(from,to);
+        return new History(from,to,history(from,to),progress.state(),progress.retryAfter(),progress.detail());
+    }
     public Table refresh(LocalDate asOf) {
         LocalDate day=validDate(asOf);
         if(!refreshLock.tryLock())return table(day,"UPDATING");
@@ -49,7 +57,7 @@ public class ExchangeRateService {
             try {
                 var batch=provider.fetch(day);
                 if(batch.effectiveOn().isAfter(day))throw new IllegalArgumentException("Future provider date");
-                store.save(batch,clock.instant());
+                store.saveResolved(day,batch,clock.instant());
                 if(journalRates!=null)journalRates.backfill();
                 refreshState="SUCCESS";
             }catch(RuntimeException failure){refreshState="FAILED";}

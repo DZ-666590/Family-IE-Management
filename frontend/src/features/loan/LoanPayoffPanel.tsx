@@ -4,6 +4,7 @@ import Button from '@douyinfe/semi-ui/lib/es/button';
 import type { Account, Loan, LoanPayoffQuote, LoanPrepayment } from '../../api/contracts';
 import { ApiError } from '../../api/client';
 import { businessDate, newIdempotencyKey } from '../../shared/runtime';
+import { DateField } from '../../shared/DateField';
 import { AccountOptions, PaymentPreview, useFundsRefresh } from '../accounting';
 import { Drawer, FormError, money, type RequestFn } from '../common';
 
@@ -44,7 +45,7 @@ export function LoanPayoffPanel({ loan, accounts, request, onClose, onPaid }: { 
   <form className="feature-form" onSubmit={event => { event.preventDefault(); confirm(); }}>
    <FormError error={submit.error ?? quote.error} />
    <fieldset disabled={submit.isPending || attempt !== null} className="feature-form">
-    <label>实际还款日期<input required name="paidOn" type="date" min={loan.lastPaymentOn ?? loan.accountingOn ?? undefined} max={businessDate()} value={draft.paidOn} onChange={e => update('paidOn', e.target.value)} /></label>
+    <label>实际还款日期<DateField required name="paidOn" min={loan.lastPaymentOn ?? loan.accountingOn ?? undefined} max={businessDate()} value={draft.paidOn} onChange={e => update('paidOn', e.target.value)} /></label>
     <label>本次付款账户<select required name="paymentAccountId" value={draft.paymentAccountId} onChange={e => update('paymentAccountId', e.target.value)}><option value="">请选择</option><AccountOptions accounts={(accounts).filter(a=>(a.currency??'CNY')==='CNY')} /></select></label>
     <label>本次实际利息（选填）<input name="interestAmount" inputMode="decimal" placeholder="留空使用到期未付利息" value={draft.interestAmount} onChange={e => update('interestAmount', e.target.value)} /></label>
    </fieldset>

@@ -19,6 +19,25 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class PortfolioServiceTest {
+    @Test void intradayProjectionDoesNotRewriteCostOrDailyHistoryAndRespectsManualPrices(){
+        var trades=mock(InvestmentTradeRepository.class);var prices=mock(QuoteRefreshService.class);
+        var account=account(3L,"证券账户");var security=security(7L,"000001.SZ","平安银行");
+        when(security.isCatalogVerified()).thenReturn(true);
+        var history=List.of(trade(1L,account,security,InvestmentTradeType.BUY,"1.0000",1000L,0L,"2026-09-01"));
+        when(trades.historyAsOf(1L,DAY)).thenReturn(history);
+        var close=new MarketPriceResponse(7L,"000001.SZ","平安银行","8.00",QuoteSource.BAOSTOCK,DAY.minusDays(1),CLOCK.instant(),false,null);
+        when(prices.effectivePriceAsOf(1L,security,DAY)).thenReturn(close);
+        var service=new PortfolioService(trades,prices,reporting(history),CLOCK);
+        var spot=new MarketPriceResponse(7L,"000001.SZ","平安银行","12.00",QuoteSource.TENCENT,DAY,CLOCK.instant(),false,null);
+        var live=service.portfolioWithQuotes(1L,java.util.Map.of(7L,spot));
+        assertThat(live.positions().get(0).marketValue()).isEqualTo("12.00");
+        assertThat(live.positions().get(0).cost()).isEqualTo("10.00");
+        assertThat(service.portfolio(1L,DAY).positions().get(0).marketValue()).isEqualTo("8.00");
+        when(prices.effectivePriceAsOf(1L,security,DAY)).thenReturn(new MarketPriceResponse(7L,"000001.SZ","平安银行","8.00",QuoteSource.BAOSTOCK,DAY,CLOCK.instant(),false,null));
+        assertThat(service.portfolioWithQuotes(1L,java.util.Map.of(7L,spot)).positions().get(0).price()).isEqualTo("8.00");
+        when(prices.effectivePriceAsOf(1L,security,DAY)).thenReturn(new MarketPriceResponse(7L,"000001.SZ","平安银行","9.00",QuoteSource.MANUAL,DAY,null,false,null));
+        assertThat(service.portfolioWithQuotes(1L,java.util.Map.of(7L,spot)).positions().get(0).price()).isEqualTo("9.00");
+    }
     private static final java.time.Clock CLOCK=java.time.Clock.fixed(Instant.parse("2026-09-07T00:00:00Z"),java.time.ZoneOffset.UTC);
     private static final LocalDate DAY=LocalDate.of(2026,9,7);
 

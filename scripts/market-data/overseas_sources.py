@@ -11,6 +11,11 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
+from collections import OrderedDict
+from datetime import datetime, time, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 
 
 HKEX_ENGLISH_URL = "https://www.hkex.com.hk/eng/services/trading/securities/securitieslists/ListOfSecurities.xlsx"
@@ -132,6 +137,7 @@ def build_hk_directory(english_rows, chinese_rows=None, min_items=1000):
         by_symbol[symbol] = {
             "symbol": symbol,
             "name": chinese_names.get(symbol, english_name),
+            "search_names": list(dict.fromkeys([english_name, chinese_names.get(symbol, english_name)])),
             "market": "HK",
             "currency": currency,
             "exchange": "HKEX",
@@ -346,6 +352,177 @@ def run_candle_worker(market, symbol, timeout_seconds=20):
     if not isinstance(payload, dict) or not isinstance(payload.get("rows"), list):
         raise RuntimeError("SINA worker returned invalid payload")
     return payload["rows"]
+
+
+SPOT_ZONES = {'CN': 'Asia/Shanghai', 'HK': 'Asia/Hong_Kong', 'US': 'America/New_York'}
+SPOT_CURRENCIES = {'CN': 'CNY', 'HK': 'HKD', 'US': 'USD'}
+
+
+def spot_symbols(market, symbols):
+    if market not in SPOT_ZONES or not isinstance(symbols, list) or not 1 <= len(symbols) <= 50:
+        raise ValueError('expected CN/HK/US and 1-50 symbols')
+    pattern = r'[0-9]{6}\.(SH|SZ|BJ)' if market == 'CN' else r'[0-9]{5}' if market == 'HK' else r'[A-Z][A-Z0-9.-]{0,9}'
+    if any(not isinstance(s, str) or not re.fullmatch(pattern, s) for s in symbols):
+        raise ValueError('invalid spot symbol')
+    return list(dict.fromkeys(symbols))
+
+
+def spot_key(market, symbol):
+    return symbol[-2:].lower() + symbol[:6] if market == 'CN' else ('hk' if market == 'HK' else 'us') + symbol
+
+
+def completed_market_day(now, market):
+    local = now.astimezone(ZoneInfo(SPOT_ZONES[market]))
+    # Conservative publication buffer; provider must still return a real bar for this date.
+    day = local.date() if local.time() >= time(17, 30) else local.date() - timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
+
+
+def candle_cache_current(fetched, as_of, now, market, ttl):
+    target=completed_market_day(now,market)
+    budget=min(ttl,900) if not as_of or as_of < target.isoformat() else ttl
+    return (now-fetched).total_seconds()<budget and completed_market_day(fetched,market)==target
+
+
+def before_latest_close(stamp, now, market):
+    zone=ZoneInfo(SPOT_ZONES[market]);local=now.astimezone(zone);quote=stamp.astimezone(zone)
+    close=time(15) if market=='CN' else time(16)
+    day=local.date() if local.time()>=close else local.date()-timedelta(days=1)
+    while day.weekday()>=5: day-=timedelta(days=1)
+    return quote.date()<day or (quote.date()==day and quote.time()<close)
+
+
+def spot_session(now, market):
+    local = now.astimezone(ZoneInfo(SPOT_ZONES[market]))
+    windows = [(time(9, 30), time(16, 30))] if market == 'US' else ([(time(9, 30), time(11, 30)), (time(13), time(15, 30))] if market == 'CN' else [(time(9, 30), time(12)), (time(13), time(16, 30))])
+    if local.weekday() < 5 and any(start <= local.time() < end for start, end in windows):
+        return 'TRADING_HOURS', 60
+    for offset in range(8):
+        day = local.date() + timedelta(days=offset)
+        if day.weekday() >= 5:
+            continue
+        for start, _ in windows:
+            candidate = datetime.combine(day, start, tzinfo=local.tzinfo)
+            if candidate > local:
+                return 'CLOSED_HOURS', max(60, int((candidate.astimezone(timezone.utc) - now).total_seconds()))
+    return 'CLOSED_HOURS', 86400
+
+
+def fetch_spot_text(market, symbols):
+    import requests
+    symbols = spot_symbols(market, symbols)
+    url = 'https://qt.gtimg.cn/q=' + ','.join(spot_key(market, s) for s in symbols)
+    with requests.get(url, timeout=(3, 7), stream=True, allow_redirects=False) as response:
+        if response.status_code != 200:
+            raise RuntimeError('spot provider unavailable')
+        payload = bytearray()
+        for chunk in response.iter_content(8192):
+            payload.extend(chunk)
+            if len(payload) > 262144:
+                raise ValueError('spot response too large')
+    return payload.decode('gb18030')
+
+
+def parse_spot(raw, market, symbols, now):
+    symbols = spot_symbols(market, symbols)
+    if not isinstance(raw, str) or len(raw) > 262144 or now.tzinfo is None:
+        raise ValueError('invalid spot response')
+    expected = {spot_key(market, s): s for s in symbols}
+    result, seen = {}, set()
+    for key, body in re.findall(r'v_([A-Za-z0-9_.-]+)="([^"\r\n]*)";?', raw):
+        if key not in expected:
+            continue
+        symbol = expected[key]
+        if symbol in seen:
+            raise ValueError('duplicate spot identity')
+        seen.add(symbol)
+        fields = body.split('~')
+        try:
+            expected_code = symbol[:6] if market == 'CN' else symbol
+            allowed_codes = {expected_code} if market != 'US' else {expected_code, expected_code+'.OQ', expected_code+'.N', expected_code+'.A'}
+            marker={'SH':'1','SZ':'51','BJ':'62'}[symbol[-2:]] if market=='CN' else {'HK':'100','US':'200'}[market]
+            if len(fields) < 36 or fields[2] not in allowed_codes or fields[0] != marker or SPOT_CURRENCIES[market] not in fields:
+                continue
+            price = Decimal(fields[3])
+            if not price.is_finite() or not 0 < price <= Decimal('1000000000000') or price.as_tuple().exponent < -6:
+                continue
+            fmt = '%Y%m%d%H%M%S' if market == 'CN' else '%Y/%m/%d %H:%M:%S' if market == 'HK' else '%Y-%m-%d %H:%M:%S'
+            stamp = datetime.strptime(fields[30], fmt).replace(tzinfo=ZoneInfo(SPOT_ZONES[market])).astimezone(timezone.utc)
+            if stamp > now + timedelta(seconds=120) or now - stamp > timedelta(days=7):
+                continue
+            result[symbol] = {'symbol':symbol,'market':market,'currency':SPOT_CURRENCIES[market], 'price':format(price,'f'),
+                              'quotedAt':stamp.isoformat().replace('+00:00','Z'),'fetchedAt':now.isoformat().replace('+00:00','Z'),
+                              'source':'TENCENT_PUBLIC','delayMinutes':None}
+        except (ValueError, InvalidOperation, OverflowError):
+            continue
+    return result
+
+
+class SpotQuoteService:
+    """Read-only public quotes; shared bounded cache, no account/household data."""
+    def __init__(self, loader, clock=None):
+        self._loader = loader
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._cache, self._attempts = OrderedDict(), OrderedDict()
+        self._lock = threading.Lock()
+        self._market_locks = {m:threading.Lock() for m in SPOT_ZONES}
+
+    def quotes(self, market, symbols):
+        symbols = spot_symbols(market, symbols)
+        now = self._clock()
+        state, interval = spot_session(now, market)
+        due = []
+        with self._lock:
+            for symbol in symbols:
+                key = (market, symbol)
+                cached = self._cache.get(key)
+                attempt = self._attempts.get(key)
+                if (not cached or cached[1] <= now) and (not attempt or (now-attempt).total_seconds() >= 60):
+                    due.append(symbol)
+        if due and self._market_locks[market].acquire(timeout=0.2):
+            try:
+                with self._lock:
+                    due = [s for s in due if not self._attempts.get((market,s)) or (now-self._attempts[(market,s)]).total_seconds() >= 60]
+                    for symbol in due:
+                        self._attempts[(market,symbol)] = now
+                    while len(self._attempts) > 4096: self._attempts.popitem(last=False)
+                if due:
+                    try:
+                        received = parse_spot(self._loader(market,due),market,due,self._clock())
+                    except Exception:
+                        received = {}
+                    with self._lock:
+                        for symbol in due:
+                            key=(market,symbol)
+                            if symbol in received:
+                                stamp=datetime.fromisoformat(received[symbol]['quotedAt'].replace('Z','+00:00'))
+                                expiry=min(interval,900) if before_latest_close(stamp,now,market) else interval
+                                self._cache[key] = (received[symbol], now+timedelta(seconds=expiry), False)
+                                self._cache.move_to_end(key)
+                            elif key in self._cache:
+                                previous=self._cache[key]
+                                self._cache[key]=(previous[0],now+timedelta(seconds=60),True)
+                        while len(self._cache) > 2048: self._cache.popitem(last=False)
+            finally:
+                self._market_locks[market].release()
+        quotes=[]
+        with self._lock:
+            for symbol in symbols:
+                cached=self._cache.get((market,symbol))
+                quote=dict(cached[0]) if cached else {'symbol':symbol,'market':market,'currency':SPOT_CURRENCIES[market], 'price':None,'quotedAt':None,'fetchedAt':None,'source':'TENCENT_PUBLIC','delayMinutes':None}
+                age = max(0,int((now-datetime.fromisoformat(quote['quotedAt'].replace('Z','+00:00'))).total_seconds())) if quote['quotedAt'] else None
+                if age is not None and age > 604800: quote['price']=None
+                old_close=quote['quotedAt'] and before_latest_close(datetime.fromisoformat(quote['quotedAt'].replace('Z','+00:00')),now,market)
+                quote['status']='UNAVAILABLE' if quote['price'] is None else 'STALE' if cached[2] or old_close else 'DELAYED' if state=='TRADING_HOURS' and age>180 else 'OK'
+                quote['ageSeconds']=age
+                quotes.append(quote)
+        # Regular hours are not a holiday calendar. Old source timestamps remain explicit.
+        if any(q['status']=='UNAVAILABLE' for q in quotes): interval=min(interval,60)
+        elif any(q['status']=='STALE' for q in quotes): interval=min(interval,900)
+        elif state=='TRADING_HOURS' and quotes and all(q['ageSeconds'] is None or q['ageSeconds']>21600 for q in quotes): interval=300
+        return {'quotes':quotes,'marketState':state,'nextRefreshSeconds':interval}
 
 
 def main():

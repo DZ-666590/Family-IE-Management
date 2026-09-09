@@ -41,6 +41,14 @@ public class PortfolioService {
     }
 
     public PortfolioResponse portfolio(long householdId,java.time.LocalDate asOf) {
+        return calculate(householdId,asOf,Map.of());
+    }
+
+    public PortfolioResponse portfolioWithQuotes(long householdId,Map<Long,MarketPriceResponse> intraday){
+        return calculate(householdId,java.time.LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai"))),intraday);
+    }
+
+    private PortfolioResponse calculate(long householdId,java.time.LocalDate asOf,Map<Long,MarketPriceResponse> intraday){
         ledger.requireComplete(householdId);
         if(asOf==null||asOf.getYear()<1000||asOf.isAfter(java.time.LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai")))))
             throw new com.familyfinance.shared.RequestValidationException(java.util.Map.of("asOf","截止日期必须在1000年至今天之间"));
@@ -55,7 +63,14 @@ public class PortfolioService {
         List<CalculatedPosition> calculated = new ArrayList<>();
         for (List<InvestmentTrade> history : grouped.values()) {
             InvestmentTrade first = history.get(0);
-            MarketPriceResponse price = effective.computeIfAbsent(first.getSecurity().getId(),id->prices.effectivePriceAsOf(householdId,first.getSecurity(),asOf));
+            MarketPriceResponse price = effective.computeIfAbsent(first.getSecurity().getId(),id->{
+                var close=prices.effectivePriceAsOf(householdId,first.getSecurity(),asOf);
+                if(close!=null&&close.source()==com.familyfinance.market.QuoteSource.MANUAL)return close;
+                var spot=intraday.get(id);
+                if(spot!=null&&close!=null&&close.tradeDate()!=null&&spot.tradeDate()!=null
+                        &&!spot.tradeDate().isAfter(close.tradeDate()))return close;
+                return first.getSecurity().isCatalogVerified()?intraday.getOrDefault(id,close):close;
+            });
             BigDecimal priceAmount = price == null || price.price() == null ? null : new BigDecimal(price.price());
             InvestmentPosition position = calculator.calculateAtPrice(history.stream()
                     .map(InvestmentTrade::toPositionTrade).toList(), priceAmount);
@@ -68,8 +83,10 @@ public class PortfolioService {
             var base=baseCalculator.calculate(history.stream().map(t->new com.familyfinance.investment.BasePositionCalculator.Trade(t.toPositionTrade(),
                     currency.equals("CNY")?BigDecimal.ONE:fx.sourceRate(householdId,"INVESTMENT_TRADE",t.getId(),currency))).toList(),baseMarket);
             var rate=currency.equals("CNY")?null:fx.reference(currency,asOf);
-            calculated.add(new CalculatedPosition(first, position, price,base,baseMarket,estimated,rate==null?null:rate.effectiveOn(),
-                    estimated==null?"MISSING":rate!=null&&java.time.temporal.ChronoUnit.DAYS.between(rate.effectiveOn(),asOf)>4?"STALE":"READY"));
+            var estimateRate=currency.equals("CNY")||!isToday(asOf)?null:fx.valuationReference(currency,asOf);
+            var fxDate=estimateRate!=null?estimateRate.effectiveOn():rate==null?null:rate.effectiveOn();
+            calculated.add(new CalculatedPosition(first, position, price,base,baseMarket,estimated,fxDate,
+                    estimated==null?"MISSING":estimateRate!=null?estimateRate.state():rate!=null&&java.time.temporal.ChronoUnit.DAYS.between(rate.effectiveOn(),asOf)>4?"STALE":"READY"));
         }
         calculated.sort(Comparator.comparing((CalculatedPosition value) -> value.trade().getAccount().getName())
                 .thenComparing(value -> value.trade().getSecurity().getTsCode())
@@ -109,9 +126,10 @@ public class PortfolioService {
     private record PositionKey(long accountId, long securityId) { }
     private Long convert(String currency,long amount,java.time.LocalDate day){
         if(currency.equals("CNY"))return amount;
-        BigDecimal result=fx.convert(currency,BigDecimal.valueOf(amount,2),day);
+        BigDecimal result=isToday(day)?fx.valuationConvert(currency,BigDecimal.valueOf(amount,2),day):fx.convert(currency,BigDecimal.valueOf(amount,2),day);
         return result==null?null:result.movePointRight(2).longValueExact();
     }
+    private boolean isToday(java.time.LocalDate day){return day.equals(java.time.LocalDate.now(clock.withZone(java.time.ZoneId.of("Asia/Shanghai"))));}
     private record CalculatedPosition(InvestmentTrade trade,InvestmentPosition position,MarketPriceResponse price,
             com.familyfinance.investment.BasePositionCalculator.Result base,Long baseMarket,Long estimated,java.time.LocalDate fxDate,String fxState) {}
     private record Totals(Long cost,Long realized,Long marketValue,Long unrealized,int unpriced,Long estimated,int missingFx,long knownEstimated) {

@@ -24,7 +24,7 @@ it('shares one unadjusted request between reference price and initial chart inst
   render(<QueryClientProvider client={new QueryClient({defaultOptions: {queries: {retry: false}}})}><ReferenceQuote request={request as RequestFn} security={stock}/><StockChart request={request as RequestFn} security={stock}/></QueryClientProvider>);
   await waitFor(() => expect(chart.setDataLoader).toHaveBeenCalled());
   expect(await screen.findByRole('complementary', {name: '参考报价'})).toHaveTextContent('¥15.00');
-  expect(request).toHaveBeenCalledTimes(1);
+  expect(request.mock.calls.filter(([path])=>path.includes('/candles?'))).toHaveLength(1);
   expect(request).toHaveBeenCalledWith('/api/securities/5/candles?adjust=none');
   await userEvent.selectOptions(screen.getByLabelText('复权方式'), 'qfq');
   await waitFor(() => expect(request).toHaveBeenCalledWith('/api/securities/5/candles?adjust=qfq'));

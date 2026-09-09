@@ -17,6 +17,37 @@ public class ExchangeRateStore {
     public ExchangeRateStore(JdbcTemplate jdbc){this.jdbc=jdbc;}
     public record Snapshot(long id,String source,LocalDate effectiveOn,Instant fetchedAt,Map<String,BigDecimal> rates) {}
 
+    /** Only a direct provider response establishes the requested day -> publication day mapping. */
+    @Transactional
+    public long saveResolved(LocalDate requested,ExchangeRateBatch batch,Instant fetchedAt) {
+        if(requested==null||batch.effectiveOn().isAfter(requested)||batch.effectiveOn().isBefore(requested.minusDays(7)))
+            throw new IllegalArgumentException("Unsupported FX requested date");
+        long id=save(batch,fetchedAt);
+        jdbc.update("delete from fx_date_resolutions where requested_on=?",requested);
+        jdbc.update("insert into fx_date_resolutions(requested_on,batch_id,resolved_at) values(?,?,?)",requested,id,java.sql.Timestamp.from(fetchedAt));
+        return id;
+    }
+
+    @Transactional
+    public void saveRange(LocalDate from,LocalDate to,List<ExchangeRateBatch> batches,Instant fetchedAt) {
+        if(batches==null||batches.isEmpty()||from.isAfter(to)||java.time.temporal.ChronoUnit.DAYS.between(from,to)>89)
+            throw new IllegalArgumentException("Unsupported FX history range");
+        var dates=new TreeSet<LocalDate>();
+        for(var batch:batches)if(batch.effectiveOn().isBefore(from)||batch.effectiveOn().isAfter(to)||!dates.add(batch.effectiveOn()))
+            throw new IllegalArgumentException("Invalid FX history dates");
+        // A truncated/unsupported leading or trailing period must not become reusable coverage.
+        LocalDate previous=from;
+        for(var day:dates){if(java.time.temporal.ChronoUnit.DAYS.between(previous,day)>7)throw new IllegalArgumentException("Incomplete FX history range");previous=day;}
+        if(java.time.temporal.ChronoUnit.DAYS.between(previous,to)>7)throw new IllegalArgumentException("Incomplete FX history range");
+        for(var batch:batches)save(batch,fetchedAt);
+        jdbc.update("delete from fx_history_coverage where from_on=? and to_on=?",from,to);
+        jdbc.update("insert into fx_history_coverage(from_on,to_on,fetched_at) values(?,?,?)",from,to,java.sql.Timestamp.from(fetchedAt));
+    }
+    public boolean covers(LocalDate from,LocalDate to,Instant freshAfter) {
+        return !jdbc.queryForList("select from_on from fx_history_coverage where from_on<=? and to_on>=? and fetched_at>=?",LocalDate.class,
+                from,to,java.sql.Timestamp.from(freshAfter)).isEmpty();
+    }
+
     @Transactional
     public long save(ExchangeRateBatch batch,Instant fetchedAt) {
         if(batch.effectiveOn().isAfter(fetchedAt.atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate()))

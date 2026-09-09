@@ -19,6 +19,7 @@ class ExchangeRateServiceTest {
     final Clock clock=Clock.fixed(Instant.parse("2026-09-08T00:00:00Z"),ZoneOffset.UTC);
     ExchangeRateService service;
     @BeforeEach void setup() {
+        jdbc.update("delete from fx_date_resolutions");jdbc.update("delete from fx_history_coverage");
         jdbc.update("delete from fx_rates"); jdbc.update("delete from fx_rate_batches");
         service=new ExchangeRateService(day->batch(day,"7","0.9"),store,clock);
     }

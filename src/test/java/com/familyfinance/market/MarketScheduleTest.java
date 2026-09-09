@@ -42,7 +42,11 @@ class MarketScheduleTest {
         verify(refreshService).refreshScheduledHouseholds();
         Method method = MarketSchedule.class.getMethod("refreshWeekdayClose");
         Scheduled scheduled = method.getAnnotation(Scheduled.class);
-        assertThat(scheduled.cron()).isEqualTo("0 30 16 * * MON-FRI");
+        var cron=org.springframework.scheduling.support.CronExpression.parse(scheduled.cron());
+        var friday=java.time.ZonedDateTime.of(2026,9,11,17,0,0,0,ZoneId.of("Asia/Shanghai"));
+        assertThat(cron.next(friday)).isEqualTo(friday.withHour(18).withMinute(10));
+        assertThat(cron.next(friday.withHour(19))).isEqualTo(friday.withHour(20).withMinute(10));
+        assertThat(cron.next(friday.withHour(21))).isEqualTo(friday.plusDays(3).withHour(18).withMinute(10));
         assertThat(scheduled.zone()).isEqualTo("Asia/Shanghai");
     }
 

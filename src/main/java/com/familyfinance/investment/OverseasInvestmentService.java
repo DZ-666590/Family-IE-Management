@@ -53,7 +53,7 @@ public class OverseasInvestmentService {
   int saved=0;for(long id:ids)try{if(refresh(id)>0)saved++;}catch(MarketProviderException|ResourceNotFoundException ignored){}
   return saved;
  }
- @org.springframework.scheduling.annotation.Scheduled(cron="0 20 6,17 * * *",zone="Asia/Shanghai")
+ @org.springframework.scheduling.annotation.Scheduled(cron="0 10 7,18 * * *",zone="Asia/Shanghai")
  public void refreshScheduled(){
   for(long id:jdbc.queryForList("select distinct t.security_id from investment_trades t join securities s on s.id=t.security_id where s.market in ('HK','US')",Long.class))
    try{refresh(id);}catch(RuntimeException ignored){}

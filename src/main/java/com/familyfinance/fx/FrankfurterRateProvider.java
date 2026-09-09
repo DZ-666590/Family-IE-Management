@@ -21,6 +21,27 @@ import tools.jackson.databind.json.JsonMapper;
 
 @Component
 public class FrankfurterRateProvider implements ExchangeRateProvider {
+    static java.util.List<ExchangeRateBatch> parseRange(String raw,LocalDate from,LocalDate to) {
+        validateRange(from,to);
+        try {
+            if(raw.length()>MAX_BYTES)throw new IllegalArgumentException();
+            var rows=JSON.readTree(raw);
+            if(!rows.isArray()||rows.isEmpty()||rows.size()>180)throw new IllegalArgumentException();
+            var grouped=new java.util.TreeMap<LocalDate,java.util.List<String>>();
+            for(var row:rows) {
+                var date=LocalDate.parse(row.path("date").asText());
+                if(date.isBefore(from)||date.isAfter(to))throw new IllegalArgumentException();
+                grouped.computeIfAbsent(date,ignored->new java.util.ArrayList<>()).add(row.toString());
+            }
+            var batches=new java.util.ArrayList<ExchangeRateBatch>();
+            for(var entry:grouped.entrySet())batches.add(parse("["+String.join(",",entry.getValue())+"]",entry.getKey()));
+            return java.util.List.copyOf(batches);
+        }catch(RuntimeException failure){throw new IllegalArgumentException("Invalid or unsupported FX reference range");}
+    }
+    private static void validateRange(LocalDate from,LocalDate to) {
+        if(from==null||to==null||from.getYear()<1999||from.isAfter(to)||java.time.temporal.ChronoUnit.DAYS.between(from,to)>89)
+            throw new IllegalArgumentException("FX range must contain 1 to 90 days");
+    }
     private static final int MAX_BYTES=32768;
     private static final JsonMapper JSON=JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
     private final java.util.concurrent.ScheduledExecutorService deadline=Executors.newSingleThreadScheduledExecutor(r->{
@@ -29,8 +50,27 @@ public class FrankfurterRateProvider implements ExchangeRateProvider {
     @PreDestroy void close(){deadline.shutdownNow();}
 
     @Override public ExchangeRateBatch fetch(LocalDate asOf) {
+        return parse(request("date="+asOf),asOf);
+    }
+    @Override public java.util.List<ExchangeRateBatch> fetchRange(LocalDate from,LocalDate to) {
+        validateRange(from,to);
+        var batches=parseRange(request("from="+from+"&to="+to),from,to);
+        // A short missing boundary may be a weekend, or an unsupported currency period.
+        // Ask the date endpoint instead of inferring which from the range's first/last row.
+        if(batches.get(0).effectiveOn().isAfter(from)) {
+            var first=fetch(from);
+            if(!first.effectiveOn().isBefore(from)||first.effectiveOn().isBefore(from.minusDays(7)))throw new IllegalArgumentException("Unsupported FX range start");
+        }
+        var last=batches.get(batches.size()-1);
+        if(last.effectiveOn().isBefore(to)) {
+            var resolved=fetch(to);
+            if(!resolved.equals(last))throw new IllegalArgumentException("Incomplete FX range end");
+        }
+        return batches;
+    }
+    String request(String dates) {
         // Fixed endpoint: no user-supplied host, credentials or household data.
-        var request=new HttpGet(URI.create("https://api.frankfurter.dev/v2/rates?base=CNY&quotes=USD,HKD&providers=ECB&date="+asOf));
+        var request=new HttpGet(URI.create("https://api.frankfurter.dev/v2/rates?base=CNY&quotes=USD,HKD&providers=ECB&"+dates));
         request.setHeader("Accept","application/json");
         var cancel=deadline.schedule(request::cancel,20,TimeUnit.SECONDS);
         var manager=PoolingHttpClientConnectionManagerBuilder.create().setMaxConnTotal(1).setMaxConnPerRoute(1)
@@ -43,7 +83,7 @@ public class FrankfurterRateProvider implements ExchangeRateProvider {
                 if(response.getCode()!=200 || response.getEntity()==null)throw new IllegalArgumentException("FX provider unavailable");
                 byte[] bytes=response.getEntity().getContent().readNBytes(MAX_BYTES+1);
                 if(bytes.length>MAX_BYTES){request.cancel();throw new IllegalArgumentException("FX response too large");}
-                return parse(new String(bytes,StandardCharsets.UTF_8),asOf);
+                return new String(bytes,StandardCharsets.UTF_8);
             });
         }catch(Exception failure){throw new IllegalArgumentException("FX provider unavailable");}
         finally{cancel.cancel(false);}

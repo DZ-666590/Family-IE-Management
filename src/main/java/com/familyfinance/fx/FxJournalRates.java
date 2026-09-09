@@ -14,12 +14,36 @@ public class FxJournalRates {
  private final JdbcTemplate jdbc;
  public FxJournalRates(JdbcTemplate jdbc){this.jdbc=jdbc;}
  public record Rate(long batchId,LocalDate effectiveOn,BigDecimal value){}
+ public record ValuationRate(long batchId,LocalDate effectiveOn,BigDecimal value,String source,String state){}
+ public long unverifiedReferences(long household){
+  return jdbc.queryForObject("""
+   select count(*) from fx_journal_rates r join ledger_journals j on j.id=r.journal_id
+   where j.household_id=? and r.reference_status='LEGACY_UNVERIFIED'
+   """,Long.class,household);
+ }
+ /** Estimate-only output: never use this API to bind a journal or calculate recorded costs. */
+ public ValuationRate valuationReference(String currency,LocalDate day){
+  if(currency.equals("CNY"))return new ValuationRate(0,day,BigDecimal.ONE,"IDENTITY","IDENTITY");
+  return jdbc.query("""
+   select b.id,b.effective_on,r.cny_per_unit from fx_rate_batches b join fx_rates r on r.batch_id=b.id
+   where r.currency=? and b.source='ECB' and b.effective_on<=? order by b.effective_on desc,b.revision desc limit 1
+   """,(rs,n)->{
+    var effective=rs.getObject(2,LocalDate.class);
+    return new ValuationRate(rs.getLong(1),effective,rs.getBigDecimal(3),"ECB",java.time.temporal.ChronoUnit.DAYS.between(effective,day)>4?"STALE":"ESTIMATE");
+   },currency,day).stream().findFirst().orElse(null);
+ }
+ public BigDecimal valuationConvert(String currency,BigDecimal amount,LocalDate day){
+  if(amount.signum()==0)return BigDecimal.ZERO.setScale(2);var rate=valuationReference(currency,day);
+  return rate==null?null:amount.multiply(rate.value()).setScale(2,RoundingMode.HALF_UP);
+ }
  public Rate reference(String currency,LocalDate day){
   if(currency.equals("CNY"))return new Rate(0,day,BigDecimal.ONE);
   return jdbc.query("""
     select b.id,b.effective_on,r.cny_per_unit from fx_rate_batches b join fx_rates r on r.batch_id=b.id
-    where r.currency=? and b.source='ECB' and b.effective_on<=? order by b.effective_on desc,b.revision desc limit 1
-    """,(rs,n)->new Rate(rs.getLong(1),rs.getObject(2,LocalDate.class),rs.getBigDecimal(3)),currency,day).stream().findFirst().orElse(null);
+    where r.currency=? and b.source='ECB'
+      and (b.effective_on=? or b.id=(select d.batch_id from fx_date_resolutions d where d.requested_on=?))
+    order by b.effective_on desc,b.revision desc limit 1
+    """,(rs,n)->new Rate(rs.getLong(1),rs.getObject(2,LocalDate.class),rs.getBigDecimal(3)),currency,day,day).stream().findFirst().orElse(null);
  }
  public BigDecimal convert(String currency,BigDecimal amount,LocalDate day){
   if(amount.signum()==0)return BigDecimal.ZERO.setScale(2);var rate=reference(currency,day);
@@ -51,8 +75,9 @@ public class FxJournalRates {
       (rs,n)->new Rate(rs.getLong(1),rs.getObject(2,LocalDate.class),rs.getBigDecimal(3)),reverses,currency).stream().findFirst().orElse(null);
    else rate=reference(currency,day);
    if(rate==null)continue;
-   jdbc.update("insert into fx_journal_rates(journal_id,currency,batch_id,cny_per_unit) select ?,?,?,? where not exists(select 1 from fx_journal_rates where journal_id=? and currency=?)",
-     journal,currency,rate.batchId(),rate.value(),journal,currency);
+   String status=reverses==null?"RESOLVED":jdbc.queryForObject("select reference_status from fx_journal_rates where journal_id=? and currency=?",String.class,reverses,currency);
+   jdbc.update("insert into fx_journal_rates(journal_id,currency,batch_id,cny_per_unit,reference_status) select ?,?,?,?,? where not exists(select 1 from fx_journal_rates where journal_id=? and currency=?)",
+     journal,currency,rate.batchId(),rate.value(),status,journal,currency);
   }
  }
  @Transactional
@@ -62,10 +87,21 @@ public class FxJournalRates {
    join ledger_entries e on e.journal_id=j.id where e.currency<>'CNY'
    and not exists(select 1 from fx_journal_rates r where r.journal_id=j.id and r.currency=e.currency)
    and ((j.reverses_journal_id is not null and exists(select 1 from fx_journal_rates original where original.journal_id=j.reverses_journal_id and original.currency=e.currency))
-     or (j.reverses_journal_id is null and exists(select 1 from fx_rate_batches b join fx_rates r on r.batch_id=b.id where b.source='ECB' and b.effective_on<=j.effective_on and r.currency=e.currency)))
+     or (j.reverses_journal_id is null and exists(select 1 from fx_rate_batches b join fx_rates r on r.batch_id=b.id where b.source='ECB' and r.currency=e.currency
+       and (b.effective_on=j.effective_on or b.id=(select d.batch_id from fx_date_resolutions d where d.requested_on=j.effective_on)))))
    order by j.id limit 500
    """,(rs,n)->new Pending(rs.getLong(1),rs.getObject(2,LocalDate.class),rs.getObject(3,Long.class),rs.getString(4)));
   for(var row:pending){jdbc.queryForObject("select id from ledger_journals where id=? for update",Long.class,row.id());bind(row.id(),row.day(),List.of(row.currency()),row.reverses());}
+ }
+ public List<LocalDate> unresolvedDates(LocalDate after){
+  return jdbc.queryForList("""
+   select distinct j.effective_on from ledger_journals j join ledger_entries e on e.journal_id=j.id
+   where e.currency<>'CNY' and j.reverses_journal_id is null and j.effective_on>?
+    and not exists(select 1 from fx_journal_rates r where r.journal_id=j.id and r.currency=e.currency)
+    and not exists(select 1 from fx_date_resolutions d where d.requested_on=j.effective_on)
+    and not exists(select 1 from fx_rate_batches b where b.source='ECB' and b.effective_on=j.effective_on)
+   order by j.effective_on limit 64
+   """,LocalDate.class,after);
  }
  private record Pending(long id,LocalDate day,Long reverses,String currency){}
 }

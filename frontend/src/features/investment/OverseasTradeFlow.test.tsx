@@ -15,7 +15,7 @@ it('creates a US investment through the unified picker and previews USD cash wit
   if(path==='/api/investment-setup')return {completed:true} as T;
   if(path==='/api/portfolio')return {positions:[],totals:{cost:'0',marketValue:'0',totalProfit:'0',unpricedPositions:0}} as T;
   if(path==='/api/market-quotes')return [] as T;
-  if(path.includes('/overseas-market/search'))return {items:[security],state:'READY',stale:false} as T;
+  if(path.includes('/overseas-market/search'))return {items:[security],state:'READY',stale:false,hasNext:false} as T;
   if(path.includes('/overseas-market/candles'))return {symbol:'AAPL',source:'SINA',adjustment:'none',supported:true,bars:[]} as T;
   if(path.includes('catalog-status'))return {state:'READY',count:5000} as T;
   if(path.startsWith('/api/investment-accounts'))return page([{id:1,name:'美元证券',currency:'USD',fundingAccountId:11}]) as T;
