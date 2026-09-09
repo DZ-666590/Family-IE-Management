@@ -156,3 +156,13 @@ it('carries the clicked account through the quote modal when the same security i
  expect(within(draft).getByLabelText('投资账户')).toHaveValue('9');
  expect(within(draft).getByLabelText('成交单价')).toHaveValue('');
 });
+it('does not carry a holding trade action into another market',async()=>{
+ const {user}=setup();
+ await user.click((await screen.findAllByRole('button',{name:'平安银行'}))[0]);
+ const dialog=screen.getByRole('dialog',{name:'证券行情'});
+ expect(within(dialog).getByRole('button',{name:'记录卖出平安银行'})).toBeInTheDocument();
+ await user.click(within(dialog).getByRole('button',{name:'港股'}));
+ expect(within(dialog).queryByRole('button',{name:'记录卖出平安银行'})).not.toBeInTheDocument();
+ await user.click(within(dialog).getByRole('button',{name:'A 股'}));
+ expect(within(dialog).queryByRole('button',{name:'记录卖出平安银行'})).not.toBeInTheDocument();
+});
