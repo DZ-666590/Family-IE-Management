@@ -32,7 +32,8 @@ function setup() {
 
 it('creates an investment account with the backend fundingAccountId field', async () => {
   const { user, request } = setup();
-  await user.click(screen.getByRole('button', { name: '账户' }));
+  await user.click(screen.getByRole('button',{name:'投资管理'}));
+  await user.click(await screen.findByRole('menuitem',{name:'账户'}));
   await user.click(screen.getByRole('button', { name: '新建账户' }));
   const form = within(screen.getByRole('dialog'));
   await user.type(form.getByLabelText('账户名称'), '新证券账户');
@@ -44,7 +45,8 @@ it('creates an investment account with the backend fundingAccountId field', asyn
 
 it('loads and changes the future funding default from the real account response shape', async () => {
   const { user, request } = setup();
-  await user.click(screen.getByRole('button', { name: '账户' }));
+  await user.click(screen.getByRole('button',{name:'投资管理'}));
+  await user.click(await screen.findByRole('menuitem',{name:'账户'}));
   await user.click(await screen.findByRole('button', { name: '编辑' }));
   const form = within(screen.getByRole('dialog'));
   expect(form.getByLabelText('资金账户')).toHaveValue('7');

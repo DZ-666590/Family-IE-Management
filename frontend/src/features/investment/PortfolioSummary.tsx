@@ -23,14 +23,13 @@ export function PortfolioSummary({ portfolio, onViewQuotes }: { portfolio?: Port
   const unpriced = totals?.unpricedPositions ?? 0;
   const missingHistoricalFx=portfolio?.positions.some(item=>item.currency!=='CNY'&&item.base&&(item.base.cost==null||item.base.realizedProfit==null));
   return <div className="investment-hero">
-    <div className="investment-hero-header"><span>投资概览</span><button aria-label={hidden?"显示汇总金额":"隐藏汇总金额"} aria-pressed={hidden} onClick={()=>setHidden(!hidden)}>{hidden?<EyeOff size={18}/>:<Eye size={18}/>}</button></div>
     <div className="summary-strip investment-summary">
       <div>
-        <div className="investment-summary__label">组合市值<MetricHelp label="市值口径">按有效行情计算。缺价持仓保留成本估算，组合市值与浮动收益暂未知。</MetricHelp></div>
+        <div className="investment-summary__label">组合市值<button className="investment-eye" aria-label={hidden?"显示汇总金额":"隐藏汇总金额"} aria-pressed={hidden} onClick={()=>setHidden(!hidden)}>{hidden?<EyeOff size={18}/>:<Eye size={18}/>}</button><span className="investment-unit">人民币 CNY</span><MetricHelp label="市值口径">按有效行情计算。缺价持仓保留成本估算，组合市值与浮动收益暂未知。</MetricHelp></div>
         <strong>{displayMoney(totals?.marketValue)}</strong>{unpriced > 0 && <small>含成本估算的组合价值 {displayMoney(totals?.estimatedValue)}</small>}
       </div>
       <div>
-        <div className="investment-summary__label">累计收益<MetricHelp label="收益口径">按人民币展示，使用历史买入成本；包含价格和汇率变化的影响。</MetricHelp></div>
+        <div className="investment-summary__label">累计收益<span className="investment-unit">人民币 CNY</span><MetricHelp label="收益口径">按人民币展示，使用历史买入成本；包含价格和汇率变化的影响。</MetricHelp></div>
         <strong className={totals?.totalProfit==null?'':Number(totals.totalProfit)>=0?'positive':'negative'}>{displayMoney(totals?.totalProfit)}</strong>
       </div>
     </div>

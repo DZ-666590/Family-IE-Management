@@ -1,3 +1,4 @@
+import {InvestmentButton as Button} from './investment-ui';
 import { useId, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Select, { type OptionProps } from '@douyinfe/semi-ui/lib/es/select';
@@ -48,7 +49,7 @@ export function OverseasMarketPanel({ request, market,initial,onBuy,onSelected,b
         {search.data?.stale && <span>缓存目录 · {dateText(search.data.updatedAt)}</span>}
       </div>
     </div></div>
-    {selected&&onBuy&&<button type="button" className="secondary-action" disabled={busy} onClick={()=>onBuy(selected)}>{busy?'正在核对股票…':`记录买入${selected.name}`}</button>}
+    {selected&&onBuy&&<Button variant="primary" disabled={busy} onClick={()=>onBuy(selected)}>{busy?'正在核对股票…':`记录买入${selected.name}`}</Button>}
     {selected?.market === market ? <StockChart key={`${market}/${selected.symbol}`} request={request} security={selected}/> : <div className="investment-market-empty"><p>选择股票，查看参考收盘价与历史走势。</p></div>}
   </section>;
 }

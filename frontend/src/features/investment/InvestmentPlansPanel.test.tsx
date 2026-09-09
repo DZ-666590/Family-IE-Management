@@ -84,8 +84,8 @@ it('shows reversed trades honestly without offering to confirm the same occurren
 });
 it('skips only the selected occurrence without sending a trade confirmation',async()=>{
  const {user,calls}=setup();
- await user.click(await screen.findByText('更多操作'));
- await user.click(screen.getByRole('button',{name:'跳过本期'}));
+ await user.click(await screen.findByRole('button',{name:'阿里巴巴本期操作'}));
+ await user.click(await screen.findByRole('menuitem',{name:'跳过本期'}));
  const dialog=screen.getByRole('dialog');
  await user.type(within(dialog).getByLabelText('原因（可选）'),'本期暂缓');
  await user.click(within(dialog).getByRole('button',{name:'确认跳过'}));

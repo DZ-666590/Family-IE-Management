@@ -20,10 +20,10 @@ export function dateText(value: string | null | undefined): string {
   return year && month && day ? `${year}.${month}.${day}` : value;
 }
 
-export function PageScaffold({ title, description, primaryAction, readonly, children }: {
-  title: string; description?: string; primaryAction?: { label: string; onClick: () => void }; readonly?: boolean; children: ReactNode;
+export function PageScaffold({ title, description, primaryAction, readonly, children, className='' }: {
+  title: string; description?: string; primaryAction?: { label: string; onClick: () => void }; readonly?: boolean; children: ReactNode;className?:string;
 }) {
-  return <section className="feature-page" aria-labelledby="page-title">
+  return <section className={`feature-page ${className}`} aria-labelledby="page-title">
     <header className="page-heading">
       <div><h1 id="page-title">{title}</h1>{description && <p>{description}</p>}</div>
       {primaryAction && <Button aria-label={primaryAction.label} theme="solid" type="primary" icon={<Plus size={17} aria-hidden="true"/>} onClick={primaryAction.onClick}>{primaryAction.label}</Button>}
@@ -84,9 +84,9 @@ function useModal(open: boolean, onClose: () => void) {
   return { id, ref };
 }
 
-export function Drawer({ open, title, description, onClose, children, draft, busy = false, sessionKey, savedKey, onSessionStart, presentation='drawer', size='medium' }: {
+export function Drawer({ open, title, description, onClose, children, draft, busy = false, sessionKey, savedKey, onSessionStart, presentation='drawer', size='medium',className='' }: {
   open: boolean; title: string; description?: string; onClose: () => void; children: ReactNode;
-  draft?: unknown; busy?: boolean; sessionKey?: unknown; savedKey?: unknown; onSessionStart?: () => void; presentation?:'drawer'|'modal';size?:'medium'|'wide';
+  draft?: unknown; busy?: boolean; sessionKey?: unknown; savedKey?: unknown; onSessionStart?: () => void; presentation?:'drawer'|'modal';size?:'medium'|'wide';className?:string;
 }) {
   const [confirming, setConfirming] = useState(false);
   const protection = useDraftProtection({ active: open, draft, busy, sessionKey, savedKey, onDiscard: onClose });
@@ -97,7 +97,7 @@ export function Drawer({ open, title, description, onClose, children, draft, bus
   const Panel=presentation==='modal'?'section':'aside';
   if (!open) return null;
   return createPortal(<><div className={`sheet-backdrop${presentation==='modal'?' action-dialog-backdrop':''}`} onMouseDown={event => event.target === event.currentTarget && requestClose()}>
-    <Panel ref={ref} tabIndex={-1} className={`side-sheet${presentation==='modal'?` action-dialog action-dialog--${size}`:''}`} role="dialog" aria-modal="true" aria-labelledby={id}>
+    <Panel ref={ref} tabIndex={-1} className={`side-sheet${presentation==='modal'?` action-dialog action-dialog--${size}`:''} ${className}`} role="dialog" aria-modal="true" aria-labelledby={id}>
       <header><div><h2 id={id}>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button" aria-label="关闭" disabled={busy} onClick={requestClose}><X size={20} aria-hidden="true"/></button></header>
       <div className="sheet-body"><fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'grid', gap: 'inherit' }} onSubmitCapture={event => { if (busy) { event.preventDefault(); event.stopPropagation(); } }}>{children}</fieldset></div>
     </Panel>
