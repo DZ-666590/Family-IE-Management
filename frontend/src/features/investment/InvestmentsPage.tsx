@@ -47,6 +47,7 @@ export function InvestmentsPage({ request, role }: { request: RequestFn; role: H
   const [exploreSecurity, setExploreSecurity] = useState<ChartSecurity | null>(null);
   const setChartSecurity = (security: ChartSecurity, accountId?:number) => { setExploreSecurity(security); setQuoteAccountId(accountId); setQuoteMarket(security.market==='HK'||security.market==='US'?security.market:'CN'); setQuoteOpen(true); };
   const openQuotes=()=>{setQuoteOpen(true);};
+  const openDomesticQuotes=()=>{setExploreSecurity(null);setQuoteAccountId(undefined);setQuoteMarket('CN');setQuoteOpen(true);};
   const [accountDraft, setAccountDraft] = useState<{ id?: number; name: string; brokerName: string; currency: string; fundingAccountId: string; key: string } | null>(null);
   const [manualQuote, setManualQuote] = useState<MarketPrice | null>(null);
   const [manual, setManual] = useState({ price: '', effectiveOn: businessDate(), note: '' });
@@ -126,14 +127,14 @@ export function InvestmentsPage({ request, role }: { request: RequestFn; role: H
     <FormError error={archiveAccount.error}/>
     {savedNotice && <p className="investment-saved" role="status">{savedNotice}</p>}
     {!marketOnly && automaticQuotes.isPending && <p role="status">正在更新持仓报价…</p>}
-    {!marketOnly && automaticQuotes.error && portfolio.data?.positions.some(item => item.quantity > 0 && item.price === null && /\.(SH|SZ)$/.test(item.tsCode)) && <div role="status" className="reference-quote"><span>投资记录已保留，报价暂时无法更新。</span><button className="text-action" type="button" onClick={() => { setQuoteMarket('CN'); setQuoteOpen(true); }}>前往行情重试</button></div>}
+    {!marketOnly && automaticQuotes.error && portfolio.data?.positions.some(item => item.quantity > 0 && item.price === null && /\.(SH|SZ)$/.test(item.tsCode)) && <div role="status" className="reference-quote"><span>投资记录已保留，报价暂时无法更新。</span><button className="text-action" type="button" onClick={openDomesticQuotes}>前往行情重试</button></div>}
     {!marketOnly && <InvestmentSetup request={request} manager={manager} accounts={accountOptions} cashAccounts={cashAccounts}
       onCreateAccount={() => {
         const existing = accountOptions.data?.[0];
         setAccountDraft(existing ? { id: existing.id, name: existing.name, brokerName: existing.brokerName, currency: existing.currency, fundingAccountId: String(existing.fundingAccountId ?? ''), key: newIdempotencyKey() } : { name: '', brokerName: '', currency: 'CNY', fundingAccountId: '', key: newIdempotencyKey() });
       }}
       onOpening={accountId => setTrade({ ...blankTrade(), accountId, type: 'OPENING' })}/>}
-    {!marketOnly && <PortfolioSummary portfolio={portfolio.data} onViewQuotes={() => { setQuoteMarket('CN'); setQuoteOpen(true); }}/>}
+    {!marketOnly && <PortfolioSummary portfolio={portfolio.data} onViewQuotes={openDomesticQuotes}/>}
     {tab==='positions'&&<div className="investment-dashboard-status"><span>{usingLiveProjection?'盘中参考估值':'收盘估值'} · 人民币汇总</span><details><summary>估值说明</summary><p>常规交易时段约60秒刷新。公开行情可能延迟；总览和历史快照使用收盘口径，实际成交成本不受行情更新影响。</p>{livePortfolio.error&&<p role="status">报价暂不可用，保留最后有效结果。</p>}{usingLiveProjection&&livePortfolio.data?.partial&&<p>部分持仓使用收盘价或手工价格，详见持仓报价状态。</p>}</details><button type="button" disabled={livePortfolio.isFetching} onClick={()=>void livePortfolio.refetch()}>{livePortfolio.isFetching?'更新中…':'更新参考报价'}</button></div>}
     {tab!=='plans'&&(investmentPlans.data?.pendingCount??0)>0&&<button className="investment-plan-notice" onClick={()=>setTab('plans')}>你有 {investmentPlans.data!.pendingCount} 期定投待确认 <span>前往处理 →</span></button>}
     <nav className="segmented-tabs" aria-label="投资模块">{([['positions','持仓'],['plans','定投计划'],['trades','交易']] as const).map(([value,label]) => <button key={value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{label}</button>)}</nav>

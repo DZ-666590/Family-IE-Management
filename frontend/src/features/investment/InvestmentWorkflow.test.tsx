@@ -18,11 +18,11 @@ it('opens quotes in a dialog and restores the filtered dashboard after close',as
  expect(screen.queryByRole('dialog',{name:'证券行情'})).not.toBeInTheDocument();
  expect(screen.getByRole('searchbox',{name:'搜索持仓'})).toHaveValue('平安');
 });
-function setup(role: 'OWNER'|'MEMBER' = 'OWNER', fixture: { missingFunds?: boolean; retired?: boolean; secondAccount?:boolean } = {}) {
+function setup(role: 'OWNER'|'MEMBER' = 'OWNER', fixture: { missingFunds?: boolean; retired?: boolean; secondAccount?:boolean; holding?:Record<string,unknown>; unpriced?:boolean } = {}) {
   const writes: unknown[] = [];
   const request: RequestFn = async <T,>(path: string, options?: Parameters<RequestFn>[1]) => {
     if (options?.method === 'POST') { writes.push(options.body); return {} as T; }
-    if (path === '/api/portfolio') return { positions: fixture.secondAccount?[position,{...position,accountId:9,accountName:'备用账户'}]:[position], totals: { cost: '800.00', estimatedValue: '1000.00', marketValue: '1000.00', realizedProfit: '0.00', unrealizedProfit: '200.00', totalProfit: '200.00', unpricedPositions: 0 } } as T;
+    if (path === '/api/portfolio') return { positions: fixture.secondAccount?[position,{...position,accountId:9,accountName:'备用账户'}]:[{...position,...fixture.holding}], totals: { cost: '800.00', estimatedValue: '1000.00', marketValue: '1000.00', realizedProfit: '0.00', unrealizedProfit: '200.00', totalProfit: '200.00', unpricedPositions: fixture.unpriced?1:0 } } as T;
     if (path === '/api/investment-setup') return { completed: true, hasAccounts: true, hasTrades: true } as T;
     if (path.startsWith('/api/investment-accounts')) return page([{ ...account, fundingAccountId: fixture.missingFunds ? null : 7 },...(fixture.secondAccount?[{...account,id:9,name:'备用账户'}]:[])]) as T;
     if (path.startsWith('/api/investment-trades')) return page([]) as T;
@@ -165,4 +165,14 @@ it('does not carry a holding trade action into another market',async()=>{
  expect(within(dialog).queryByRole('button',{name:'记录卖出平安银行'})).not.toBeInTheDocument();
  await user.click(within(dialog).getByRole('button',{name:'A 股'}));
  expect(within(dialog).queryByRole('button',{name:'记录卖出平安银行'})).not.toBeInTheDocument();
+});
+
+it('clears overseas context when missing-price summary opens domestic quotes',async()=>{
+ const {user}=setup('OWNER',{unpriced:true,holding:{market:'HK',currency:'HKD',symbol:'00700',tsCode:'00700.HK',name:'騰訊控股',exchange:'HKEX',timezone:'Asia/Hong_Kong'}});
+ await user.click((await screen.findAllByRole('button',{name:'騰訊控股'}))[0]);
+ await user.click(within(screen.getByRole('dialog',{name:'证券行情'})).getByRole('button',{name:'关闭行情'}));
+ await user.click(screen.getByRole('button',{name:'查看行情'}));
+ const quote=screen.getByRole('dialog',{name:'证券行情'});
+ expect(within(quote).getByRole('button',{name:'A 股'})).toHaveAttribute('aria-pressed','true');
+ expect(within(quote).queryByRole('button',{name:'记录卖出騰訊控股'})).not.toBeInTheDocument();
 });
