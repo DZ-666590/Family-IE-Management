@@ -13,8 +13,9 @@ import {TradeStockPicker,securityCurrency,type SecuritySelection} from './TradeS
 import {useInvestmentPlans,frequencyLabel,type InvestmentPlan,type InvestmentPlanOccurrence,type PlanFrequency} from './investment-plans';
 import './investment-plans.scss';
 
-type Props={request:RequestFn;manager:boolean;accounts:InvestmentAccount[];cashAccounts:Account[]};
-export function InvestmentPlansPanel({request,manager,accounts,cashAccounts}:Props){
+export type InvestmentPlanSupportState={loading:boolean;error:unknown;retry:()=>void};
+type Props={request:RequestFn;manager:boolean;accounts:InvestmentAccount[];cashAccounts:Account[];supportState?:InvestmentPlanSupportState};
+export function InvestmentPlansPanel({request,manager,accounts,cashAccounts,supportState}:Props){
  const [planPage,setPlanPage]=useState(0),[occurrencePage,setOccurrencePage]=useState(0);
  const query=useInvestmentPlans(request,planPage,occurrencePage),cache=useQueryClient();
  const [editor,setEditor]=useState<InvestmentPlan|'new'|null>(null);
@@ -23,22 +24,24 @@ export function InvestmentPlansPanel({request,manager,accounts,cashAccounts}:Pro
  const [ending,setEnding]=useState<InvestmentPlan|null>(null),[notice,setNotice]=useState('');
  const refresh=async()=>{await Promise.all(['investment-plans','notifications','accounts','portfolio','investment-trades','dashboard','net-worth'].map(key=>cache.invalidateQueries({queryKey:[key]})));};
  const action=useMutation({mutationFn:({path,body}:{path:string;body:unknown})=>request(path,{method:'POST',body,headers:{'Idempotency-Key':newIdempotencyKey()}}),onSuccess:async()=>{setSkip(null);setEnding(null);await refresh();setNotice('已更新，未确认的实际成交不会自动记账。');}});
+ const supportUnavailable=Boolean(supportState?.loading||supportState?.error);
  const pending=query.data?.occurrences?.filter(o=>o.state==='PENDING')??[];
  const history=query.data?.occurrences?.filter(o=>o.state!=='PENDING')??[];
  return <section className="investment-plans" aria-label="定投计划">
-  <header className="investment-plans-heading"><div><h2>让计划有节奏</h2><p>到期提醒，成交后由你确认。</p></div>{manager&&<Button theme="solid" onClick={()=>setEditor('new')}>新建定投计划</Button>}</header>
+  <header className="investment-plans-heading"><div><h2>让计划有节奏</h2><p>到期提醒，成交后由你确认。</p></div>{manager&&<Button theme="solid" disabled={supportUnavailable} onClick={()=>setEditor('new')}>新建定投计划</Button>}</header>
+  {supportState?.error?<div className="plan-support-state" role="alert"><span>{supportState.error instanceof Error?supportState.error.message:'定投所需的投资账户或资金账户暂时无法读取。'}</span><button type="button" className="text-action" onClick={supportState.retry}>重试定投账户数据</button></div>:supportState?.loading?<p className="plan-support-state" role="status">正在读取定投所需的投资账户和资金账户…</p>:null}
   {notice&&<p role="status">{notice}</p>}<FormError error={action.error}/>
   <QueryState loading={query.isLoading} error={query.error} empty={false}>
    <div className="plan-section-heading"><h3>待确认</h3><span>{query.data?.pendingCount??pending.length} 期</span></div>
    {!pending.length?<div className="plan-quiet"><CalendarClock size={24} aria-hidden="true"/><span>当前页没有待确认定投，到期后会在提醒中心通知负责人。</span></div>:pending.map(item=><article className="plan-due" key={item.id}>
     <div><span className="plan-symbol">{item.symbol} · {dateText(item.dueOn)}</span><h4>{item.securityName}</h4><p>{item.planName} · {item.accountName}</p>{item.remindAt&&new Date(item.remindAt)>new Date()&&<p>下次提醒 {new Date(item.remindAt).toLocaleString('zh-CN')}</p>}</div>
     <div className="plan-due-amount"><span>本期计划</span><strong>{money(item.amount,item.currency)}</strong></div>
-    {manager&&<div className="plan-due-actions"><Button theme="solid" disabled={action.isPending} onClick={()=>setPayment(item)}>确认已成交</Button><details><summary>更多操作</summary><div><button disabled={action.isPending} onClick={()=>{action.reset();setReason('');setSkip(item);}}>跳过本期</button><button disabled={action.isPending} onClick={()=>action.mutate({path:`/api/investment-plans/occurrences/${item.id}/snooze`,body:{option:'TWO_HOURS'}})}>两小时后提醒</button><button disabled={action.isPending} onClick={()=>action.mutate({path:`/api/investment-plans/occurrences/${item.id}/snooze`,body:{option:'TOMORROW'}})}>明天提醒</button></div></details></div>}
+    {manager&&<div className="plan-due-actions"><Button theme="solid" disabled={action.isPending||supportUnavailable} onClick={()=>setPayment(item)}>确认已成交</Button><details><summary>更多操作</summary><div><button disabled={action.isPending} onClick={()=>{action.reset();setReason('');setSkip(item);}}>跳过本期</button><button disabled={action.isPending} onClick={()=>action.mutate({path:`/api/investment-plans/occurrences/${item.id}/snooze`,body:{option:'TWO_HOURS'}})}>两小时后提醒</button><button disabled={action.isPending} onClick={()=>action.mutate({path:`/api/investment-plans/occurrences/${item.id}/snooze`,body:{option:'TOMORROW'}})}>明天提醒</button></div></details></div>}
    </article>)}
    <div className="plan-section-heading"><h3>我的计划</h3><span>金额是目标，不是成交结果</span></div>
    {!query.data?.plans?.length?<div className="plan-quiet"><Repeat2 size={24} aria-hidden="true"/><span>选择证券、金额和周期，开始第一个提醒计划。</span></div>:<div className="plan-cards">{query.data.plans.map(plan=><article key={plan.id}>
     <header><span className="plan-symbol">{plan.symbol}</span><StatusTag tone={plan.state==='ACTIVE'?'blue':'neutral'}>{plan.state==='ACTIVE'?'进行中':plan.state==='PAUSED'?'已暂停':'已结束'}</StatusTag></header><h3>{plan.name}</h3><p>{plan.securityName} · {plan.accountName}</p><div className="plan-card-amount"><strong>{money(plan.amount,plan.currency)}</strong><span> / {frequencyLabel[plan.frequency]}</span></div><p>下次提醒 {plan.state==='ACTIVE'?dateText(plan.nextDueOn):'—'}</p>
-    {manager&&plan.state!=='ENDED'&&<footer><button onClick={()=>setEditor(plan)}>编辑计划</button><button disabled={action.isPending} onClick={()=>action.mutate({path:`/api/investment-plans/${plan.id}/state`,body:{state:plan.state==='ACTIVE'?'PAUSED':'ACTIVE'}})}>{plan.state==='ACTIVE'?'暂停':'恢复'}</button><button disabled={action.isPending} onClick={()=>{action.reset();setEnding(plan);}}>结束</button></footer>}
+    {manager&&plan.state!=='ENDED'&&<footer><button disabled={supportUnavailable} onClick={()=>setEditor(plan)}>编辑计划</button><button disabled={action.isPending} onClick={()=>action.mutate({path:`/api/investment-plans/${plan.id}/state`,body:{state:plan.state==='ACTIVE'?'PAUSED':'ACTIVE'}})}>{plan.state==='ACTIVE'?'暂停':'恢复'}</button><button disabled={action.isPending} onClick={()=>{action.reset();setEnding(plan);}}>结束</button></footer>}
    </article>)}</div>}
    <div className="plan-pagination"><button disabled={planPage===0} onClick={()=>setPlanPage(p=>p-1)}>上一页计划</button><button disabled={!query.data?.hasMorePlans} onClick={()=>setPlanPage(p=>p+1)}>下一页计划</button></div>
    <div className="plan-section-heading"><h3>执行记录</h3><span>与真实成交关联</span></div>
@@ -52,18 +55,24 @@ export function InvestmentPlansPanel({request,manager,accounts,cashAccounts}:Pro
  </section>;
 }
 
-function PlanEditor({request,plan,accounts,cashAccounts,onClose,onSaved}:Omit<Props,'manager'>&{plan?:InvestmentPlan;onClose:()=>void;onSaved:()=>Promise<void>}){
+function planSecurity(plan?:InvestmentPlan):SecuritySelection|null{
+ const security=plan?.security;
+ return security&&security.id===plan.securityId&&Boolean(security.name?.trim()&&security.tsCode?.trim()&&security.market?.trim()&&security.currency?.trim())?security:null;
+}
+function PlanEditor({request,plan,accounts,cashAccounts,onClose,onSaved}:Omit<Props,'manager'|'supportState'>&{plan?:InvestmentPlan;onClose:()=>void;onSaved:()=>Promise<void>}){
  const [key]=useState(newIdempotencyKey);
- const [security,setSecurity]=useState<SecuritySelection|null>(plan?{id:plan.securityId,name:plan.securityName,tsCode:plan.symbol,currency:plan.currency,symbol:plan.symbol,market:plan.currency==='USD'?'US':plan.currency==='HKD'?'HK':'SH'}:null);
+ const identityMissing=Boolean(plan&&!planSecurity(plan));
+ const [security,setSecurity]=useState<SecuritySelection|null>(()=>planSecurity(plan));
  const [name,setName]=useState(plan?.name??''),[amount,setAmount]=useState(plan?.amount??''),[frequency,setFrequency]=useState<PlanFrequency>(plan?.frequency??'MONTHLY');
  const [firstDueOn,setFirstDueOn]=useState(plan?.firstDueOn??businessDate()),[accountId,setAccountId]=useState(String(plan?.accountId??'')),[assignedUserId,setAssignedUserId]=useState(String(plan?.assignedUserId??''));
  const members=useQuery({queryKey:['memberships','all-options'],queryFn:()=>readAllPages(p=>request<Page<Membership>>(`/api/family/memberships?page=${p}&size=50`,{responseType:'page'}))});
- const currency=securityCurrency(security),account=accounts.find(a=>String(a.id)===accountId),cash=cashAccounts.find(a=>a.id===account?.fundingAccountId);
- const valid=Boolean(security&&account?.currency===currency&&cash?.currency===currency&&cash.openingConfirmed&&cash.openingOn&&!cash.archivedAt&&cents(amount)!>0n&&firstDueOn&&assignedUserId);
+ const currency=security?securityCurrency(security):plan?.currency??'CNY',account=accounts.find(a=>String(a.id)===accountId),cash=cashAccounts.find(a=>a.id===account?.fundingAccountId);
+ const valid=!identityMissing&&Boolean(security&&account?.currency===currency&&cash?.currency===currency&&cash.openingConfirmed&&cash.openingOn&&!cash.archivedAt&&cents(amount)!>0n&&firstDueOn&&assignedUserId);
  const save=useMutation({mutationFn:()=>request(plan?`/api/investment-plans/${plan.id}`:'/api/investment-plans',{method:plan?'PATCH':'POST',headers:{'Idempotency-Key':key},body:{name:name.trim()||`${security?.name}定投`,accountId:Number(accountId),securityId:security?.id,amount,frequency,firstDueOn,assignedUserId:Number(assignedUserId)}}),onSuccess:onSaved});
  return <Modal visible title={plan?'编辑定投计划':'创建定投计划'} width={900} footer={null} maskClosable={false} closeOnEsc={!save.isPending} onCancel={()=>{if(!save.isPending)onClose();}} className="plan-modal">
   <form onSubmit={e=>{e.preventDefault();if(valid)save.mutate();}}><div className="plan-dialog-grid"><fieldset disabled={save.isPending} className="feature-form plan-settings"><FormError error={save.error||members.error}/>
-   <TradeStockPicker request={request} value={security} disabled={save.isPending} onChange={value=>{setSecurity(value);if(value&&account?.currency!==securityCurrency(value))setAccountId('');}}/>
+   {identityMissing&&<p role="alert">该计划缺少完整的证券身份，无法安全编辑。请关闭后刷新定投计划再重试。</p>}
+   <TradeStockPicker request={request} value={security} disabled={save.isPending||identityMissing} onChange={value=>{setSecurity(value);if(value&&account?.currency!==securityCurrency(value))setAccountId('');}}/>
    <label className="plan-amount-input">每期计划金额<div><input aria-label="每期计划金额" name="amount" required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)}/><span>{currency}</span></div></label>
    <fieldset className="plan-frequency"><legend>提醒周期</legend>{(Object.keys(frequencyLabel) as PlanFrequency[]).map(f=><button type="button" aria-pressed={frequency===f} key={f} onClick={()=>setFrequency(f)}>{frequencyLabel[f]}</button>)}</fieldset>
    <label>首次提醒日期<DateField name="firstDueOn" required min={plan?undefined:businessDate()} value={firstDueOn} onChange={e=>setFirstDueOn(e.target.value)}/></label>
@@ -87,7 +96,7 @@ function OccurrenceResult({item}:{item:InvestmentPlanOccurrence}){
  return <>已记账 · 交易 #{item.tradeId}{current&&<small>现成交记录：{current.quantity} 股 × {money(current.price,item.currency)}，手续费 {money(current.fee,item.currency)} · {dateText(current.tradedOn)}</small>}</>;
 }
 
-function PlanConfirmation({request,occurrence,accounts,cashAccounts,onClose,onSaved}:Omit<Props,'manager'>&{occurrence:InvestmentPlanOccurrence;onClose:()=>void;onSaved:()=>Promise<void>}){
+function PlanConfirmation({request,occurrence,accounts,cashAccounts,onClose,onSaved}:Omit<Props,'manager'|'supportState'>&{occurrence:InvestmentPlanOccurrence;onClose:()=>void;onSaved:()=>Promise<void>}){
  const [key]=useState(newIdempotencyKey),[quantity,setQuantity]=useState(''),[price,setPrice]=useState(''),[fee,setFee]=useState('0'),[tradedOn,setTradedOn]=useState(businessDate()),[ack,setAck]=useState(false);
  const fundsError=useFundsRefresh(),cash=cashAccounts.find(a=>a.id===occurrence.fundingAccountId),account=accounts.find(a=>a.id===occurrence.accountId);
  const total=tradeCash(quantity,price,fee),balance=cents(cash?.availableBalance),payment=cents(total);

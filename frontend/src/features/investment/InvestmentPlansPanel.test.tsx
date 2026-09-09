@@ -4,20 +4,22 @@ import userEvent from '@testing-library/user-event';
 import {InvestmentPlansPanel} from './InvestmentPlansPanel';
 import type {RequestFn} from '../common';
 
-vi.mock('./TradeStockPicker',()=>({TradeStockPicker:({onChange,disabled}:any)=><button type="button" disabled={disabled} onClick={()=>onChange({id:8,name:'阿里巴巴',tsCode:'BABA.US',market:'US',symbol:'BABA',currency:'USD'})}>选择阿里巴巴</button>,securityCurrency:(s:any)=>s?.currency??'CNY'}));
-const plan={id:1,name:'长期积累',accountId:3,accountName:'美股账户',fundingAccountId:4,securityId:8,securityName:'阿里巴巴',symbol:'BABA',currency:'USD',amount:'100.00',frequency:'MONTHLY',firstDueOn:'2026-09-01',nextDueOn:'2026-10-01',assignedUserId:7,state:'ACTIVE'};
+vi.mock('./TradeStockPicker',()=>({TradeStockPicker:({onChange,disabled,value}:any)=><div><span data-testid="selected-security">{value?`${value.market} ${value.tsCode} ${value.exchange??''}`:'none'}</span><button type="button" disabled={disabled} onClick={()=>onChange({id:8,name:'阿里巴巴',tsCode:'BABA.US',market:'US',symbol:'BABA',currency:'USD'})}>选择阿里巴巴</button></div>,securityCurrency:(s:any)=>s?.currency??'CNY'}));
+const planSecurity={id:8,name:'阿里巴巴',tsCode:'BABA.US',market:'US',symbol:'BABA',currency:'USD',exchange:'NASDAQ',timezone:'America/New_York',securityType:'STOCK',active:true};
+const plan={id:1,name:'长期积累',accountId:3,accountName:'美股账户',fundingAccountId:4,securityId:8,securityName:'阿里巴巴',symbol:'BABA',currency:'USD',amount:'100.00',frequency:'MONTHLY',firstDueOn:'2026-09-01',nextDueOn:'2026-10-01',assignedUserId:7,state:'ACTIVE',security:planSecurity};
 const occurrence={...plan,id:11,planId:1,planName:'长期积累',dueOn:'2026-09-01',state:'PENDING',remindAt:null,tradeId:null,actualAmount:null,reason:null};
 const cash={id:4,name:'美元现金',currency:'USD',type:'BANK',balance:'500.00',availableBalance:'500.00',openingConfirmed:true,openingOn:'2026-01-01',archivedAt:null};
-function setup(options:{pending?:boolean;manager?:boolean;fail?:boolean;reversed?:boolean}={}){
+function setup(options:{pending?:boolean;manager?:boolean;fail?:boolean;reversed?:boolean;plan?:any;accounts?:any[];cashAccounts?:any[]}={}){
  const calls:Array<{path:string;options:any}>=[];
+ const shownPlan=options.plan??plan;
  const request=(async(path:string,opts:any)=>{
   calls.push({path,options:opts});
   if(opts?.method){if(options.fail)throw new Error('余额不足，未记账');return {};}
-  if(path==='/api/investment-plans')return {plans:[plan],occurrences:options.pending===false?[]:[options.reversed?{...occurrence,state:'CONFIRMED',tradeId:44,actualAmount:'100.00',tradeReversed:true}:occurrence]};
+  if(path==='/api/investment-plans')return {plans:[shownPlan],occurrences:options.pending===false?[]:[options.reversed?{...occurrence,state:'CONFIRMED',tradeId:44,actualAmount:'100.00',tradeReversed:true}:occurrence]};
   if(path.startsWith('/api/family/memberships'))return {items:[{id:1,userId:7,displayName:'叶凯文',status:'ACTIVE'}],page:0,size:50,totalElements:1,totalPages:1,hasNext:false};
   throw new Error('Unexpected '+path);
  }) as RequestFn;
- render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><InvestmentPlansPanel request={request} manager={options.manager??true} accounts={[{id:3,name:'美股账户',brokerName:'券商',currency:'USD',fundingAccountId:4,status:'ACTIVE',createdBy:7,archivedAt:null}]} cashAccounts={[cash as any]}/></QueryClientProvider>);
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><InvestmentPlansPanel request={request} manager={options.manager??true} accounts={options.accounts??[{id:3,name:'美股账户',brokerName:'券商',currency:'USD',fundingAccountId:4,status:'ACTIVE',createdBy:7,archivedAt:null}]} cashAccounts={options.cashAccounts??[cash as any]}/></QueryClientProvider>);
  return {calls,user:userEvent.setup()};
 }
 it('opening a pending occurrence never posts and requires actual execution acknowledgement',async()=>{
@@ -89,4 +91,27 @@ it('skips only the selected occurrence without sending a trade confirmation',asy
  await user.click(within(dialog).getByRole('button',{name:'确认跳过'}));
  await waitFor(()=>expect(calls.some(c=>c.path.endsWith('/11/skip'))).toBe(true));
  expect(calls.filter(c=>c.options?.method).map(c=>c.path)).toEqual(['/api/investment-plans/occurrences/11/skip']);
+});
+
+it.each([
+ {market:'SZ',tsCode:'000001.SZ',symbol:'000001',exchange:'SZSE',name:'平安银行'},
+ {market:'BJ',tsCode:'430047.BJ',symbol:'430047',exchange:'BSE',name:'诺思兰德'}
+])('edits a $market plan with its backend security identity intact',async identity=>{
+ const security={...planSecurity,...identity,id:18,currency:'CNY',timezone:'Asia/Shanghai'};
+ const domesticPlan={...plan,securityId:18,securityName:identity.name,symbol:identity.symbol,currency:'CNY',security};
+ const domesticAccount={id:3,name:'A股账户',brokerName:'券商',currency:'CNY',fundingAccountId:4,status:'ACTIVE',createdBy:7,archivedAt:null};
+ const domesticCash={...cash,currency:'CNY',name:'人民币现金'};
+ const {user}=setup({pending:false,plan:domesticPlan,accounts:[domesticAccount],cashAccounts:[domesticCash]});
+ await user.click(await screen.findByRole('button',{name:'编辑计划'}));
+ const dialog=screen.getByRole('dialog');
+ expect(within(dialog).getByTestId('selected-security')).toHaveTextContent(`${identity.market} ${identity.tsCode} ${identity.exchange}`);
+ expect(within(dialog).getByRole('button',{name:'保存计划'})).toBeEnabled();
+});
+
+it('blocks editing when the backend plan omits its security identity',async()=>{
+ const {user}=setup({pending:false,plan:{...plan,security:undefined}});
+ await user.click(await screen.findByRole('button',{name:'编辑计划'}));
+ const dialog=screen.getByRole('dialog');
+ expect(within(dialog).getByRole('alert')).toHaveTextContent('证券身份');
+ expect(within(dialog).getByRole('button',{name:'保存计划'})).toBeDisabled();
 });

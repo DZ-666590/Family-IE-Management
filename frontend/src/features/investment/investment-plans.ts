@@ -1,10 +1,11 @@
 import {useQuery} from '@tanstack/react-query';
 import type {RequestFn} from '../common';
-import type {InvestmentTrade} from '../../api/contracts';
+import type {InvestmentTrade,Security} from '../../api/contracts';
 export type PlanFrequency='WEEKLY'|'BIWEEKLY'|'MONTHLY';
 export interface InvestmentPlan {
  id:number;name:string;accountId:number;accountName:string;fundingAccountId:number;securityId:number;securityName:string;symbol:string;
  currency:string;amount:string;frequency:PlanFrequency;firstDueOn:string;nextDueOn:string|null;assignedUserId:number;state:'ACTIVE'|'PAUSED'|'ENDED';
+ security?:Security|null;
 }
 export interface InvestmentPlanOccurrence {
  id:number;planId:number;planName:string;accountId:number;accountName:string;fundingAccountId:number;securityId:number;securityName:string;symbol:string;

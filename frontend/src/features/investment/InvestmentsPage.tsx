@@ -123,7 +123,12 @@ export function InvestmentsPage({ request, role }: { request: RequestFn; role: H
     {tab==='positions'&&Boolean(dailyPortfolio.data?.positions.some(p=>Number(p.quantity)>0))&&<div className="reference-quote" role="status"><div><span>{usingLiveProjection?'盘中参考估值（不改动实际成交成本）':'当前显示收盘估值'}</span><button type="button" className="text-action" disabled={livePortfolio.isFetching} onClick={()=>void livePortfolio.refetch()}>{livePortfolio.isFetching?'正在更新…':'更新参考报价'}</button></div><p>{livePortfolio.error?'盘中报价暂不可用，保留最后有效结果。':usingLiveProjection&&livePortfolio.data?.partial?'部分证券使用收盘价或手工价格，请查看各行来源。':'常规交易时段约60秒更新；页面隐藏时暂停。'}</p><p>公开行情可能延迟，不提供连续实时行情保证。总览与历史快照仍按收盘口径。</p></div>}
     {tab!=='plans'&&(investmentPlans.data?.pendingCount??0)>0&&<div className="reference-quote" role="status">你有 {investmentPlans.data!.pendingCount} 期定投待确认。<button className="text-action" onClick={()=>setTab('plans')}>查看定投计划</button></div>}
     <nav className="segmented-tabs" aria-label="投资模块">{([['positions','持仓'],['trades','交易'],['accounts','账户'],['quotes','行情'],['plans','定投计划'],['rates','汇率']] as const).map(([value,label]) => <button key={value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{label}</button>)}</nav>
-    {tab==='plans'&&<InvestmentPlansPanel request={request} manager={manager} accounts={accountOptions.data??[]} cashAccounts={cashAccounts.data??[]}/>}
+    {tab==='plans'&&<InvestmentPlansPanel request={request} manager={manager} accounts={accountOptions.data??[]} cashAccounts={cashAccounts.data??[]} supportState={{
+      loading: !accountOptions.error&&!cashAccounts.error&&(accountOptions.isLoading||cashAccounts.isLoading||accountOptions.data===undefined||cashAccounts.data===undefined),
+      error: accountOptions.error||cashAccounts.error,
+      retry: ()=>{void accountOptions.refetch();void cashAccounts.refetch();}
+    }}
+    />}
     {tab === 'positions' && <QueryState loading={portfolio.isLoading} error={portfolio.error} empty={!portfolio.data?.positions.length} emptyTitle="还没有投资持仓" emptyDetail={manager ? '已有股票可录入期初持仓；新买入请记一笔投资。' : '家庭管理员还没有录入投资。'}>
       <div className="responsive-data">
         <table><thead><tr><th>证券</th><th>账户</th><th>数量</th><th>成本</th><th>价格</th><th>市值</th><th>总收益</th><th>来源</th>{manager && <th><span className="sr-only">操作</span></th>}</tr></thead>
