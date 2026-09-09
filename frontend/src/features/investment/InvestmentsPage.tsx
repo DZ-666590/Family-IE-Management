@@ -4,6 +4,8 @@ import { BriefcaseBusiness } from 'lucide-react';
 import Button from '@douyinfe/semi-ui/lib/es/button';
 import { businessDate, newIdempotencyKey } from '../../shared/runtime';
 import { PortfolioSummary } from './PortfolioSummary';
+import { InvestmentPlansPanel } from './InvestmentPlansPanel';
+import { useInvestmentPlans } from './investment-plans';
 import {useLivePortfolio,quoteTime,sameRecordedPositions} from './live-quotes';
 import {DateField} from '../../shared/DateField';
 import { OverseasMarketPanel } from './OverseasMarketPanel';
@@ -26,10 +28,11 @@ import { ConfirmDialog, DataPanel, Drawer, FormError, PageScaffold, QueryState, 
 type TradeDraft = { security?: SecuritySelection; positionLocked?: boolean; key: string; cashAccountId?: number | null; id?: number; accountId: string; securityId: string; type: InvestmentTradeType; quantity: string; price: string; fee: string; tradedOn: string };
 
 export function InvestmentsPage({ request, role }: { request: RequestFn; role: HouseholdRole }) {
-  const [tab, setTab] = useState<'positions' | 'trades' | 'accounts' | 'quotes' | 'rates'>(()=>new URLSearchParams(window.location.search).get('tab')==='rates'?'rates':'positions');
+  const [tab, setTab] = useState<'positions' | 'trades' | 'accounts' | 'quotes' | 'rates' | 'plans'>(()=>{const value=new URLSearchParams(window.location.search).get('tab');return value==='rates'||value==='plans'||value==='accounts'?value:'positions';});
+  const investmentPlans = useInvestmentPlans(request);
   const [quoteMarket, setQuoteMarket] = useState<'CN' | 'HK' | 'US'>('CN');
   const overseasView = tab === 'quotes' && quoteMarket !== 'CN';
-  const marketOnly = overseasView || tab === 'rates';
+  const marketOnly = overseasView || tab === 'rates' || tab === 'plans';
   const [trade, setTrade] = useState<TradeDraft | null>(null);
   const currencyOptions=useQuery({queryKey:['currency-capabilities'],queryFn:()=>request<{currencies:string[];deploymentReady?:boolean}>('/api/currencies'),refetchInterval:query=>query.state.data?.deploymentReady===false?5000:false});
   const supportedCurrencies=currencyOptions.data?.currencies??['CNY'];
@@ -118,7 +121,9 @@ export function InvestmentsPage({ request, role }: { request: RequestFn; role: H
       onOpening={accountId => setTrade({ ...blankTrade(), accountId, type: 'OPENING' })}/>}
     {!marketOnly && <PortfolioSummary portfolio={portfolio.data} onViewQuotes={() => { setQuoteMarket('CN'); setTab('quotes'); }}/>}
     {tab==='positions'&&Boolean(dailyPortfolio.data?.positions.some(p=>Number(p.quantity)>0))&&<div className="reference-quote" role="status"><div><span>{usingLiveProjection?'盘中参考估值（不改动实际成交成本）':'当前显示收盘估值'}</span><button type="button" className="text-action" disabled={livePortfolio.isFetching} onClick={()=>void livePortfolio.refetch()}>{livePortfolio.isFetching?'正在更新…':'更新参考报价'}</button></div><p>{livePortfolio.error?'盘中报价暂不可用，保留最后有效结果。':usingLiveProjection&&livePortfolio.data?.partial?'部分证券使用收盘价或手工价格，请查看各行来源。':'常规交易时段约60秒更新；页面隐藏时暂停。'}</p><p>公开行情可能延迟，不提供连续实时行情保证。总览与历史快照仍按收盘口径。</p></div>}
-    <nav className="segmented-tabs" aria-label="投资模块">{([['positions','持仓'],['trades','交易'],['accounts','账户'],['quotes','行情'],['rates','汇率']] as const).map(([value,label]) => <button key={value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{label}</button>)}</nav>
+    {tab!=='plans'&&(investmentPlans.data?.pendingCount??0)>0&&<div className="reference-quote" role="status">你有 {investmentPlans.data!.pendingCount} 期定投待确认。<button className="text-action" onClick={()=>setTab('plans')}>查看定投计划</button></div>}
+    <nav className="segmented-tabs" aria-label="投资模块">{([['positions','持仓'],['trades','交易'],['accounts','账户'],['quotes','行情'],['plans','定投计划'],['rates','汇率']] as const).map(([value,label]) => <button key={value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{label}</button>)}</nav>
+    {tab==='plans'&&<InvestmentPlansPanel request={request} manager={manager} accounts={accountOptions.data??[]} cashAccounts={cashAccounts.data??[]}/>}
     {tab === 'positions' && <QueryState loading={portfolio.isLoading} error={portfolio.error} empty={!portfolio.data?.positions.length} emptyTitle="还没有投资持仓" emptyDetail={manager ? '已有股票可录入期初持仓；新买入请记一笔投资。' : '家庭管理员还没有录入投资。'}>
       <div className="responsive-data">
         <table><thead><tr><th>证券</th><th>账户</th><th>数量</th><th>成本</th><th>价格</th><th>市值</th><th>总收益</th><th>来源</th>{manager && <th><span className="sr-only">操作</span></th>}</tr></thead>

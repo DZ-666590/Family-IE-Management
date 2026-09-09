@@ -147,7 +147,7 @@ export function DateField({
 
   useLayoutEffect(() => {
     if (!open || !keyboardOpenRef.current) return;
-    const container = rootRef.current?.closest<HTMLElement>('.side-sheet') ?? document.body;
+    const container = rootRef.current?.closest<HTMLElement>('.side-sheet, .semi-modal-content') ?? document.body;
     const focusCalendar = () => {
       const selected = container.querySelector<HTMLElement>('.unified-date-calendar [role="gridcell"][aria-selected="true"]:not([aria-disabled="true"])');
       const firstEnabled = container.querySelector<HTMLElement>('.unified-date-calendar [role="gridcell"][aria-label]:not([aria-disabled="true"])');
@@ -194,7 +194,7 @@ export function DateField({
         inputReadOnly={readOnly}
         disabledDate={disabledDate}
         dropdownClassName="unified-date-calendar"
-        getPopupContainer={() => rootRef.current?.closest<HTMLElement>('.side-sheet') ?? document.body}
+        getPopupContainer={() => rootRef.current?.closest<HTMLElement>('.side-sheet, .semi-modal-content') ?? document.body}
         onOpenChange={nextOpen => {
           if (nextOpen) keyboardOpenRef.current = false;
           setOpen(readOnly ? false : nextOpen);
