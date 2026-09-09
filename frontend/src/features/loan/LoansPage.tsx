@@ -1,3 +1,4 @@
+import {BankAccountPicker} from '../ledger/BankAccountPicker';
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Button from "@douyinfe/semi-ui/lib/es/button";
@@ -757,23 +758,7 @@ export function LoansPage({
                   </label>
                   {draft.fundingMode === "DISBURSEMENT" && (
                     <>
-                      <label>
-                        放款到账账户
-                        <select
-                          required
-                          name="disbursementAccountId"
-                          value={draft.disbursementAccountId}
-                          onChange={(e) =>
-                            setDraft({
-                              ...draft,
-                              disbursementAccountId: e.target.value,
-                            })
-                          }
-                        >
-                          <option value="">请选择</option>
-                          <AccountOptions accounts={(accounts.data ?? []).filter(a=>(a.currency??'CNY')==='CNY')} />
-                        </select>
-                      </label>
+                      <BankAccountPicker accountsReady={accounts.data!==undefined} label="放款到账账户" name="disbursementAccountId" required currency="CNY" request={request} accounts={accounts.data ?? []} value={draft.disbursementAccountId} onChange={id => setDraft({ ...draft, disbursementAccountId: id })}/>
                       <PaymentPreview
                         incoming
                         account={accounts.data?.find(
@@ -1057,20 +1042,7 @@ export function LoansPage({
                       ))}
                     </select>
                   </label>
-                  <label>
-                    扣款账户
-                    <select
-                      name="paymentAccountId"
-                      required
-                      value={draft.paymentAccountId}
-                      onChange={(e) =>
-                        setDraft({ ...draft, paymentAccountId: e.target.value })
-                      }
-                    >
-                      <option value="">请选择</option>
-                      <AccountOptions accounts={(accounts.data ?? []).filter(a=>(a.currency??'CNY')==='CNY')} />
-                    </select>
-                  </label>
+                  <BankAccountPicker accountsReady={accounts.data!==undefined} label="扣款账户" name="paymentAccountId" required currency="CNY" request={request} accounts={accounts.data ?? []} value={draft.paymentAccountId} onChange={id => setDraft({ ...draft, paymentAccountId: id })}/>
                   <label>
                     还款分类
                     <select
@@ -1386,7 +1358,7 @@ export function LoansPage({
         )}
       </Drawer>
       {selected && prepayOpen && (
-        <LoanPrepaymentPanel
+        <LoanPrepaymentPanel accountsReady={accounts.data!==undefined}
           key={selected.id}
           loan={selected}
           accounts={accounts.data ?? []}
@@ -1455,19 +1427,7 @@ export function LoansPage({
                 }
               />
             </label>
-            <label>
-              本次付款账户
-              <select
-                required
-                name="paymentAccountId"
-                value={payment.paymentAccountId}
-                onChange={(e) =>
-                  setPayment({ ...payment, paymentAccountId: e.target.value })
-                }
-              >
-                <AccountOptions accounts={(accounts.data ?? []).filter(a=>(a.currency??'CNY')==='CNY')} />
-              </select>
-            </label>
+            <BankAccountPicker accountsReady={accounts.data!==undefined} label="本次付款账户" name="paymentAccountId" currency="CNY" request={request} accounts={accounts.data ?? []} value={payment.paymentAccountId} onChange={id=>setPayment({...payment,paymentAccountId:id})}/>
             <PaymentPreview
               account={accounts.data?.find(
                 (a) => String(a.id) === payment.paymentAccountId,
@@ -1521,20 +1481,7 @@ export function LoansPage({
                 }
               />
             </label>
-            <label>
-              扣款账户
-              <select
-                required
-                name="paymentAccountId"
-                value={settings.paymentAccountId}
-                onChange={(e) =>
-                  setSettings({ ...settings, paymentAccountId: e.target.value })
-                }
-              >
-                <option value="">请选择</option>
-                <AccountOptions accounts={(accounts.data ?? []).filter(a=>(a.currency??'CNY')==='CNY')} />
-              </select>
-            </label>
+            <BankAccountPicker accountsReady={accounts.data!==undefined} label="扣款账户" name="paymentAccountId" required currency="CNY" request={request} accounts={accounts.data ?? []} value={settings.paymentAccountId} onChange={id => setSettings({ ...settings, paymentAccountId: id })}/>
             <label>
               利息费用分类
               <select
@@ -1589,7 +1536,7 @@ export function LoansPage({
         )}
       </Drawer>
       {payoffOpen && selected && (
-        <LoanPayoffPanel
+        <LoanPayoffPanel accountsReady={accounts.data!==undefined}
           key={selected.id}
           loan={selected}
           accounts={accounts.data ?? []}

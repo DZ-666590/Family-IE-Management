@@ -17,6 +17,7 @@ function page(items: Account[], index = 0, total = items.length): Page<Account> 
 function api(load: (index: number) => Promise<Page<Account>>) {
   const writes: string[] = [];
   const request: ApiRequest = async <T,>(path: string, options?: Parameters<ApiRequest>[1]): Promise<T> => {
+    if(path==='/api/bank-accounts')return [] as T;
     if (options?.method && options.method !== 'GET') writes.push(path);
     if (path.startsWith('/api/accounts?')) return await load(Number(new URL(path, 'http://test.local').searchParams.get('page'))) as T;
     return new Promise<T>(() => undefined);
