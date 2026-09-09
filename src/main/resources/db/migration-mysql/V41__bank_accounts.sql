@@ -29,7 +29,8 @@ where type = 'BANK';
 update financial_accounts account_row
 join bank_accounts bank_row
   on bank_row.household_id = account_row.household_id
- and bank_row.name = account_row.name
+ -- Names were copied verbatim; byte comparison also handles different table collations.
+ and binary bank_row.name = binary account_row.name
 set account_row.bank_account_id = bank_row.id
 where account_row.type = 'BANK';
 
