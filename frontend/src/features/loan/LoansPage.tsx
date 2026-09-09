@@ -454,35 +454,86 @@ export function LoansPage({
                   <span>剩余本金</span>
                   <strong>{money(item.currentPrincipal)}</strong>
                 </div>
-                <LoanTotals loan={item} />
-                <LoanCurrentPlan loan={item} />
-                <dl>
-                  <div>
-                    <dt>
-                      {item.fundingMode === "OPENING"
-                        ? "期初剩余本金"
-                        : item.fundingMode === "FINANCED_PURCHASE"
-                          ? "贷款购买本金"
-                          : "放款本金"}
-                    </dt>
-                    <dd>{money(item.principal)}</dd>
-                  </div>
+                <dl className="loan-facts" aria-label="贷款信息">
                   <div>
                     <dt>年利率</dt>
                     <dd>{formatAnnualRatePercent(item.annualRate)}%</dd>
                   </div>
-                  <div>
-                    <dt>原合同期限</dt>
-                    <dd>
-                      {item.termMonths}{" "}
-                      {item.repaymentMethod === "CUSTOM" ? "期" : "个月"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>开始日</dt>
-                    <dd>{dateText(item.startOn)}</dd>
-                  </div>
+                  {item.remainingTerm !== undefined && (
+                    <div>
+                      <dt>剩余期数</dt>
+                      <dd>{item.remainingTerm} 期</dd>
+                    </div>
+                  )}
+                  {item.nextPaymentOn && (
+                    <>
+                      <div>
+                        <dt>下期还款日</dt>
+                        <dd>{dateText(item.nextPaymentOn)}</dd>
+                      </div>
+                      <div>
+                        <dt>下期应还</dt>
+                        <dd>{money(item.nextPaymentAmount)}</dd>
+                      </div>
+                    </>
+                  )}
                 </dl>
+                <details className="loan-facts-more">
+                  <summary>更多贷款信息</summary>
+                  <dl className="loan-facts">
+                    <div>
+                      <dt>
+                        {item.fundingMode === "OPENING"
+                          ? "期初剩余本金"
+                          : item.fundingMode === "FINANCED_PURCHASE"
+                            ? "贷款购买本金"
+                            : "放款本金"}
+                      </dt>
+                      <dd>{money(item.principal)}</dd>
+                    </div>
+                    <div>
+                      <dt>原合同期限</dt>
+                      <dd>
+                        {item.termMonths}{" "}
+                        {item.repaymentMethod === "CUSTOM" ? "期" : "个月"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>开始日</dt>
+                      <dd>{dateText(item.startOn)}</dd>
+                    </div>
+                    <div>
+                      <dt>当前有效计划总金额</dt>
+                      <dd>{money(item.scheduledRepaymentTotal)}</dd>
+                    </div>
+                    <div>
+                      <dt>计划剩余本息</dt>
+                      <dd>{money(item.remainingRepaymentTotal)}</dd>
+                    </div>
+                    <div>
+                      <dt>累计已还现金</dt>
+                      <dd>{money(item.paidRepaymentTotal)}</dd>
+                    </div>
+                    {item.remainingTerm !== undefined && (
+                      <div>
+                        <dt>计划到期</dt>
+                        <dd>{dateText(item.maturityOn)}</dd>
+                      </div>
+                    )}
+                    {item.latestStrategy && (
+                      <div className="loan-facts__wide">
+                        <dt>最近调整</dt>
+                        <dd>
+                          {item.latestStrategy === "REDUCE_TERM"
+                            ? "按原付款上限缩期"
+                            : item.latestStrategy === "ADJUST_TERM"
+                              ? "自选更短期数"
+                              : "保留期数"}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </details>
                 <footer>
                   <Button
                     size="small"

@@ -51,7 +51,9 @@ it('shows server whole-loan totals and confirms a quoted selected-account payoff
   return (path === '/api/loans/4' ? loan : path.startsWith('/api/loans?') ? page([loan]) : path.startsWith('/api/accounts?') ? page(accounts) : path === '/api/members' ? [] : path.endsWith('/prepayments') ? [] : page([])) as T;
  };
  const user = userEvent.setup(); render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><LoansPage request={request} role="OWNER" /></QueryClientProvider>);
- expect(await screen.findByText('当前有效计划总金额')).toBeInTheDocument(); expect(screen.getByText('计划剩余本息')).toBeInTheDocument(); expect(screen.getByText('累计已还现金')).toBeInTheDocument();
+ expect(await screen.findByText('年利率')).toBeInTheDocument();
+ await user.click(screen.getByText('更多贷款信息'));
+ expect(screen.getByText('计划剩余本息')).toBeInTheDocument(); expect(screen.getByText('累计已还现金')).toBeInTheDocument();
  await user.click(await screen.findByRole('button', { name: '一次结清' }));
  const drawer = await screen.findByRole('dialog', { name: '结清测试 · 一次结清' });
  await user.selectOptions(within(drawer).getByLabelText('本次付款账户'), '2');
