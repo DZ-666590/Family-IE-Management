@@ -11,7 +11,11 @@ import org.springframework.stereotype.Component;
 @Component
 final class AiEndpointPolicy {
     private final List<String> allowed;
-    AiEndpointPolicy(@Value("${app.ai.allowed-hosts:}") String hosts) {
+    @org.springframework.beans.factory.annotation.Autowired
+    AiEndpointPolicy(@Value("${app.ai.allowed-hosts:}") String hosts, @Value("${app.ai.base-url:}") String systemUrl) {
+        this(hosts + "," + AiSystemConfiguration.officialHost(systemUrl));
+    }
+    AiEndpointPolicy(String hosts) {
         allowed = Arrays.stream(hosts.split(",")).map(String::trim).map(s -> s.toLowerCase(Locale.ROOT))
                 .filter(s -> !s.isEmpty()).distinct().sorted().toList();
     }

@@ -36,18 +36,20 @@ final class SafeAiTransport implements AiTransport {
         request.setHeader("Authorization", "Bearer " + key);
         request.setHeader("Accept", "application/json");
         if (body != null) request.setEntity(new ByteArrayEntity(body, ContentType.APPLICATION_JSON));
-        long expiresAt = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
-        var cancel = deadline.schedule(request::cancel, 20, TimeUnit.SECONDS);
+        int totalSeconds = body == null ? 20 : 90;
+        int readSeconds = body == null ? 10 : 60;
+        long expiresAt = System.nanoTime() + TimeUnit.SECONDS.toNanos(totalSeconds);
+        var cancel = deadline.schedule(request::cancel, totalSeconds, TimeUnit.SECONDS);
         // Resolver returns the validated addresses directly to the socket connector (no second lookup).
         var manager = PoolingHttpClientConnectionManagerBuilder.create()
                 .setDnsResolver(new PublicDnsResolver(dns, expiresAt))
                 .setMaxConnTotal(1).setMaxConnPerRoute(1)
                 .setDefaultConnectionConfig(ConnectionConfig.custom().setConnectTimeout(Timeout.ofSeconds(5))
-                        .setSocketTimeout(Timeout.ofSeconds(10)).build()).build();
+                        .setSocketTimeout(Timeout.ofSeconds(readSeconds)).build()).build();
         try (var client = HttpClients.custom().setConnectionManager(manager)
                 .disableRedirectHandling().disableAutomaticRetries().disableCookieManagement().disableContentCompression()
                 .setDefaultRequestConfig(RequestConfig.custom().setConnectionRequestTimeout(Timeout.ofSeconds(2))
-                        .setResponseTimeout(Timeout.ofSeconds(10)).build()).build()) {
+                        .setResponseTimeout(Timeout.ofSeconds(readSeconds)).build()).build()) {
             return client.execute(request, response -> {
                 if (response.getCode() < 200 || response.getCode() >= 300 || response.getEntity() == null) {
                     request.cancel();
