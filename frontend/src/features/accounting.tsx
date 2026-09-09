@@ -36,7 +36,7 @@ export function unitPrice(raw:string):bigint|null {
 export function AccountOptions({ accounts }: { accounts: Account[] }) {
   return <>{accounts.map(account => <option key={account.id} value={account.id} disabled={!account.openingConfirmed || Boolean(account.archivedAt)}>{accountLabel(account)}{!account.openingConfirmed ? ' · 待确认期初余额' : ` · 可用 ${money(account.availableBalance,account.currency)}`}</option>)}</>;
 }
-export function PaymentPreview({ account, amount, incoming = false, adjustment = false, compact = false }: { account?: Account; amount: string | null | undefined; incoming?: boolean; adjustment?: boolean;compact?:boolean }) {
+export function PaymentPreview({ account, amount, incoming = false, adjustment = false, compact = false, showNote = true }: { account?: Account; amount: string | null | undefined; incoming?: boolean; adjustment?: boolean;compact?:boolean;showNote?:boolean }) {
   const balance = account?.openingConfirmed ? cents(account.availableBalance) : null;
   const payment = cents(amount);
   const remaining = balance !== null && payment !== null ? balance + (incoming ? payment : -payment) : null;
@@ -49,7 +49,7 @@ export function PaymentPreview({ account, amount, incoming = false, adjustment =
     {account && !account.openingConfirmed && <p role="status">请先在收支明细 → 账户中确认期初余额，零余额也需要明确确认。</p>}
     {compact&&adjustment&&<p className="source-note">冲回原记录后重新入账，资金账户不变。</p>}
     {!adjustment && remaining !== null && remaining < 0n && <p role="status">账内可用余额不足，请核对资金记录；保存时由服务器检查。</p>}
-    {!compact&&<small>{adjustment ? '更正会冲回原记录后重新入账，余额由服务器按原资金账户核对。' : '仅预览本系统账本余额；记录不会执行银行或券商转账。'}</small>}
+    {showNote&&!compact&&<small>{adjustment ? '更正会冲回原记录后重新入账，余额由服务器按原资金账户核对。' : '仅预览本系统账本余额；记录不会执行银行或券商转账。'}</small>}
   </section>;
 }
 export function useFundsRefresh() {
