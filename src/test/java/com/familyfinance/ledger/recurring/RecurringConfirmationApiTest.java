@@ -221,9 +221,34 @@ class RecurringConfirmationApiTest {
                 .andExpect(jsonPath("$.error.code").value("OCCURRENCE_CANCELLED"));
     }
 
+    @Test
+    void singleConfirmationCanOverrideOnlyThisOccurrenceAmount() throws Exception {
+        MockHttpSession owner = login("demo", "demo1234");
+        MockHttpSession memberSession = join(owner, "recurring-amount-member@example.com");
+        AppUser memberUser = users.findByEmail("recurring-amount-member@example.com").orElseThrow();
+        Fixture fixture = fixture(memberUser);
+        long ruleId = createRule(owner, fixture, "12.00");
+        recurringService.generateDueOccurrences();
+        RecurringOccurrence occurrence = occurrences.findByRuleIdOrderByDueOnAscIdAsc(ruleId).get(0);
+
+        confirm(memberSession, occurrence.getId(), "35.50")
+                .andExpect(status().isOk());
+
+        FinancialTransaction transaction = transactions.findBySourceTypeAndSourceId(
+                TransactionSourceType.RECURRING, occurrence.getId()).orElseThrow();
+        assertThat(transaction.getAmountCents()).isEqualTo(3_550L);
+        assertThat(occurrence.getRule().getAmountCents()).isEqualTo(1_200L);
+    }
+
     private org.springframework.test.web.servlet.ResultActions confirm(MockHttpSession session, long id)
             throws Exception {
         return mvc.perform(post("/api/recurring-occurrences/{id}/confirm", id).session(session).with(csrf()));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions confirm(
+            MockHttpSession session, long id, String amount) throws Exception {
+        return mvc.perform(post("/api/recurring-occurrences/{id}/confirm", id).session(session).with(csrf())
+                .contentType("application/json").content("{\"amount\":\"%s\"}".formatted(amount)));
     }
 
     private long createRule(MockHttpSession owner, Fixture f, String amount) throws Exception {
