@@ -146,7 +146,7 @@ export function FormError({ error, scopeKey, compact=false }: { error: unknown; 
   }, [error, fields, id, scopeKey]);
   if (!error) return null;
   const apiError = error instanceof ApiError ? error : null;
-  return <div ref={ref} tabIndex={-1} className="form-alert" role="alert">{error instanceof Error ? error.message : '保存失败，请检查后重试'}{apiError?.fields && <ul>{Object.entries(apiError.fields).map(([field,message], index)=><li id={`${id}-${index}`} key={field}>{message}</li>)}</ul>}{apiError?.requestId && (compact?<details className="error-diagnostics"><summary>错误详情</summary><div className="request-id">请求 ID：{apiError.requestId}</div></details>:<div className="request-id">请求 ID：{apiError.requestId}</div>)}</div>;
+  return <div ref={ref} tabIndex={-1} className="form-alert" role="alert">{error instanceof Error ? error.message : '保存失败，请检查后重试'}{apiError?.fields && <ul>{Object.entries(apiError.fields).map(([field,message], index)=><li id={`${id}-${index}`} key={field}>{message}</li>)}</ul>}{apiError?.requestId && (compact?<details className="error-diagnostics"><summary tabIndex={0}>错误详情</summary><div className="request-id">请求 ID：{apiError.requestId}</div></details>:<div className="request-id">请求 ID：{apiError.requestId}</div>)}</div>;
 }
 
 export const isManager = (role: HouseholdRole) => role === 'OWNER' || role === 'ADMIN';
