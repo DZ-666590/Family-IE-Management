@@ -36,6 +36,35 @@ class OverseasMarketServiceTest {
     private final OverseasMarketService service = new OverseasMarketService(
             security, client, Clock.fixed(NOW, ZoneOffset.UTC));
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "US,2026-09-09T02:47:00Z,2026-09-08,true",
+        "US,2026-09-08T21:29:59Z,2026-09-08,false",
+        "US,2026-09-08T21:30:00Z,2026-09-08,true",
+        "US,2026-01-06T22:29:59Z,2026-01-06,false",
+        "US,2026-01-06T22:30:00Z,2026-01-06,true",
+        "HK,2026-09-08T09:30:00Z,2026-09-08,true",
+        "HK,2026-09-08T09:29:59Z,2026-09-08,false",
+        "US,2026-09-12T23:00:00Z,2026-09-12,false",
+        "US,2026-09-09T02:47:00Z,2026-09-09,false"
+    })
+    void acceptsOnlyPublishedSessionsAcrossMarketTimezones(String market, Instant now, LocalDate day, boolean accepted) {
+        String symbol = market.equals("US") ? "BABA" : "09988";
+        String zone = market.equals("US") ? "America/New_York" : "Asia/Hong_Kong";
+        var instrument = new OverseasInstrument(symbol, "Alibaba", market,
+                market.equals("US") ? "USD" : "HKD", market.equals("US") ? "NYSE" : "HKEX", zone);
+        var response = new OverseasCandleResponse(instrument, symbol, "SINA", "none", day, now, false, true,
+                List.of(new CandleBar(day.atStartOfDay(ZoneId.of(zone)).toInstant().toEpochMilli(),
+                        new BigDecimal("112.56"), new BigDecimal("113.115"), new BigDecimal("111.2683"),
+                        new BigDecimal("112.66"), 6958655, null)));
+        when(client.overseasCandles(market, symbol)).thenReturn(response);
+        var subject = new OverseasMarketService(security, client, Clock.fixed(now, ZoneOffset.UTC));
+        if (accepted) assertThat(subject.candles(authentication, market, symbol).bars().get(0).close())
+                .isEqualByComparingTo("112.66");
+        else assertThatThrownBy(() -> subject.candles(authentication, market, symbol))
+                .isInstanceOf(MarketProviderException.class);
+    }
+
     @Test
     void rejectsMalformedRequestBeforeCallingProvider() {
         assertThatThrownBy(() -> service.search(authentication, "CN", "AAPL"))

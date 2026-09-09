@@ -118,8 +118,8 @@ public class OverseasMarketService {
         }
         validateInstrument(response.instrument(), market, symbol);
         ZoneId zone = ZoneId.of(expectedTimezone(market));
-        LocalDate fetchedDay = response.fetchedAt().atZone(zone).toLocalDate();
-        LocalDate actualDay = now.atZone(zone).toLocalDate();
+        LocalDate fetchedDay = completedMarketDay(response.fetchedAt(), zone);
+        LocalDate actualDay = completedMarketDay(now, zone);
         Instant previous = null;
         LocalDate finalDate = null;
         for (CandleBar bar : response.bars()) {
@@ -134,8 +134,8 @@ public class OverseasMarketService {
             Instant timestamp = Instant.ofEpochMilli(bar.timestamp());
             var local = timestamp.atZone(zone);
             if (!local.toLocalTime().equals(LocalTime.MIDNIGHT)
-                    || !local.toLocalDate().isBefore(fetchedDay)
-                    || !local.toLocalDate().isBefore(actualDay)
+                    || local.toLocalDate().isAfter(fetchedDay)
+                    || local.toLocalDate().isAfter(actualDay)
                     || (previous != null && !timestamp.isAfter(previous))) {
                 throw invalid();
             }
@@ -147,6 +147,16 @@ public class OverseasMarketService {
         } else if (!finalDate.equals(response.asOf())) {
             throw invalid();
         }
+    }
+
+    private static LocalDate completedMarketDay(Instant instant, ZoneId zone) {
+        // Match the adapter's 17:30 local publication buffer, including US DST.
+        var local = instant.atZone(zone);
+        LocalDate day = local.toLocalTime().isBefore(LocalTime.of(17, 30))
+                ? local.toLocalDate().minusDays(1) : local.toLocalDate();
+        while (day.getDayOfWeek() == java.time.DayOfWeek.SATURDAY
+                || day.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) day = day.minusDays(1);
+        return day;
     }
 
     private static void validateInstrument(OverseasInstrument instrument, String market, String symbol) {
