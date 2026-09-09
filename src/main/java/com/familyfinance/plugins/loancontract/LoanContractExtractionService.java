@@ -41,13 +41,22 @@ public class LoanContractExtractionService {
     private final LoanContractTextExtractor textExtractor = new LoanContractTextExtractor();
 
     public LoanContractExtractionResponse extract(MultipartFile file) {
+        return extractFromText(extractText(file), file.getOriginalFilename());
+    }
+
+    /** Validates the file and returns its normalized plain text (throws a validation error for unsupported/empty uploads). */
+    public String extractText(MultipartFile file) {
         String text;
         try {
             text = textExtractor.extract(file);
         } catch (LoanContractTextExtractor.LoanContractExtractionException exception) {
             throw new RequestValidationException(Map.of(exception.field(), exception.getMessage()));
         }
-        String normalized = text.replace('\u00a0', ' ').replaceAll("[ \\t]+", " ");
+        return text.replace('\u00a0', ' ').replaceAll("[ \\t]+", " ");
+    }
+
+    /** Runs the deterministic rule-based extraction over already-extracted normalized text. */
+    public LoanContractExtractionResponse extractFromText(String normalized, String filename) {
         List<String> warnings = new ArrayList<>();
         Map<String, Double> confidence = new LinkedHashMap<>();
         LoanType type = type(normalized);
@@ -56,7 +65,7 @@ public class LoanContractExtractionService {
         Integer term = term(normalized);
         LocalDate startOn = date(normalized);
         RepaymentMethod method = method(normalized);
-        String name = suggestedName(file.getOriginalFilename(), type);
+        String name = suggestedName(filename, type);
         confidence.put("loanType", type == null ? 0.0 : 0.95);
         confidence.put("principal", principal == null ? 0.0 : 0.9);
         confidence.put("annualRatePercent", rate == null ? 0.0 : 0.85);
@@ -67,7 +76,7 @@ public class LoanContractExtractionService {
         if (rate == null) warnings.add("未识别到年利率，请人工填写");
         if (term == null) warnings.add("未识别到贷款期限，请人工填写");
         if (startOn == null) warnings.add("未识别到起息日，请人工填写");
-        return new LoanContractExtractionResponse(file.getOriginalFilename(),
+        return new LoanContractExtractionResponse(filename,
                 new LoanContractFields(name, type, principal, rate, term, method, startOn), confidence, warnings);
     }
 

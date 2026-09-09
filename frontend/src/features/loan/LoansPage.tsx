@@ -162,6 +162,7 @@ export function LoansPage({
   );
   const [contractExtraction, setContractExtraction] =
     useState<LoanContractExtraction | null>(null);
+  const [useAiConsent, setUseAiConsent] = useState(false);
   const [prepayOpen, setPrepayOpen] = useState(false);
   const [loanPage, setLoanPage] = useState(0);
   const [schedulePage, setSchedulePage] = useState(0);
@@ -259,11 +260,11 @@ export function LoansPage({
   const manager = isManager(role);
   const fundsError = useFundsRefresh();
   const extractContract = useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: ({ file, useAi }: { file: File; useAi: boolean }) => {
       const body = new FormData();
       body.append("file", file);
       return request<LoanContractExtraction>(
-        "/api/plugins/loan-contract-extractor/extract",
+        `/api/plugins/loan-contract-extractor/extract?useAi=${useAi ? "true" : "false"}`,
         { method: "POST", body },
       );
     },
@@ -634,11 +635,26 @@ export function LoansPage({
                       accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                       onChange={event => {
                         const file = event.target.files?.[0];
-                        if (file) extractContract.mutate(file);
-                        event.currentTarget.value = '';
+                        if (file)
+                          extractContract.mutate({
+                            file,
+                            useAi: useAiConsent,
+                          });
+                        event.currentTarget.value = "";
                       }}
                     />
-                    <p className="source-note">上传后只提取贷款字段并预填表单，不会自动提交；请核对合同原文。</p>
+                    <label className="ai-consent">
+                      使用系统 AI 提取
+                      <input
+                        type="checkbox"
+                        checked={useAiConsent}
+                        onChange={(e) => setUseAiConsent(e.target.checked)}
+                      />
+                    </label>
+                    <p className="source-note">
+                      勾选会把合同文本发送到 AI 服务用于更准确识别；不勾选则用规则识别。<br />
+                      上传后仅提取字段并预填表单，不会自动提交，请核对合同原文。
+                    </p>
                     {extractContract.isPending && <p role="status">正在提取合同信息…</p>}
                     <FormError error={extractContract.error} />
                     {contractExtraction?.warnings.map(warning => <p className="field-help" key={warning}>{warning}</p>)}
