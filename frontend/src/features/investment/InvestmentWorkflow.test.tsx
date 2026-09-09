@@ -8,6 +8,25 @@ const stock = { id: 5, market: 'SZ', tsCode: '000001.SZ', name: '平安银行', 
 const account = { id: 3, name: '证券账户', brokerName: '券商', fundingAccountId: 7, currency: 'CNY', status: 'ACTIVE', createdBy: 1, archivedAt: null };
 const position = { accountId: 3, accountName: '证券账户', brokerName: '券商', securityId: 5, tsCode: stock.tsCode, name: stock.name, quantity: 100, averageCost: '8.00', cost: '800.00', price: '10.00', marketValue: '1000.00', estimatedValue: '1000.00', realizedProfit: '0.00', unrealizedProfit: '200.00', totalProfit: '200.00', allocationPercent: '100.00', source: 'BAOSTOCK', tradeDate: '2026-09-07', fetchedAt: null, stale: false, error: null, valuationStatus: 'MARKET' };
 const page = (items: unknown[]) => ({ items, page: 0, size: 50, totalPages: 1, totalElements: items.length, hasNext: false });
+it('opens management in a dialog without replacing filtered holdings',async()=>{
+ const {user}=setup();await screen.findAllByRole('button',{name:'平安银行'});
+ await user.type(screen.getByRole('searchbox',{name:'搜索持仓'}),'平安');
+ await user.click(screen.getByRole('button',{name:'投资管理'}));
+ await user.click(await screen.findByRole('menuitem',{name:'账户'}));
+ const dialog=screen.getByRole('dialog',{name:'账户管理'});
+ expect(within(dialog).getByRole('heading',{name:'投资账户'})).toBeInTheDocument();
+ await user.click(within(dialog).getByRole('button',{name:'关闭'}));
+ expect(screen.getByRole('searchbox',{name:'搜索持仓'})).toHaveValue('平安');
+ await user.click(screen.getByRole('button',{name:'投资管理'}));
+ await user.click(await screen.findByRole('menuitem',{name:'汇率'}));
+ expect(screen.getByRole('dialog',{name:'汇率管理'})).toBeInTheDocument();
+});
+it.each([['accounts','账户管理'],['rates','汇率管理']])('keeps the %s deep link as a modal entry',async(tab,title)=>{
+ const previous=window.location.href;
+ window.history.replaceState(null,'',`/workspace/investments?tab=${tab}`);
+ try{setup();expect(screen.getByRole('dialog',{name:title})).toBeInTheDocument();}
+ finally{window.history.replaceState(null,'',previous);}
+});
 it('keeps failed live quotes visible on the dashboard without opening explanatory content',async()=>{
  setup();
  expect(await screen.findByText('报价更新失败')).toBeVisible();

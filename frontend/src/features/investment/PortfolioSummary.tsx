@@ -16,7 +16,8 @@ function MetricHelp({ label, children }: { label: string; children: ReactNode })
   </details>;
 }
 
-export function PortfolioSummary({ portfolio, onViewQuotes }: { portfolio?: Portfolio; onViewQuotes: () => void }) {
+export function PortfolioSummary({ portfolio, onViewQuotes, onManageRates }: { portfolio?: Portfolio; onViewQuotes: () => void; onManageRates?:()=>void }) {
+  const rateAction=(label:string)=>onManageRates?<button type="button" onClick={onManageRates}>{label}</button>:<a href="/workspace/investments?tab=rates">{label}</a>;
   const [hidden,setHidden]=useState(false);
   const displayMoney=(value:string|number|null|undefined)=>hidden?'••••':money(value);
   const totals = portfolio?.totals;
@@ -34,8 +35,8 @@ export function PortfolioSummary({ portfolio, onViewQuotes }: { portfolio?: Port
       </div>
     </div>
     {(missingHistoricalFx||Boolean(totals?.missingFxRates)||unpriced>0)&&<div className="portfolio-warning" role="status">
-    {missingHistoricalFx&&<div className="portfolio-warning-item"><span>缺少交易发生日汇率，人民币成本或收益待补充。原币记录已保留。</span><a href="/workspace/investments?tab=rates">补充历史汇率</a></div>}
-    {Boolean(totals?.missingFxRates)&&<div className="portfolio-warning-item"><span>{totals?.missingFxRates} 项持仓缺少汇率，已折算小计 {displayMoney(totals?.knownEstimatedValue)}。</span><a href="/workspace/investments?tab=rates">补充汇率</a></div>}
+    {missingHistoricalFx&&<div className="portfolio-warning-item"><span>缺少交易发生日汇率，人民币成本或收益待补充。原币记录已保留。</span>{rateAction('补充历史汇率')}</div>}
+    {Boolean(totals?.missingFxRates)&&<div className="portfolio-warning-item"><span>{totals?.missingFxRates} 项持仓缺少汇率，已折算小计 {displayMoney(totals?.knownEstimatedValue)}。</span>{rateAction('补充汇率')}</div>}
     {unpriced > 0 && <div className="portfolio-warning-item">
       <CircleAlert size={17} aria-hidden="true"/>
       <span>{unpriced} 项持仓缺少价格，市值与浮动收益尚不完整。</span>
