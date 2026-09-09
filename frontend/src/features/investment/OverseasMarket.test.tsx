@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { InvestmentsPage } from './InvestmentsPage';
 import { OverseasMarketPanel } from './OverseasMarketPanel';
@@ -9,6 +9,16 @@ import type { RequestFn } from '../common';
 vi.mock('klinecharts', () => ({ init: () => null, dispose: () => {} }));
 const hk = { market: 'HK', symbol: '00700', name: '騰訊控股', currency: 'HKD', exchange: 'HKEX', timezone: 'Asia/Hong_Kong' };
 const us = { market: 'US', symbol: 'AAPL', name: 'Apple Inc.', currency: 'USD', exchange: 'NASDAQ', timezone: 'America/New_York' };
+it('does not select a quote result while the user is composing Chinese text', async () => {
+  const paths:string[]=[];
+  const request:RequestFn=async<T,>(path:string)=>{paths.push(path);return {items:[hk],state:'READY',stale:false,hasNext:false} as T;};
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><OverseasMarketPanel request={request} market="HK"/></QueryClientProvider>);
+  await userEvent.click(screen.getByRole('combobox',{name:'证券'}));
+  const option=await screen.findByRole('option',{name:/00700.*騰訊/});
+  fireEvent.compositionStart(screen.getByRole('textbox'));
+  await userEvent.click(option);
+  expect(paths.some(path=>path.includes('/candles'))).toBe(false);
+});
 function setup() {
   const requests: Array<{ path: string; method?: string }> = [];
   let fail = false;

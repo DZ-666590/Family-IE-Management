@@ -55,6 +55,15 @@ def wait_for_state(service, market, wanted="READY"):
 
 
 class DirectorySourceTest(unittest.TestCase):
+    def test_hk_search_preserves_bilingual_names_and_accepts_padded_and_fullwidth_codes(self):
+        rows = build_hk_directory(
+            [{"Stock Code":1810,"Name of Securities":"XIAOMI-W","Category":"Equity","Trading Currency":"HKD"}],
+            [{"股份代號":1810,"股份名稱":"小米集團－Ｗ"}], min_items=1)
+        service = OverseasMarketService(directory_loader=lambda market: rows, min_directory_items={"HK":1,"US":1})
+        wait_for_state(service,"HK")
+        for query in ["小米", "Xiaomi", "1810", "１８１０", "01810.HK"]:
+            with self.subTest(query=query):
+                self.assertEqual(["01810"], [item["symbol"] for item in service.search("HK",query)["items"]])
     def test_read_only_workbook_resets_incorrect_declared_dimensions_before_iteration(self):
         values = [
             ("List of Securities", None, None, None),

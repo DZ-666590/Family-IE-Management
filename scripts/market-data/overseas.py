@@ -1,6 +1,7 @@
 """Independent read-only HK/US directory and raw candle service."""
 
 import re
+import unicodedata
 import threading
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
@@ -213,6 +214,11 @@ class OverseasMarketService:
                 "exchange": exchange,
                 "timezone": item_timezone,
             }
+            aliases = raw.get("search_names", [])
+            if not isinstance(aliases, list) or len(aliases) > 2 or any(not isinstance(n, str) or not n.strip() or len(n) > 200 for n in aliases):
+                raise ValueError("invalid directory search names")
+            if aliases:
+                by_symbol[symbol]["search_names"] = aliases
         return [by_symbol[symbol] for symbol in sorted(by_symbol)]
 
     def _start_directory_refresh_locked(self, market, now):
@@ -267,25 +273,28 @@ class OverseasMarketService:
                 state = "SYNCING" if refreshing else "ERROR"
                 error = None if refreshing else self._directory_errors[market]
 
-        folded = query.casefold()
+        folded = unicodedata.normalize("NFKC", query).casefold()
+        code_query = folded.removesuffix(".hk") if market == "HK" else folded
+        if market == "HK" and re.fullmatch(r"[0-9]{1,5}", code_query):
+            code_query = code_query.zfill(5)
         matches = []
         for item in items:
             symbol_folded = item["symbol"].casefold()
-            name_folded = item["name"].casefold()
+            names = [unicodedata.normalize("NFKC", name).casefold() for name in [item["name"], *item.get("search_names", [])]]
             if not folded:
                 rank = 2
-            elif symbol_folded == folded:
+            elif symbol_folded == code_query:
                 rank = 0
             elif symbol_folded.startswith(folded):
                 rank = 1
-            elif folded in name_folded:
+            elif any(folded in name for name in names):
                 rank = 2
             else:
                 continue
             matches.append((rank, item["symbol"], item))
         matches.sort(key=lambda match: (match[0], match[1]))
         return {
-            "items": [dict(match[2]) for match in matches[:20]],
+            "items": [{k:v for k,v in match[2].items() if k != "search_names"} for match in matches[:20]],
             "hasNext": len(matches) > 20,
             "updatedAt": updated_at,
             "stale": stale,
@@ -302,7 +311,7 @@ class OverseasMarketService:
                 raise UpstreamUnavailable("overseas directory is not ready")
             for item in cached[1]:
                 if item["symbol"] == symbol:
-                    return dict(item)
+                    return {k:v for k,v in item.items() if k != "search_names"}
         raise InstrumentNotFound("overseas instrument not found")
 
     def _load_candles(self, instrument):

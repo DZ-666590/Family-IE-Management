@@ -19,7 +19,7 @@ export function useStockDropdown(pickerId: string) {
     if (!menuOpen) return;
     const stopEditorEscape = (event: KeyboardEvent) => {
       const picker = document.getElementById(pickerId);
-      if (event.key !== 'Escape' || !picker?.contains(event.target as Node)) return;
+      if (event.isComposing || event.keyCode === 229 || event.key !== 'Escape' || !picker?.contains(event.target as Node)) return;
       event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation();
       selectRef.current?.close();
     };

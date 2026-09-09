@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Select, { type OptionProps } from '@douyinfe/semi-ui/lib/es/select';
 import { StockChart } from './StockChart';
@@ -7,16 +7,15 @@ import { useStockDropdown } from './useStockDropdown';
 import { isOverseasInstrument, type OverseasInstrument, type OverseasMarket, type OverseasSearch } from './overseas-market';
 import { dateText, type RequestFn } from '../common';
 import './stock-picker.scss';
+import { useStockSearch } from './useStockSearch';
 
 export function OverseasMarketPanel({ request, market,initial,onBuy,busy=false,tradingEnabled=false }: { request: RequestFn; market: OverseasMarket;initial?:OverseasInstrument;onBuy?:(value:OverseasInstrument)=>void;busy?:boolean;tradingEnabled?:boolean }) {
   const id = useId();
   const pickerId = `${id}-picker`;
   const dropdown = useStockDropdown(pickerId);
-  const [query, setQuery] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const {query,setQuery,debounced,composing,compositionProps} = useStockSearch();
   const [selected, setSelected] = useState<OverseasInstrument | null>(initial??null);
   const pollStarted = useRef(Date.now());
-  useEffect(() => { const timer = setTimeout(() => setDebounced(query.trim()), 250); return () => clearTimeout(timer); }, [query]);
   const search = useQuery({ queryKey: ['overseas-search', market, debounced], queryFn: async () => {
     const value = await request<OverseasSearch>(`/api/overseas-market/search?market=${market}&q=${encodeURIComponent(debounced)}`);
     if (!value || !Array.isArray(value.items) || value.items.length > 20 || !['READY','SYNCING','ERROR'].includes(value.state)
@@ -27,16 +26,15 @@ export function OverseasMarketPanel({ request, market,initial,onBuy,busy=false,t
   const waiting = query.trim() !== debounced || search.isFetching;
   const items = search.data?.items ?? [];
   const retry = () => { pollStarted.current = Date.now(); void search.refetch(); };
-  const available = search.data?.state === 'READY' || (search.data?.state === 'ERROR' && items.length > 0);
   return <section className="overseas-market" aria-label={market === 'HK' ? '港股只读行情' : '美股只读行情'}>
     <p className="overseas-readonly">{tradingEnabled?'行情不会自动修改持仓，请同步实际发生的交易。':'只读行情，暂不计入家庭资产'}</p>
-    <div className="stock-explorer"><div className="stock-picker" id={pickerId} style={{ position: 'relative' }}>
+    <div className="stock-explorer"><div className="stock-picker" id={pickerId} style={{ position: 'relative' }} {...compositionProps}>
       <span className="stock-picker__label" id={`${id}-label`}>证券</span>
       <Select ref={dropdown.selectRef} className="stock-picker__select" aria-labelledby={`${id}-label`} filter remote onChangeWithObject inputProps={{ maxLength: 80 }}
-        style={{ width: '100%' }} disabled={!available} loading={waiting} placeholder="搜索股票代码或官方名称"
+        style={{ width: '100%' }} disabled={busy} loading={waiting} placeholder="搜索股票代码或官方名称"
         value={selected ? { value: selected.symbol, label: `${selected.symbol} · ${selected.name}`, instrument: selected } : undefined}
         optionList={items.map(item => ({ value: item.symbol, instrument: item, label: <StockLabel name={item.name} code={item.symbol} exchange={item.exchange} accessibleLabel={`${item.symbol} · ${item.name}`}/> }))}
-        onSearch={setQuery} onSelect={(_value, option) => { const instrument = option.instrument as OverseasInstrument; if (isOverseasInstrument(instrument, market)) setSelected(instrument); }}
+        onSearch={setQuery} onSelect={(_value, option) => { if(composing)return;const instrument = option.instrument as OverseasInstrument; if (isOverseasInstrument(instrument, market)) setSelected(instrument); }}
         getPopupContainer={() => document.getElementById(pickerId)!} onDropdownVisibleChange={dropdown.setMenuOpen} rePosKey={dropdown.controlWidth}
         dropdownClassName="stock-picker-dropdown" dropdownMatchSelectWidth dropdownStyle={{ width: dropdown.controlWidth || '100%', minWidth: 0, boxSizing: 'border-box' }}
         renderSelectedItem={(option: OptionProps) => { const item = option.instrument as OverseasInstrument | undefined; return item ? `${item.name} · ${item.symbol}` : option.label; }}

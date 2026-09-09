@@ -132,6 +132,7 @@ def build_hk_directory(english_rows, chinese_rows=None, min_items=1000):
         by_symbol[symbol] = {
             "symbol": symbol,
             "name": chinese_names.get(symbol, english_name),
+            "search_names": list(dict.fromkeys([english_name, chinese_names.get(symbol, english_name)])),
             "market": "HK",
             "currency": currency,
             "exchange": "HKEX",
