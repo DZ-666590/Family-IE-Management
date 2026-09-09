@@ -26,3 +26,8 @@ Tech Stack: Java 17 / Spring Boot 4.1.1 / React / Apache HttpClient 5 (Boot 管�
 4. JDK HttpClient：零依赖，但公开 API 不提供逐连接 DNS resolver，此次不选。
 
 参考 SSRF allowlist / DNS / redirects：https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
+
+
+## 2026-09-09 已批准变更
+
+用户选择服务器统一阿里云百炼 qwen3.8-max，并要求完成后指导服务器填写 Key。实施：只读系统状态页；旧个人写接口405；环境配置与官方域名限制；图片内联调用、截断检测；个人/全局调用次数限制；单元/MockMVC/前端回归；独立 ai.env + systemd drop-in 操作指南。旧表及迁移保留，不删除数据。此次不扩展贷款上传/解析业务，不合并/推送/部署。

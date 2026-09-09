@@ -31,6 +31,8 @@ app:
     enabled: true
 
   ai:
+    api-key: ${DASHSCOPE_API_KEY:}
+    base-url: ${APP_AI_BASE_URL:}
     encryption-key: ${APP_AI_ENCRYPTION_KEY:}
     allowed-hosts: ${APP_AI_ALLOWED_HOSTS:}
 

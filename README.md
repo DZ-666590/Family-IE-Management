@@ -135,9 +135,9 @@ MySQL 的备份、恢复和迁移失败处理由服务器运维流程负责；�
 - `frontend`：React、TypeScript、Vite、Semi Design 与 TanStack Query 工作区。
 - `target/classes/static`：Maven 生命周期生成并打包的 React 哈希静态资源，不在源码目录手工维护。
 
-### 个人 AI 配置
+### 系统 AI 服务
 
-个人中心的账号设置支持本人隔离的 OpenAI 兼容 API 地址、模型和加密密钥。保存不联网，连接测试须逐次确认且只请求模型目录。HTTP 页面或服务器未配置加密密钥时，AI 配置明确不可用。启用条件、接口、统一 Java 调用边界和暂定 V26 迁移协调见 [个人 AI 配置说明](docs/architecture/personal-ai-settings.md)。
+账号设置展示服务器统一提供的阿里云百炼 `qwen3.8-max`，所有登录用户共用，个人不再输入 API 密钥。服务器配置与密钥填写步骤见 [服务器 AI 配置教程](docs/operations/system-ai-setup.md)。统一 Java 接口支持文字与受限图片输入，但贷款文档上传/解析业务尚未接入；详情见 [AI 调用边界](docs/architecture/personal-ai-settings.md)。
 
 ## API 概览
 
