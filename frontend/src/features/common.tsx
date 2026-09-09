@@ -102,13 +102,27 @@ export function Drawer({ open, title, description, onClose, children, draft, bus
   </div><ConfirmDialog open={confirming} title="放弃未保存的修改？" detail="关闭后，本次尚未保存的输入将被清除。" cancelLabel="继续编辑" confirmLabel="放弃修改" onClose={() => setConfirming(false)} onConfirm={() => { setConfirming(false); onClose(); }} /></>, document.body);
 }
 
-export function ConfirmDialog({ open, title, detail, confirmLabel = '确认', cancelLabel = '取消', confirmDisabled = false, danger, onConfirm, onClose, loading = false }: { open: boolean; title: string; detail: ReactNode; confirmLabel?: string; cancelLabel?: string; confirmDisabled?: boolean; danger?: boolean; onConfirm: () => void; onClose: () => void; loading?: boolean }) {
+export function ConfirmDialog({ open, title, detail, banner, confirmLabel = '确认', cancelLabel = '取消', confirmDisabled = false, danger, onConfirm, onClose, loading = false, className = '' }: { open: boolean; title: string; detail: ReactNode; banner?: ReactNode; confirmLabel?: string; cancelLabel?: string; confirmDisabled?: boolean; danger?: boolean; onConfirm: () => void; onClose: () => void; loading?: boolean; className?: string }) {
   const {id,ref} = useModal(open,onClose);
   if (!open) return null;
   return createPortal(<div className="sheet-backdrop dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}>
-    <section ref={ref} tabIndex={-1} className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby={id}>
-      <div className="confirmation-symbol"><CircleAlert size={24} aria-hidden="true"/></div><h2 id={id}>{title}</h2><div className="confirm-detail">{detail}</div>
+    <section ref={ref} tabIndex={-1} className={`confirm-dialog ${className}`.trim()} role="dialog" aria-modal="true" aria-labelledby={id}>
+      {banner}<div className="confirmation-symbol"><CircleAlert size={24} aria-hidden="true"/></div><h2 id={id}>{title}</h2><div className="confirm-detail">{detail}</div>
       <footer><Button onClick={onClose}>{cancelLabel}</Button><Button theme="solid" loading={loading} disabled={confirmDisabled} type={danger ? 'danger' : 'primary'} onClick={onConfirm}>{confirmLabel}</Button></footer>
+    </section>
+  </div>, document.body);
+}
+
+export function ModalDialog({ open, title, description, onClose, children, footer, className = '' }: {
+  open: boolean; title: string; description?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; className?: string;
+}) {
+  const { id, ref } = useModal(open, onClose);
+  if (!open) return null;
+  return createPortal(<div className="sheet-backdrop dialog-backdrop" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <section ref={ref} tabIndex={-1} className={`confirm-dialog content-dialog ${className}`.trim()} role="dialog" aria-modal="true" aria-labelledby={id}>
+      <header className="content-dialog-header"><div><h2 id={id}>{title}</h2>{description && <p>{description}</p>}</div><button type="button" className="icon-button" aria-label="关闭" onClick={onClose}><X size={19} aria-hidden="true" /></button></header>
+      <div className="content-dialog-body">{children}</div>
+      {footer && <footer>{footer}</footer>}
     </section>
   </div>, document.body);
 }
